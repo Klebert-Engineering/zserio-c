@@ -88,6 +88,7 @@ Legend:
 | `service` types                           | Deferred | RPC layer; orthogonal to codec. Out of automotive ECU primary need.      |
 | `pubsub` types                            | Deferred | Same reasoning as services.                                              |
 | `sql_table`, `sql_database`, `sql_*`      | Deferred | SQLite is not a typical automotive ECU concern; pulls in heavy dependency. |
+| **JSON I/O (encode/decode to/from JSON text)** | **Deferred** | **Inspection / debug-data tool, not an ASIL-B serialization need. Reintroduces in Phase 5+.** |
 | Reflection / `ITypeInfo` / `IReflectable` | Out      | Forbidden by REQ-FS-008.                                                 |
 | Walk / validation tooling                 | Out      | Depends on reflection; not needed for the codec proper.                  |
 | Debug-string utilities                    | Out      | Depend on reflection.                                                    |
@@ -125,44 +126,17 @@ generated code) is cheap.
 schema migration. Other annotations (formatting hints, tool-specific
 markers) we add when concrete consumers ask.
 
-## 3. JSON I/O — keep, but resolve the reflection tension
+## 3. JSON I/O — deferred (decided 2026-05-07)
 
-You chose to keep JSON I/O in v1 scope. That decision conflicts with
-REQ-FS-008 (no runtime reflection). Upstream's JSON encode/decode walks
-generated types via `IReflectable`, which is exactly what we forbid.
+JSON I/O is not in v1 scope. It is an inspection / debug-data tool, not
+something that belongs on the ASIL-B serialization path. Removing it
+also dissolves the conflict it would have created with REQ-FS-008
+(no runtime reflection).
 
-**Resolution proposed for v1**: emit JSON encode/decode as **per-type
-generated C functions**, not as a runtime walker.
-
-For each generated zserio type `Foo`, the generator additionally emits:
-
-```c
-zserio_status_t foo_to_json(const foo_t *self, zserio_json_writer_t *w);
-zserio_status_t foo_from_json(foo_t *out, zserio_json_reader_t *r,
-                              const zserio_allocator_t *alloc);
-```
-
-Implementation walks the schema fields directly in the emitted code —
-no `ITypeInfo` table, no string compares against runtime member names.
-Field name strings are local string literals inside each per-type
-function and compile out when JSON is not used.
-
-**Build-target separation.** JSON support is opt-in at the generator
-level (`--with-json`) and at the CMake target level
-(`ZSERIO_C_BUILD_JSON=OFF` by default). Safety builds compile without
-it; the generated `.c` files conditional-compile the JSON helpers
-behind `#if ZSERIO_HAS_JSON`. This keeps the safety case argument
-simple ("the safety build does not contain JSON code") without
-requiring two separate generator runs.
-
-**Cost.** Generator templates roughly double in scope (one extra
-per-type function family). Wire-format encode/decode is unaffected.
-
-**Open question for you:** is this resolution acceptable, or do you
-want JSON pulled out of v1 scope after all? It is the highest-effort
-piece of v1 by a clear margin; cutting it is a defensible pragmatic
-move and we can re-add it in Phase 5+ once the binary codec is mature.
-See `## 6. Open questions` below.
+When (if) JSON is reintroduced in Phase 5+, the path forward is **per-type
+generated encoders / decoders**, not a runtime type walker — that is the
+only design compatible with REQ-FS-008. Recording it here so the future
+work item starts with the right design.
 
 ## 4. v1 conformance target — mapping to upstream test categories
 
@@ -234,32 +208,187 @@ public headers we write in Phase 1:
   or generic free.
 - Arrays are runtime-supported via thin templates: a `zserio_array_*`
   family generated per element type. No type erasure.
-- JSON emission lives in a separate, optional family of runtime
-  functions (`zserio_json_writer_*`, `zserio_json_reader_*`) callable
-  only by the per-type JSON helpers the generator emits.
 - Optional fields are handled by per-type code (a `_present` flag);
   no runtime "optional holder" type is needed.
+- **`extend` fields**: per-type generated code mirrors upstream's
+  algorithm (see §6.3 for details). The runtime exposes
+  `zserio_bitstream_remaining_aligned_to_byte(bs) > 0` as the
+  end-of-stream probe used by extend-field decode.
+- **`extern` and `bytes`**: the runtime exposes both an O(1) borrowed
+  view (`zserio_bit_view_t {const uint8_t *base; size_t bit_offset;
+  size_t bit_length}` for `extern`; `zserio_bytes_view_t` for `bytes`)
+  and a materializing read that goes through the allocator. See §6.4.
 
-## 6. Open questions
+## 6. Resolutions (closed 2026-05-07)
 
-1. **JSON in v1 — keep or cut?** §3 above. Reaffirm or revise.
-2. **`extern` and `bytes` interaction with the allocator.** Both are
-   variable-length blob-like types. The generated owning struct must
-   hold a pointer + length, and the decode path must allocate the
-   buffer through the allocator vtable. Encode path takes a borrow.
-   Is this the right ownership model, or do we want a "borrowed view"
-   variant for zero-copy decode of `bytes` from a long-lived buffer?
-3. **Implicit arrays — reject or accept?** Their decode requires an
-   explicit per-call buffer bound from the caller. Accepting them is
-   the path forward; just confirming this is the call.
-4. **Packed arrays — full delta-context support?** Upstream supports
-   nested `DeltaContext` machinery for packed compound arrays. v1 either
-   matches that surface or supports only flat-element packing. Recommend
-   matching upstream — anything less is a wire-compat hole (REQ-FN-001).
-5. **`extend` field migration semantics.** When decoding an old payload
-   with a new schema, missing `extend` fields take their default-zero
-   value. Confirm that's the behavior we want for v1, or whether we
-   prefer surfacing a status code that the field was absent.
+### 6.1 JSON in v1 — **CUT**
+
+Out of v1, deferred to Phase 5+. See §3.
+
+### 6.2 Implicit arrays — **ACCEPT, with caller-supplied bound**
+
+Confirmed in v1. Decode requires the caller to pass an upper bound
+(REQ-FS-005); the runtime stops at min(buffer remaining, caller bound).
+Generator emits implicit arrays as auto-sized arrays with a
+`max_count` parameter on the read function.
+
+### 6.3 `extend` — **FULL SUPPORT, port upstream's algorithm**
+
+How upstream C++ does it (read from
+`compiler/extensions/cpp/freemarker/Structure.cpp.ftl`):
+
+1. Each extend field is **byte-aligned** (`align(8)`) on the wire,
+   before its own bits begin.
+2. The struct carries a single `m_numExtendedFields` counter (per
+   instance) recording how many extends are present.
+3. **Decode** of each extend field is a guarded read:
+
+   ```cpp
+   if (alignTo(8, in.getBitPosition()) >= in.getBufferBitSize()) {
+       /* stream exhausted -> extend absent, take default */
+       return default_value;
+   }
+   ++m_numExtendedFields;
+   in.alignTo(8);
+   /* ... read field normally ... */
+   ```
+
+4. Per-field `isXxxPresent()` accessor returns
+   `m_numExtendedFields > <field's index in extend list>`.
+5. **Encode** writes all extend fields unconditionally (the encoder
+   always produces the latest version of the schema).
+6. **Setter** of any extend field "promotes" the struct to
+   "all extends present" by setting the counter to total count.
+
+What we adopt for C, unchanged in spirit:
+
+```c
+typedef struct foo {
+    /* original fields */
+    uint32_t main_field;
+    /* extend fields */
+    uint32_t new_field;       /* default zero if not present */
+    uint8_t  ext_count;       /* number of extends present */
+} foo_t;
+
+static inline bool foo_is_new_field_present(const foo_t *self) {
+    return self->ext_count > 0;
+}
+```
+
+Read function (sketch):
+
+```c
+zserio_status_t foo_read(foo_t *out, zserio_bitstream_t *bs, ...) {
+    /* main fields */
+    ZSERIO_TRY(zserio_read_uint32(bs, &out->main_field));
+    /* extend new_field */
+    if (zserio_bitstream_aligned_eof(bs)) {
+        out->new_field = 0;        /* default; ext_count stays 0 */
+    } else {
+        ZSERIO_TRY(zserio_bitstream_align_to(bs, 8));
+        ZSERIO_TRY(zserio_read_uint32(bs, &out->new_field));
+        out->ext_count = 1;
+    }
+    return ZSERIO_OK;
+}
+```
+
+**Absent semantics** ("field absent is also ok" — your call): the
+field takes the schema's default (or zero if no default). The caller
+can interrogate `_is_present()` if they care to distinguish the two.
+This matches upstream behavior exactly, which preserves wire-compat
+(REQ-FN-001) and is sufficient for ASIL-B use. No new requirement
+needed; the implementation will be tested under REQ-FN-001 conformance.
+
+**Open follow-up (not blocking)**: lossless re-encode. Upstream's
+encoder always writes all extends, so decoding a v1 payload with a v2
+schema and re-encoding produces a v2-style payload with zero-default
+extends — strictly larger than the original, and not byte-identical.
+A future "re-encode preserves original extend count" mode is possible
+but adds API complexity. Parking this for Phase 1 review when we
+design the encoder API.
+
+### 6.4 `extern` (and `bytes`) — **DUAL API: borrowed view + materialize**
+
+Wire format (from `doc/ZserioEncodingGuide.md`):
+- `extern` = `varsize bit_length` followed by `bit_length` raw bits
+  at the **current bit position** (NOT byte-aligned).
+- `bytes`  = `varsize byte_length` followed by `byte_length` bytes
+  at the **current bit position**.
+
+Upstream `BasicBitBuffer<ALLOC>` always materializes — allocates
+`ceil(bit_length / 8)` bytes via the allocator, then bit-shifts every
+byte if the source is misaligned. That is acceptable behavior but it
+is not "in one go" — and for ASIL builds it forces an allocator call
+on every extern read.
+
+We do better. The runtime exposes **two** read families:
+
+**(a) Borrowed view — O(1), no copy, no allocator**
+
+```c
+typedef struct {
+    const uint8_t *base;     /* points into the source bitstream buffer */
+    size_t         bit_offset;   /* 0..7, offset within first byte */
+    size_t         bit_length;
+} zserio_bit_view_t;
+
+typedef struct {
+    const uint8_t *base;
+    size_t         length;        /* bytes, since 'bytes' is byte-aligned content */
+} zserio_bytes_view_t;
+
+zserio_status_t zserio_read_extern_view(zserio_bitstream_t *bs,
+                                        zserio_bit_view_t *out);
+zserio_status_t zserio_read_bytes_view(zserio_bitstream_t *bs,
+                                       zserio_bytes_view_t *out);
+```
+
+The view references the source buffer; the caller must keep the source
+buffer alive for the view's lifetime. This is the "parse in one go"
+path: O(1), no shift, no allocator, no copy.
+
+**(b) Materializing read — copies into a caller-allocated or
+allocator-allocated buffer**
+
+```c
+zserio_status_t zserio_read_extern_into(zserio_bitstream_t *bs,
+                                        const zserio_allocator_t *alloc,
+                                        zserio_bit_view_t *out_owned);
+zserio_status_t zserio_read_bytes_into(zserio_bitstream_t *bs,
+                                       const zserio_allocator_t *alloc,
+                                       zserio_bytes_view_t *out_owned);
+```
+
+The materializer detects alignment and uses memcpy on the hot path:
+- **Byte-aligned `bytes`**: pure `memcpy`. The fast case.
+- **Bit-misaligned `extern`** with byte-multiple length: single
+  bit-shift pass, no per-bit branching (barrel-shift loop body).
+- **Bit-misaligned `extern`** with non-byte-multiple length: same as
+  above plus a final byte mask.
+
+Generator: by default, decode of `extern`/`bytes` fields populates
+an *owned* view via the materializing API — safest and matches the
+caller's allocator policy. An opt-in per-field generator annotation
+(or a generator command-line flag) selects the borrowed-view variant
+for fields where zero-copy is desirable and the lifetime constraint is
+acceptable.
+
+This addresses your specific question — yes, we can parse externs
+"in one go": the borrowed-view path always does, and the materialize
+path does too on the byte-aligned fast case (which we should encourage
+schemas to use via `align(8)` in front of `extern` fields).
+
+**No new requirement needed** for either API; both are runtime affordances
+governed by REQ-FS-001 (allocator) and REQ-FS-006 (input validation).
+
+### 6.5 Packed arrays — **FULL SUPPORT**
+
+Confirmed: match upstream's full nested `DeltaContext` machinery for
+packed compound arrays. Anything less is a wire-compat hole under
+REQ-FN-001. Implementation detail belongs in `02-wire-format.md` and
+the runtime `zserio_delta_context_*` family.
 
 ## 7. Acceptance criteria for the v1 schema scope
 
@@ -267,9 +396,9 @@ This document is *accepted* (and locks the construct list above) when:
 - [x] All 36 upstream test categories enumerated and classified (§4).
 - [x] Every "In v1" construct has at least one upstream test category
       mapped to it in §4.
-- [ ] Every open question in §6 has a recorded resolution (either here
-      or in a follow-up document).
+- [x] Every open question in §6 has a recorded resolution.
 
-Until those three boxes are checked, treat this document as a
-**proposed** scope set. Phase 1 work (runtime primitives) does not depend
-on closure of the open questions, so it can begin in parallel.
+**All three boxes checked as of 2026-05-07. The v1 schema scope is
+locked.** Phase 1 (runtime primitives) and Phase 2 (generator extension)
+can proceed against this scope without re-opening it. Future scope
+changes go through a new document that supersedes this one.
