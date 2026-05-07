@@ -1,0 +1,30 @@
+# clang-tidy configuration for zserio-c.
+#
+# We enable the check families that overlap with MISRA C:2012 and CERT C
+# the most. clang-tidy alone does not give MISRA conformance — that role
+# is filled by cppcheck --addon=misra in CI and (later) a commercial tool.
+# This file is the fast feedback loop for developers.
+
+Checks: >
+  bugprone-*,
+  cert-*,
+  clang-analyzer-*,
+  misc-*,
+  performance-*,
+  portability-*,
+  readability-*,
+  -readability-identifier-length,
+  -readability-magic-numbers,
+  -bugprone-easily-swappable-parameters
+
+WarningsAsErrors: '*'
+HeaderFilterRegex: '^(runtime|tests)/.*'
+FormatStyle: file
+
+CheckOptions:
+  - key: readability-function-cognitive-complexity.Threshold
+    value: '25'
+  - key: readability-function-size.LineThreshold
+    value: '80'
+  - key: readability-function-size.StatementThreshold
+    value: '50'
