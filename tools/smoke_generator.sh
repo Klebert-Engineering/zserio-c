@@ -64,6 +64,8 @@ EXPECTED=(
     "${OUTPUT_DIR}/hello/variant.c"
     "${OUTPUT_DIR}/hello/container.h"
     "${OUTPUT_DIR}/hello/container.c"
+    "${OUTPUT_DIR}/hello/profile.h"
+    "${OUTPUT_DIR}/hello/profile.c"
 )
 for f in "${EXPECTED[@]}"; do
     if [[ ! -f "${f}" ]]; then

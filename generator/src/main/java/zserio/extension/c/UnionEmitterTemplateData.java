@@ -51,6 +51,12 @@ public final class UnionEmitterTemplateData
         int index = 0;
         for (final Field f : unionType.getFields())
         {
+            if (f.isOptional())
+            {
+                throw new ZserioExtensionException(
+                        "zserio-c: union '" + zserioName + "' has optional case '"
+                                + f.getName() + "'; not supported in v1");
+            }
             // Each case lives inside an anonymous member union named
             // `u`, so the field statements use `self->u.<name>`.
             final FieldFormatter.FieldData field = FieldFormatter.format(f, "self->u.");

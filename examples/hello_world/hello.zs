@@ -55,6 +55,14 @@ struct Container
     Variant(tag) variant;
 };
 
+struct Profile
+{
+    string             name;
+    optional uint8     age;
+    optional string    nickname;
+    optional Address   work_address;
+};
+
 struct Hello
 {
     uint8       age;

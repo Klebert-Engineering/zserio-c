@@ -59,6 +59,24 @@ public final class FieldFormatter
      */
     public static FieldData format(Field field, String holderExpr) throws ZserioExtensionException
     {
+        if (field.isOptional() && field.getOptionalClauseExpr() != null)
+        {
+            throw new ZserioExtensionException(
+                    "zserio-c: field '" + field.getName()
+                            + "' has an `optional ... if` clause; only auto-optionals are supported in v1");
+        }
+
+        final FieldData base = formatBase(field, holderExpr);
+        if (field.isOptional())
+        {
+            return wrapAutoOptional(base, holderExpr);
+        }
+        return base;
+    }
+
+    /** The non-optional core lowering. */
+    private static FieldData formatBase(Field field, String holderExpr) throws ZserioExtensionException
+    {
         final String name = CIdentifierFormatter.toLowerSnake(field.getName());
         final TypeInstantiation typeInst = field.getTypeInstantiation();
         final TypeReference ref = typeInst.getTypeReference();
@@ -117,6 +135,48 @@ public final class FieldFormatter
                 "zserio-c: struct field '" + field.getName() + "': "
                         + under.getClass().getSimpleName()
                         + " is not yet supported as a field type");
+    }
+
+    /**
+     * Wrap a non-optional {@link FieldData} so that read / write are
+     * gated by a 1-bit presence flag and free runs only when present.
+     * Adds a {@code bool <name>_present;} sibling member so callers
+     * can query whether the field is set.
+     */
+    private static FieldData wrapAutoOptional(FieldData inner, String h)
+    {
+        final String present = h + inner.name + "_present";
+        final String read =
+                "{\n"
+                + "        uint64_t " + inner.name + "_presence = 0u;\n"
+                + "        ZSERIO_TRY(zserio_bitstream_read_bits(bs, 1, &" + inner.name + "_presence));\n"
+                + "        " + present + " = (" + inner.name + "_presence != 0u);\n"
+                + "        if (" + present + ") {\n"
+                + "            " + inner.readStmt + "\n"
+                + "        }\n"
+                + "    }";
+        final String write =
+                "if (" + present + ") {\n"
+                + "        ZSERIO_TRY(zserio_bitstream_write_bits(bs, 1, 1u));\n"
+                + "        " + inner.writeStmt + "\n"
+                + "    } else {\n"
+                + "        ZSERIO_TRY(zserio_bitstream_write_bits(bs, 1, 0u));\n"
+                + "    }";
+        // Free: only worth gating the inner free if it actually frees
+        // anything. For primitive optional fields the inner free is
+        // empty, so the outer free degrades to no-op too.
+        final String free = inner.freeStmt.isEmpty() ? ""
+                : "if (" + present + ") {\n"
+                + "        " + inner.freeStmt + "\n"
+                + "    }";
+        // Owned for the outer field is owned-of-inner: a primitive
+        // optional doesn't need allocator threading even though it
+        // has a presence read.
+        return new FieldData(
+                inner.name, inner.nativeType,
+                read, write, free,
+                inner.owned, inner.extraInclude,
+                "bool " + inner.name + "_present;");
     }
 
     /* -------- read/write/free shapes per category -------- */
@@ -352,9 +412,16 @@ public final class FieldFormatter
         private final String freeStmt;
         private final boolean owned;
         private final String extraInclude;
+        private final String presenceMember;
 
         FieldData(String name, String nativeType, String readStmt, String writeStmt,
                 String freeStmt, boolean owned, String extraInclude)
+        {
+            this(name, nativeType, readStmt, writeStmt, freeStmt, owned, extraInclude, "");
+        }
+
+        FieldData(String name, String nativeType, String readStmt, String writeStmt,
+                String freeStmt, boolean owned, String extraInclude, String presenceMember)
         {
             this.name = name;
             this.nativeType = nativeType;
@@ -363,15 +430,17 @@ public final class FieldFormatter
             this.freeStmt = freeStmt;
             this.owned = owned;
             this.extraInclude = extraInclude;
+            this.presenceMember = presenceMember;
         }
 
-        public String  getName()         { return name; }
-        public String  getNativeType()   { return nativeType; }
-        public String  getReadStmt()     { return readStmt; }
-        public String  getWriteStmt()    { return writeStmt; }
-        public String  getFreeStmt()     { return freeStmt; }
-        public boolean getOwned()        { return owned; }
-        public String  getExtraInclude() { return extraInclude; }
+        public String  getName()           { return name; }
+        public String  getNativeType()     { return nativeType; }
+        public String  getReadStmt()       { return readStmt; }
+        public String  getWriteStmt()      { return writeStmt; }
+        public String  getFreeStmt()       { return freeStmt; }
+        public boolean getOwned()          { return owned; }
+        public String  getExtraInclude()   { return extraInclude; }
+        public String  getPresenceMember() { return presenceMember; }
     }
 
     /** Pair of C type + the header providing it (or {@code null} for built-ins). */

@@ -12,6 +12,7 @@ import java.util.List;
 import zserio.ast.ChoiceCase;
 import zserio.ast.ChoiceCaseExpression;
 import zserio.ast.ChoiceType;
+import zserio.ast.Field;
 import zserio.ast.PackageName;
 import zserio.extension.common.ZserioExtensionException;
 
@@ -76,7 +77,14 @@ public final class ChoiceEmitterTemplateData
             FieldFormatter.FieldData fd = null;
             if (c.getField() != null)
             {
-                fd = FieldFormatter.format(c.getField(), "self->u.");
+                final Field caseField = c.getField();
+                if (caseField.isOptional())
+                {
+                    throw new ZserioExtensionException(
+                            "zserio-c: choice '" + zserioName + "' has optional case field '"
+                                    + caseField.getName() + "'; not supported in v1");
+                }
+                fd = FieldFormatter.format(caseField, "self->u.");
                 if (fd.getExtraInclude() != null)
                 {
                     includes.add(fd.getExtraInclude());
