@@ -304,7 +304,7 @@ static zserio_status_t write_varint_impl(zserio_bitstream_writer_t *bs,
     if (bytes_needed == 1U) {
         total_value_bits = 6U;
     } else {
-        total_value_bits = (uint8_t)(6U + 7U * (bytes_needed - 2U) + last_byte_bits);
+        total_value_bits = (uint8_t)(6U + (7U * (bytes_needed - 2U)) + last_byte_bits);
     }
 
     uint8_t bits_used = 0U;

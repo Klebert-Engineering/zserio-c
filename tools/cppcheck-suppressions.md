@@ -3,8 +3,8 @@
 `tools/cppcheck-suppressions.txt` is consumed by `cppcheck
 --suppressions-list`. The format the tool accepts is **one ID per
 line, no comments, no blank lines**, optionally followed by
-`:file:line`. This document is the human-readable companion that
-records why each entry exists.
+`:file[:line]`. This document is the human-readable companion
+recording why each entry exists.
 
 ## Format
 
@@ -19,10 +19,30 @@ and the suppression entry MUST cite each other.
 
 ## Current entries
 
-| Suppression           | Why                                                                 |
-|-----------------------|---------------------------------------------------------------------|
-| `unusedFunction`      | The runtime is a library; its public symbols are called by callers outside our tree. cppcheck cannot see those callers and would otherwise flag every public function. |
-| `missingIncludeSystem` | cppcheck warns when `<stddef.h>`, `<stdint.h>`, etc. can't be resolved on its include path. They're always present on supported toolchains; the warning is informational. |
+### Library-mode false positives
 
-(MISRA-rule entries land here as the deviation review process
-produces them.)
+| Suppression                | Why                                                                 |
+|----------------------------|---------------------------------------------------------------------|
+| `unusedFunction`           | The runtime is a library; its public symbols are called from outside our tree. cppcheck cannot see those callers. |
+| `missingIncludeSystem`     | cppcheck warns when `<stddef.h>`, `<stdint.h>` etc. cannot be resolved on its include path. They are always present on supported toolchains. |
+| `misra-c2012-8.7`          | "Functions and objects should not be defined with external linkage if they are referenced in only one translation unit." cppcheck library-mode is blind to external callers; every public runtime function gets flagged. |
+| `misra-c2012-8.9`          | "An object should be defined at block scope if its identifier only appears in a single function." Triggered by file-scope `static const` lookup tables (varint max-value tables, allocator vtable) used cross-function within their TU; cppcheck doesn't follow the use chain. |
+
+### Documented deviations (each has a deviation doc)
+
+| Suppression                          | Scope                          | Deviation doc |
+|--------------------------------------|--------------------------------|----------------|
+| `misra-c2012-15.5`                   | project-wide (early returns)   | [D001](../docs/misra-deviations/D001-rule-15.5-multiple-returns.md) |
+| `misra-c2012-21.3:runtime/src/allocator.c`  | libc-backed allocator wrapper  | [D002](../docs/misra-deviations/D002-rule-21.3-allocator-libc.md) |
+| `misra-c2012-21.15:runtime/src/float.c`     | IEEE 754 bit-pattern memcpy    | [D003](../docs/misra-deviations/D003-rule-21.15-memcpy-float-bits.md) |
+| `misra-c2012-11.5:runtime/src/string.c` (+bytes.c, extern.c) | allocator `void *` cast  | [D004](../docs/misra-deviations/D004-rule-11.5-allocator-void-cast.md) |
+| `misra-c2012-18.4:runtime/src/bitstream.c` (+ string.c, bytes.c, extern.c) | byte-offset pointer arithmetic on the bitstream buffer | [D005](../docs/misra-deviations/D005-rule-18.4-buffer-pointer-arithmetic.md) |
+
+### Style / arithmetic categorical accepts
+
+| Suppression          | Why                                                                  |
+|----------------------|----------------------------------------------------------------------|
+| `misra-c2012-7.2`    | Triggered by `INT64_MIN`, which is a signed integer constant by definition; a `U` suffix would be wrong. False positive on cppcheck's default rule check. |
+| `misra-c2012-10.4`   | The signed-aware `abs_delta` comparison in `delta.c` is intentionally polymorphic between signed and unsigned interpretation; the rule's "same essential type category" demand cannot be honoured here without duplicating the function. |
+| `misra-c2012-10.7`   | Routine bit-shift arithmetic where the shift amount is necessarily narrower than the value being shifted. Each affected site has explicit casts that document intent. Code-review checked. |
+| `misra-c2012-10.8`   | One site in `float.c` casting `((int32_t)1 - signed_exponent16)` to `uint32_t`. Value is non-negative by branch analysis; cast is well-defined for the input domain. Code-review checked. |

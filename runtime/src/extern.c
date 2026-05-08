@@ -103,7 +103,7 @@ zserio_status_t zserio_read_extern(zserio_bitstream_reader_t *bs,
 
     /* Partial trailing byte, if any. The trailing bits are MSB-aligned
      * within the last byte; the unused low bits stay zero. */
-    const size_t trailing_bits = (size_t)bit_length - full_bytes * 8U;
+    const size_t trailing_bits = (size_t)bit_length - (full_bytes * 8U);
     if (trailing_bits > 0U) {
         uint64_t b = 0U;
         const zserio_status_t st = zserio_bitstream_read_bits(bs, (uint8_t)trailing_bits, &b);

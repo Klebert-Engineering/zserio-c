@@ -155,7 +155,7 @@ uint16_t zserio_float_to_u16(float v)
             } else {
                 /* Build a subnormal float16. */
                 const uint32_t full_significand32 = significand32 | (FLOAT32_SIGNIFICAND_MASK + 1U);
-                const uint32_t significand_shift = (uint32_t)(1 - signed_exponent16);
+                const uint32_t significand_shift = (uint32_t)((int32_t)1 - signed_exponent16);
                 const uint32_t shift_amount =
                         FLOAT32_SIGNIFICAND_NUM_BITS - FLOAT16_SIGNIFICAND_NUM_BITS + significand_shift;
                 significand16 = (uint16_t)(full_significand32 >> shift_amount);

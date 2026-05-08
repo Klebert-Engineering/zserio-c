@@ -9,11 +9,11 @@
 #
 # Verifies: REQ-FS-001
 # Verifies: REQ-FS-002
+# Verifies: REQ-FS-003
 #
-# (REQ-FS-003 (no recursion) is enforced by cppcheck's misra Rule 17.2
-#  but not yet promoted to a gate while the script runs in non-strict
-#  mode. The Verifies marker for REQ-FS-003 will be added when the
-#  script is switched to --strict.)
+# REQ-FS-003 (no recursion) is enforced by cppcheck's misra Rule 17.2,
+# which fires under --strict mode now that all categorical findings
+# have been triaged into deviation docs under docs/misra-deviations/.
 
 set -euo pipefail
 

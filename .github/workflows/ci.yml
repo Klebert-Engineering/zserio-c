@@ -60,10 +60,11 @@ jobs:
       - name: Install cppcheck
         run: sudo apt-get update && sudo apt-get install -y cppcheck
       - name: Run MISRA + forbidden-symbols check
-        # Non-strict on first pass: surfaces cppcheck findings but only
-        # fails on the clear-cut forbidden-symbol checks (REQ-FS-001,
-        # REQ-FS-002). Promote to --strict once findings are triaged.
-        run: tools/run_misra.sh
+        # Strict mode: any cppcheck error fails the build. All known
+        # findings are either fixed or covered by an entry in
+        # tools/cppcheck-suppressions.txt with a sibling deviation
+        # document under docs/misra-deviations/.
+        run: tools/run_misra.sh --strict
       - name: Upload cppcheck log
         if: always()
         uses: actions/upload-artifact@v4

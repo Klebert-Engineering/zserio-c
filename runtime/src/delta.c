@@ -34,10 +34,13 @@
 
 static uint8_t abs_delta_bit_length(uint64_t abs_delta)
 {
+    /* Iterate on a local copy so the parameter itself isn't mutated
+     * (MISRA Rule 17.8). */
     uint8_t result = 0U;
-    while (abs_delta > 0U) {
+    uint64_t v = abs_delta;
+    while (v > 0U) {
         result++;
-        abs_delta >>= 1U;
+        v >>= 1U;
     }
     return result;
 }

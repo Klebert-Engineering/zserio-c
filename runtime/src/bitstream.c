@@ -105,9 +105,9 @@ zserio_status_t zserio_bitstream_read_signed(zserio_bitstream_reader_t *bs,
     /* Sign-extend if the MSB of the read bits is set. For num_bits == 64
      * the value already occupies all bits and no extension is needed. */
     if (num_bits < 64U) {
-        const uint64_t sign_bit = (uint64_t)1U << (num_bits - 1U);
+        const uint64_t sign_bit = (uint64_t)1U << (uint64_t)(num_bits - 1U);
         if ((raw & sign_bit) != 0U) {
-            const uint64_t high_mask = ~(((uint64_t)1U << num_bits) - 1U);
+            const uint64_t high_mask = ~(((uint64_t)1U << (uint64_t)num_bits) - 1U);
             raw |= high_mask;
         }
     }
@@ -238,8 +238,8 @@ zserio_status_t zserio_bitstream_write_bits(zserio_bitstream_writer_t *bs,
         const uint8_t take = (bits_remaining < bits_in_byte) ? bits_remaining : bits_in_byte;
         const uint8_t shift = (uint8_t)(bits_in_byte - take);
 
-        const uint64_t source_mask = ((uint64_t)1U << take) - 1U;
-        const uint64_t bits_to_write = (value >> (bits_remaining - take)) & source_mask;
+        const uint64_t source_mask = ((uint64_t)1U << (uint64_t)take) - 1U;
+        const uint64_t bits_to_write = (value >> (uint64_t)(bits_remaining - take)) & source_mask;
         const uint8_t  byte_mask = (uint8_t)(((1U << take) - 1U) << shift);
 
         bs->buffer[byte_idx] = (uint8_t)((bs->buffer[byte_idx] & (uint8_t)~byte_mask)
@@ -267,7 +267,7 @@ zserio_status_t zserio_bitstream_write_signed(zserio_bitstream_writer_t *bs,
     /* Range check: value must fit in [-(2^(N-1)), 2^(N-1) - 1] for num_bits < 64;
      * any int64_t value is in range when num_bits == 64. */
     if (num_bits < 64U) {
-        const int64_t max_val = (int64_t)(((uint64_t)1U << (num_bits - 1U)) - 1U);
+        const int64_t max_val = (int64_t)(((uint64_t)1U << (uint64_t)(num_bits - 1U)) - 1U);
         const int64_t min_val = -max_val - 1;
         if ((value > max_val) || (value < min_val)) {
             return ZSERIO_ERR_VALUE_OUT_OF_RANGE;
