@@ -27,6 +27,7 @@ import zserio.extension.common.ZserioExtensionException;
 public abstract class CDefaultEmitter extends DefaultTreeWalker
 {
     private static final String HEADER_EXTENSION = ".h";
+    private static final String SOURCE_EXTENSION = ".c";
 
     protected final OutputFileManager outputFileManager;
     protected final CExtensionParameters cParameters;
@@ -54,8 +55,21 @@ public abstract class CDefaultEmitter extends DefaultTreeWalker
     protected final void processHeaderTemplate(String templateName, Object templateData,
             PackageName pkg, String entityName) throws ZserioExtensionException
     {
+        processTemplate(templateName, templateData, pkg, entityName, HEADER_EXTENSION);
+    }
+
+    /** Same as {@link #processHeaderTemplate} but for a {@code .c} file. */
+    protected final void processSourceTemplate(String templateName, Object templateData,
+            PackageName pkg, String entityName) throws ZserioExtensionException
+    {
+        processTemplate(templateName, templateData, pkg, entityName, SOURCE_EXTENSION);
+    }
+
+    private void processTemplate(String templateName, Object templateData,
+            PackageName pkg, String entityName, String extension) throws ZserioExtensionException
+    {
         final File outDir = new File(cParameters.getOutputDir(), pkg.toFilesystemPath());
-        final String fileName = CIdentifierFormatter.toLowerSnake(entityName) + HEADER_EXTENSION;
+        final String fileName = CIdentifierFormatter.toLowerSnake(entityName) + extension;
         final File outFile = new File(outDir, fileName);
         FreeMarkerUtil.processTemplate(templateName, templateData, outFile, getClass());
         outputFileManager.registerOutputFile(outFile);

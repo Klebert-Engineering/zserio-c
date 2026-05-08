@@ -76,8 +76,8 @@ public final class CExtension implements Extension
     {
         // Per docs/upstream-analysis/03-plugin-spi.md §4: build the
         // output-file manager, instantiate the per-construct emitters,
-        // and walk the AST once per emitter. The remaining three
-        // (Structure, Choice, Union) join this list as they land.
+        // and walk the AST once per emitter. Choice and Union join
+        // this list as they land.
         final CExtensionParameters cParams = new CExtensionParameters(parameters);
         cParams.ensureOutputDirectoryExists();
 
@@ -88,6 +88,7 @@ public final class CExtension implements Extension
         rootNode.walk(new SubtypeEmitter    (files, cParams, context));
         rootNode.walk(new EnumerationEmitter(files, cParams, context));
         rootNode.walk(new BitmaskEmitter    (files, cParams, context));
+        rootNode.walk(new StructureEmitter  (files, cParams, context));
 
         files.printReport();
     }

@@ -45,8 +45,8 @@ if [[ ! -d "${OUTPUT_DIR}" ]]; then
     exit 1
 fi
 
-# Verify each emitter produced its expected .h file. The list grows
-# as Phase 2 batches add new emitters.
+# Verify each emitter produced its expected output file. The list
+# grows as Phase 2 batches add new emitters.
 EXPECTED=(
     "${OUTPUT_DIR}/hello/max_age.h"
     "${OUTPUT_DIR}/hello/max_name_length.h"
@@ -54,28 +54,53 @@ EXPECTED=(
     "${OUTPUT_DIR}/hello/block_index.h"
     "${OUTPUT_DIR}/hello/color.h"
     "${OUTPUT_DIR}/hello/permission.h"
+    "${OUTPUT_DIR}/hello/hello.h"
+    "${OUTPUT_DIR}/hello/hello.c"
 )
-for h in "${EXPECTED[@]}"; do
-    if [[ ! -f "${h}" ]]; then
-        echo "smoke: expected generated header missing: ${h}" >&2
+for f in "${EXPECTED[@]}"; do
+    if [[ ! -f "${f}" ]]; then
+        echo "smoke: expected generated file missing: ${f}" >&2
         echo "smoke: contents of ${OUTPUT_DIR}:" >&2
         find "${OUTPUT_DIR}" -type f >&2
         exit 1
     fi
 done
 
-# Verify the headers compile cleanly under our top-level warning set.
+# Compile the generated headers (via a stub TU that #includes each)
+# under our top-level warning set. The runtime headers are needed
+# because Structure.h pulls in <zserio/...>.
 echo "smoke: compiling generated headers under -std=c99 -Wall -Wextra -Werror..."
-SMOKE_C="${REPO_ROOT}/build-generator-smoke/include_test.c"
+HEADER_SMOKE_C="${REPO_ROOT}/build-generator-smoke/include_test.c"
 {
-    printf '%s\n' "$(for h in "${EXPECTED[@]}"; do
-        printf '#include "%s"\n' "${h#${OUTPUT_DIR}/}"
-    done)"
+    for h in "${EXPECTED[@]}"; do
+        case "${h}" in
+            *.h) printf '#include "%s"\n' "${h#${OUTPUT_DIR}/}" ;;
+        esac
+    done
     printf 'int main(void) { return 0; }\n'
-} > "${SMOKE_C}"
+} > "${HEADER_SMOKE_C}"
 gcc -std=c99 -Wall -Wextra -Wpedantic -Werror \
     -I"${OUTPUT_DIR}" \
-    "${SMOKE_C}" \
+    -I"${REPO_ROOT}/runtime/include" \
+    "${HEADER_SMOKE_C}" \
     -o "${REPO_ROOT}/build-generator-smoke/include_test"
 
-echo "smoke: zserio-c extension loaded and ran cleanly; generated headers compile."
+# Compile each generated .c to an object file under the same warning
+# set. We don't link — the runtime objects aren't on the path here —
+# but compile-only catches missing includes, wrong types, unused vars,
+# etc. in the bodies the StructureEmitter wrote.
+echo "smoke: compiling generated .c files (compile-only, no link)..."
+for c in "${EXPECTED[@]}"; do
+    case "${c}" in
+        *.c) ;;
+        *) continue ;;
+    esac
+    obj="${REPO_ROOT}/build-generator-smoke/$(basename "${c}").o"
+    gcc -std=c99 -Wall -Wextra -Wpedantic -Werror \
+        -I"${OUTPUT_DIR}" \
+        -I"${REPO_ROOT}/runtime/include" \
+        -c "${c}" \
+        -o "${obj}"
+done
+
+echo "smoke: zserio-c extension loaded and ran cleanly; generated headers + sources compile."
