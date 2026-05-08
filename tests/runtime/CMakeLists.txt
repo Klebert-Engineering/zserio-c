@@ -32,6 +32,8 @@ function(zserio_c_add_runtime_test name)
 endfunction()
 
 zserio_c_add_runtime_test(test_bitstream)
+zserio_c_add_runtime_test(test_bytes)
+zserio_c_add_runtime_test(test_extern)
 zserio_c_add_runtime_test(test_float)
 zserio_c_add_runtime_test(test_primitives)
 zserio_c_add_runtime_test(test_string)

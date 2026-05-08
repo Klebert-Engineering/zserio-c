@@ -35,6 +35,15 @@ Already implemented:
   `zserio_string_t` owned (allocator-injected, handles bit-misalignment
   by byte-by-byte copy). UTF-8 well-formedness NOT validated, matching
   upstream for wire-compat.
+- **`<zserio/extern.h>`** — opaque bit blob. Dual API:
+  `zserio_bit_view_t` (always succeeds — natively expresses
+  bit_offset 0..7) and `zserio_extern_t` owned (materialized at
+  byte 0 bit 0, trailing bits zero). The view path answers the
+  "parse externs in one go" question with O(1).
+- **`<zserio/bytes.h>`** — opaque byte blob. Dual API parallel to
+  string: `zserio_bytes_view_t` (requires byte-aligned source) and
+  `zserio_bytes_t` owned. Note the unit difference vs. extern: bytes
+  counts BYTES, extern counts BITS.
 
 To be added next:
 - `<zserio/string.h>` — UTF-8 string view, owned, read / write

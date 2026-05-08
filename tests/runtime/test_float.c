@@ -4,9 +4,14 @@
  */
 
 /*
+ * Verifies: REQ-FS-004
+ *
  * All comparisons in this file are on integer bit patterns, never on
  * float / double values directly. This avoids the host's NaN-not-equal-
- * NaN behavior and keeps the test suite clean under -Wfloat-equal.
+ * NaN behavior and keeps the test suite clean under -Wfloat-equal —
+ * which is itself the operational test for REQ-FS-004 (no FP in
+ * control flow): if the runtime or its tests had a `float` operand of
+ * `==`, `<`, etc., the build would fail under our top-level warnings.
  * It also tests exactly the property we care about for wire-format
  * compatibility: byte-identical output for byte-identical input.
  */
