@@ -137,6 +137,33 @@ jobs:
             -F body=@/tmp/comment_body.md \
             -H 'Accept: application/vnd.github+json'
 
+  generator:
+    name: Phase 2 generator (build JAR + smoke load)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - name: Init upstream submodule
+        run: git submodule update --init third_party/zserio
+      - name: Install build tools
+        run: sudo apt-get update && sudo apt-get install -y ant
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Cache upstream zserio_core.jar
+        uses: actions/cache@v4
+        with:
+          path: build-jars
+          key: zserio-core-${{ hashFiles('third_party/zserio/compiler/core/**') }}
+      - name: Build upstream zserio_core.jar
+        run: tools/build_zserio_core_jar.sh
+      - name: Build zserio_c.jar
+        run: tools/build_generator_jar.sh
+      - name: Smoke-load via ZserioTool
+        run: tools/smoke_generator.sh
+
   coverage:
     name: Coverage (line / branch / function thresholds)
     runs-on: ubuntu-latest
