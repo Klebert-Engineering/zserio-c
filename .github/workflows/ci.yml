@@ -51,6 +51,8 @@ jobs:
   misra:
     name: MISRA C:2012 (cppcheck) + forbidden-symbols
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # for posting cppcheck output as a commit comment
     steps:
       - uses: actions/checkout@v4
         with:
