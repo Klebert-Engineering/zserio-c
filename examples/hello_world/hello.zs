@@ -65,8 +65,8 @@ struct Profile
 
 struct Telemetry
 {
-    uint8[]            readings;
-    int16[8]           fixed_history;
+    uint8              readings[];
+    int16              fixed_history[8];
     optional uint32    optional_samples[];
 };
 
