@@ -140,6 +140,8 @@ jobs:
   generator:
     name: Phase 2 generator (build JAR + smoke load)
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # for posting build logs as a commit comment
     steps:
       - uses: actions/checkout@v4
         with:
@@ -158,11 +160,38 @@ jobs:
           path: build-jars
           key: zserio-core-${{ hashFiles('third_party/zserio/compiler/core/**') }}
       - name: Build upstream zserio_core.jar
-        run: tools/build_zserio_core_jar.sh
+        shell: bash
+        run: |
+          set -o pipefail
+          tools/build_zserio_core_jar.sh 2>&1 | tee -a /tmp/generator.log
       - name: Build zserio_c.jar
-        run: tools/build_generator_jar.sh
+        shell: bash
+        run: |
+          set -o pipefail
+          tools/build_generator_jar.sh 2>&1 | tee -a /tmp/generator.log
       - name: Smoke-load via ZserioTool
-        run: tools/smoke_generator.sh
+        shell: bash
+        run: |
+          set -o pipefail
+          tools/smoke_generator.sh 2>&1 | tee -a /tmp/generator.log
+      - name: Post build log as commit comment
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -u
+          if [[ ! -f /tmp/generator.log ]]; then
+            echo "(no log captured)" > /tmp/generator.log
+          fi
+          {
+            printf 'generator (Phase 2 skeleton) build log for commit %s:\n\n```\n' "${GITHUB_SHA}"
+            tail -c 50000 /tmp/generator.log
+            printf '\n```\n'
+          } > /tmp/comment_body.md
+          gh api -X POST \
+            "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
+            -F body=@/tmp/comment_body.md \
+            -H 'Accept: application/vnd.github+json'
 
   coverage:
     name: Coverage (line / branch / function thresholds)
