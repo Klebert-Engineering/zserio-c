@@ -95,8 +95,19 @@ public final class CNativeTypeMapper
         }
         if (type instanceof VarIntegerType)
         {
+            // VarIntegerType.maxBitSize is the encoded ceiling (e.g.
+            // varsize → 40, varuint → 72), which doesn't always match
+            // the C storage width. Pick by (maxBitSize, isSigned) so
+            // varsize lands at uint32_t and varuint/varint at *64_t.
             final VarIntegerType vi = (VarIntegerType)type;
-            return integerTypeFor(vi.getMaxBitSize(), vi.isSigned());
+            final int max = vi.getMaxBitSize();
+            final boolean signed = vi.isSigned();
+            if (max == 40) // varsize (always unsigned, fits in 32 bits)
+            {
+                return "uint32_t";
+            }
+            final int width = (max == 72) ? 64 : max;
+            return integerTypeFor(width, signed);
         }
         if (type instanceof FloatType)
         {
