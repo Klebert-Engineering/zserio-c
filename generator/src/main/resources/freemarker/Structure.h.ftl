@@ -10,7 +10,13 @@
 #include <zserio/allocator.h>
 #include <zserio/bitstream.h>
 #include <zserio/status.h>
-#include <zserio/string.h>
+<#list extraIncludes as inc>
+<#if inc?starts_with("zserio/")>
+#include <${inc}>
+<#else>
+#include "${inc}"
+</#if>
+</#list>
 
 typedef struct ${typeName} {
 <#list fields as field>

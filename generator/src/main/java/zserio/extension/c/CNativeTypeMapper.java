@@ -66,7 +66,10 @@ public final class CNativeTypeMapper
         return nativeTypeFor(resolved);
     }
 
-    private static String nativeTypeFor(ZserioType type) throws ZserioExtensionException
+    /** Map a resolved (subtype-stripped) {@link ZserioType} to its C
+     *  native name. Visible for {@link FieldFormatter} which holds
+     *  the built-in directly rather than via a {@link TypeReference}. */
+    static String nativeTypeFor(ZserioType type) throws ZserioExtensionException
     {
         if (type instanceof BooleanType)
         {

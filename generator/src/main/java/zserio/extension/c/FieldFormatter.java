@@ -5,27 +5,42 @@
 
 package zserio.extension.c;
 
+import zserio.ast.BitmaskType;
 import zserio.ast.BooleanType;
+import zserio.ast.BytesType;
+import zserio.ast.CompoundType;
+import zserio.ast.EnumType;
+import zserio.ast.ExternType;
 import zserio.ast.Field;
+import zserio.ast.FixedBitFieldType;
 import zserio.ast.FloatType;
+import zserio.ast.PackageName;
 import zserio.ast.StdIntegerType;
 import zserio.ast.StringType;
 import zserio.ast.Subtype;
 import zserio.ast.TypeReference;
+import zserio.ast.VarIntegerType;
 import zserio.ast.ZserioType;
 import zserio.extension.common.ZserioExtensionException;
 
 /**
- * Lowers one zserio struct {@link Field} to its C99 representation:
- * the C member type plus the per-field read / write / free statements
- * that go into the generated {@code _read} / {@code _write} / {@code _free}
- * function bodies.
+ * Lowers one zserio struct {@link Field} to its C99 representation.
  *
- * Phase 2 batch 3 scope: primitive integers, {@code bool}, {@code float*},
- * and {@code string}. Compound categories — {@code bit:N}, {@code varint*},
- * {@code bytes}, {@code extern}, enums / bitmasks / subtypes / nested
- * structs as fields, arrays, optionals, parameterised types — land in
- * subsequent batches and currently raise {@link ZserioExtensionException}.
+ * Produces {@link FieldData}: the C member type plus the per-field
+ * {@code read} / {@code write} / {@code free} statements that go into
+ * the generated function bodies, and an optional include path for the
+ * struct header.
+ *
+ * Phase 2 batch 4 scope: integer primitives, {@code bool}, {@code float*},
+ * {@code string}, {@code bytes}, {@code extern}, fixed-width bit fields
+ * ({@code bit:N} / {@code int:N}), all variable-length integer flavours
+ * ({@code varuintN} / {@code varintN} / {@code varuint} / {@code varint}
+ * / {@code varsize}), enums, bitmasks, subtypes, and nested compound
+ * types (struct / choice / union — they wire to the C functions emitted
+ * by their respective emitters).
+ *
+ * Out of scope until later batches: dynamic-width bit fields
+ * ({@code bit<n>}), arrays, optionals, parameterised types.
  */
 public final class FieldFormatter
 {
@@ -39,56 +54,101 @@ public final class FieldFormatter
     {
         final String name = CIdentifierFormatter.toLowerSnake(field.getName());
         final TypeReference ref = field.getTypeInstantiation().getTypeReference();
-        final ZserioType base = resolveSubtype(ref);
+        final ZserioType direct = ref.getType();
 
-        if (base instanceof BooleanType)
+        // C member type: prefer the user-facing typedef (subtype /
+        // enum / bitmask / nested compound) over the raw integer width,
+        // and remember any header that needs to be #included for it.
+        final TypeBinding b = bindType(direct);
+
+        // Compounds wire through the child's emitted *_read/_write/_free
+        // helpers. They don't touch the runtime read/write tables, so
+        // they short-circuit before the underlying-type dispatch.
+        if (direct instanceof CompoundType)
         {
-            return scalar(name, "bool", "bool");
+            return compound(name, (CompoundType)direct, b);
         }
-        if (base instanceof StdIntegerType)
+
+        final ZserioType under = underlyingType(direct);
+
+        if (under instanceof BooleanType)
         {
-            final StdIntegerType std = (StdIntegerType)base;
-            final String suffix = (std.isSigned() ? "int" : "uint") + std.getBitSize();
-            return scalar(name, suffix + "_t", suffix);
+            return scalar(name, b, "bool");
         }
-        if (base instanceof FloatType)
+        if (under instanceof StdIntegerType)
         {
-            final FloatType ft = (FloatType)base;
-            final String nativeType = ft.getBitSize() == 64 ? "double" : "float";
-            return scalar(name, nativeType, "float" + ft.getBitSize());
+            final StdIntegerType std = (StdIntegerType)under;
+            return scalar(name, b, intSuffix(std.getBitSize(), std.isSigned()));
         }
-        if (base instanceof StringType)
+        if (under instanceof FloatType)
+        {
+            return scalar(name, b, "float" + ((FloatType)under).getBitSize());
+        }
+        if (under instanceof VarIntegerType)
+        {
+            return scalar(name, b, varintSuffix((VarIntegerType)under));
+        }
+        if (under instanceof FixedBitFieldType)
+        {
+            final FixedBitFieldType bf = (FixedBitFieldType)under;
+            return bitField(name, b, bf.getBitSize(), bf.isSigned());
+        }
+        if (under instanceof StringType)
         {
             return string(name);
         }
+        if (under instanceof BytesType)
+        {
+            return bytes(name);
+        }
+        if (under instanceof ExternType)
+        {
+            return externField(name);
+        }
         throw new ZserioExtensionException(
                 "zserio-c: struct field '" + field.getName() + "': "
-                        + base.getClass().getSimpleName() + " is not yet supported as a field type");
+                        + under.getClass().getSimpleName()
+                        + " is not yet supported as a field type");
     }
 
-    private static ZserioType resolveSubtype(TypeReference ref)
+    /* -------- read/write/free shapes per category -------- */
+
+    /** Fixed-width primitive / bool / float / varint via a typed read fn. */
+    private static FieldData scalar(String name, TypeBinding b, String runtimeSuffix)
     {
-        ZserioType resolved = ref.getBaseTypeReference().getType();
-        while (resolved instanceof Subtype)
-        {
-            resolved = ((Subtype)resolved).getTypeReference().getBaseTypeReference().getType();
-        }
-        return resolved;
+        // The runtime function has a stdint-typed pointer parameter,
+        // and a C typedef is identical to its underlying type, so we
+        // can pass &self->name directly even when the C type is a
+        // user-facing typedef (subtype / enum / bitmask).
+        final String read  = "ZSERIO_TRY(zserio_read_"  + runtimeSuffix
+                + "(bs, &self->" + name + "));";
+        final String write = "ZSERIO_TRY(zserio_write_" + runtimeSuffix
+                + "(bs, self->"  + name + "));";
+        return new FieldData(name, b.cType, read, write, "", false, b.extraInclude);
     }
 
-    /** Build a `FieldData` for a fixed-width primitive read/write pair. */
-    private static FieldData scalar(String name, String nativeType, String runtimeSuffix)
+    /** Fixed-width bit field; read into a wide raw, then cast. */
+    private static FieldData bitField(String name, TypeBinding b, int bits, boolean signed)
     {
-        final String read  = "ZSERIO_TRY(zserio_read_"  + runtimeSuffix + "(bs, &self->" + name + "));";
-        final String write = "ZSERIO_TRY(zserio_write_" + runtimeSuffix + "(bs, self->"  + name + "));";
-        return new FieldData(name, nativeType, read, write, "", false);
+        final String runtimeRead  = signed ? "zserio_bitstream_read_signed" : "zserio_bitstream_read_bits";
+        final String runtimeWrite = signed ? "zserio_bitstream_write_signed" : "zserio_bitstream_write_bits";
+        final String rawType      = signed ? "int64_t" : "uint64_t";
+        final String castOnWrite  = signed ? "(int64_t)" : "(uint64_t)";
+
+        final String read =
+                "{\n"
+                + "        " + rawType + " " + name + "_raw;\n"
+                + "        ZSERIO_TRY(" + runtimeRead + "(bs, " + bits
+                + ", &" + name + "_raw));\n"
+                + "        self->" + name + " = (" + b.cType + ")" + name + "_raw;\n"
+                + "    }";
+        final String write = "ZSERIO_TRY(" + runtimeWrite + "(bs, " + bits
+                + ", " + castOnWrite + "self->" + name + "));";
+        return new FieldData(name, b.cType, read, write, "", false, b.extraInclude);
     }
 
     private static FieldData string(String name)
     {
-        // The runtime owns the buffer, so write needs a view; we
-        // construct one inline rather than via a runtime helper to
-        // keep the generated code dependency-light.
         final String read = "ZSERIO_TRY(zserio_read_string(bs, alloc, &self->" + name + "));";
         final String write =
                 "{\n"
@@ -97,7 +157,155 @@ public final class FieldFormatter
                 + "        ZSERIO_TRY(zserio_write_string(bs, " + name + "_view));\n"
                 + "    }";
         final String free = "zserio_string_free(&self->" + name + ", alloc);";
-        return new FieldData(name, "zserio_string_t", read, write, free, true);
+        return new FieldData(name, "zserio_string_t", read, write, free, true, "zserio/string.h");
+    }
+
+    private static FieldData bytes(String name)
+    {
+        final String read = "ZSERIO_TRY(zserio_read_bytes(bs, alloc, &self->" + name + "));";
+        final String write =
+                "{\n"
+                + "        const zserio_bytes_view_t " + name + "_view = "
+                + "{ self->" + name + ".bytes, self->" + name + ".length };\n"
+                + "        ZSERIO_TRY(zserio_write_bytes(bs, " + name + "_view));\n"
+                + "    }";
+        final String free = "zserio_bytes_free(&self->" + name + ", alloc);";
+        return new FieldData(name, "zserio_bytes_t", read, write, free, true, "zserio/bytes.h");
+    }
+
+    private static FieldData externField(String name)
+    {
+        final String read = "ZSERIO_TRY(zserio_read_extern(bs, alloc, &self->" + name + "));";
+        final String write =
+                "{\n"
+                + "        const zserio_bit_view_t " + name + "_view = "
+                + "{ self->" + name + ".bytes, 0u, self->" + name + ".bit_length };\n"
+                + "        ZSERIO_TRY(zserio_write_extern(bs, " + name + "_view));\n"
+                + "    }";
+        final String free = "zserio_extern_free(&self->" + name + ", alloc);";
+        return new FieldData(name, "zserio_extern_t", read, write, free, true, "zserio/extern.h");
+    }
+
+    private static FieldData compound(String name, CompoundType ct, TypeBinding b)
+    {
+        final PackageName pkg = ct.getPackage().getPackageName();
+        final String prefix = CIdentifierFormatter.funcPrefix(pkg, ct.getName());
+        final String read  = "ZSERIO_TRY(" + prefix + "_read(&self->"  + name + ", bs, alloc));";
+        final String write = "ZSERIO_TRY(" + prefix + "_write(&self->" + name + ", bs));";
+        // Always emit a free call. For primitive-only children the
+        // generated _free is itself a no-op apart from the NULL guard,
+        // so this stays cheap; emitting unconditionally avoids needing
+        // to look at the child's own field list to decide.
+        final String free = prefix + "_free(&self->" + name + ", alloc);";
+        return new FieldData(name, b.cType, read, write, free, true, b.extraInclude);
+    }
+
+    /* -------- type binding -------- */
+
+    /** What C type to emit for the field, plus the include needed for it. */
+    private static TypeBinding bindType(ZserioType direct) throws ZserioExtensionException
+    {
+        if (direct instanceof Subtype)
+        {
+            final Subtype st = (Subtype)direct;
+            return userBinding(st.getPackage().getPackageName(), st.getName());
+        }
+        if (direct instanceof EnumType)
+        {
+            final EnumType et = (EnumType)direct;
+            return userBinding(et.getPackage().getPackageName(), et.getName());
+        }
+        if (direct instanceof BitmaskType)
+        {
+            final BitmaskType bt = (BitmaskType)direct;
+            return userBinding(bt.getPackage().getPackageName(), bt.getName());
+        }
+        if (direct instanceof CompoundType)
+        {
+            final CompoundType ct = (CompoundType)direct;
+            return userBinding(ct.getPackage().getPackageName(), ct.getName());
+        }
+        // Built-in: read C type from the runtime native-type mapper for
+        // anything stdint-shaped; explicit names for runtime-owned types.
+        if (direct instanceof StringType)
+        {
+            return new TypeBinding("zserio_string_t", "zserio/string.h");
+        }
+        if (direct instanceof BytesType)
+        {
+            return new TypeBinding("zserio_bytes_t", "zserio/bytes.h");
+        }
+        if (direct instanceof ExternType)
+        {
+            return new TypeBinding("zserio_extern_t", "zserio/extern.h");
+        }
+        // Boolean / StdIntegerType / FixedBitFieldType / VarIntegerType /
+        // FloatType — all map to a stdint name (or bool / float / double).
+        return new TypeBinding(CNativeTypeMapper.nativeTypeFor(direct), null);
+    }
+
+    private static TypeBinding userBinding(PackageName pkg, String name)
+    {
+        return new TypeBinding(
+                CIdentifierFormatter.typeName(pkg, name),
+                CIdentifierFormatter.headerIncludePath(pkg, name));
+    }
+
+    /* -------- traversal helpers -------- */
+
+    private static ZserioType underlyingType(ZserioType direct)
+    {
+        ZserioType t = direct;
+        while (t instanceof Subtype)
+        {
+            t = ((Subtype)t).getTypeReference().getBaseTypeReference().getType();
+        }
+        if (t instanceof EnumType)
+        {
+            t = ((EnumType)t).getTypeInstantiation().getTypeReference()
+                    .getBaseTypeReference().getType();
+        }
+        else if (t instanceof BitmaskType)
+        {
+            t = ((BitmaskType)t).getTypeInstantiation().getTypeReference()
+                    .getBaseTypeReference().getType();
+        }
+        // The underlying of an enum/bitmask could itself be wrapped in a
+        // subtype layer.
+        while (t instanceof Subtype)
+        {
+            t = ((Subtype)t).getTypeReference().getBaseTypeReference().getType();
+        }
+        return t;
+    }
+
+    private static String intSuffix(int bits, boolean signed) throws ZserioExtensionException
+    {
+        final int container;
+        if (bits <= 8) container = 8;
+        else if (bits <= 16) container = 16;
+        else if (bits <= 32) container = 32;
+        else if (bits <= 64) container = 64;
+        else throw new ZserioExtensionException("zserio-c: integer width " + bits + " > 64");
+        return (signed ? "int" : "uint") + container;
+    }
+
+    /** Map a {@link VarIntegerType} to its runtime function suffix. */
+    private static String varintSuffix(VarIntegerType vi) throws ZserioExtensionException
+    {
+        // The grammar packs varuint16/varint16/.../varuint/varint/varsize
+        // into VarIntegerType differentiated by (maxBitSize, isSigned).
+        // varsize is the only entry with maxBitSize == 40 — it falls
+        // out of the table.
+        final int max = vi.getMaxBitSize();
+        final boolean signed = vi.isSigned();
+        if (max == 40) return "varsize";
+        if (max == 16) return signed ? "varint16" : "varuint16";
+        if (max == 32) return signed ? "varint32" : "varuint32";
+        if (max == 64) return signed ? "varint64" : "varuint64";
+        if (max == 72) return signed ? "varint"   : "varuint";
+        throw new ZserioExtensionException(
+                "zserio-c: unsupported varint maxBitSize " + max);
     }
 
     /** Per-field FreeMarker view. */
@@ -109,9 +317,10 @@ public final class FieldFormatter
         private final String writeStmt;
         private final String freeStmt;
         private final boolean owned;
+        private final String extraInclude;
 
         FieldData(String name, String nativeType, String readStmt, String writeStmt,
-                String freeStmt, boolean owned)
+                String freeStmt, boolean owned, String extraInclude)
         {
             this.name = name;
             this.nativeType = nativeType;
@@ -119,13 +328,28 @@ public final class FieldFormatter
             this.writeStmt = writeStmt;
             this.freeStmt = freeStmt;
             this.owned = owned;
+            this.extraInclude = extraInclude;
         }
 
-        public String  getName()      { return name; }
-        public String  getNativeType()     { return nativeType; }
-        public String  getReadStmt()  { return readStmt; }
-        public String  getWriteStmt() { return writeStmt; }
-        public String  getFreeStmt()  { return freeStmt; }
-        public boolean getOwned()     { return owned; }
+        public String  getName()         { return name; }
+        public String  getNativeType()   { return nativeType; }
+        public String  getReadStmt()     { return readStmt; }
+        public String  getWriteStmt()    { return writeStmt; }
+        public String  getFreeStmt()     { return freeStmt; }
+        public boolean getOwned()        { return owned; }
+        public String  getExtraInclude() { return extraInclude; }
+    }
+
+    /** Pair of C type + the header providing it (or {@code null} for built-ins). */
+    private static final class TypeBinding
+    {
+        final String cType;
+        final String extraInclude;
+
+        TypeBinding(String cType, String extraInclude)
+        {
+            this.cType = cType;
+            this.extraInclude = extraInclude;
+        }
     }
 }

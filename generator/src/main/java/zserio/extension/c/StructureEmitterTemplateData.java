@@ -6,6 +6,7 @@
 package zserio.extension.c;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 
 import zserio.ast.Field;
@@ -22,6 +23,7 @@ public final class StructureEmitterTemplateData
     private final String includeGuard;
     private final String headerIncludePath;
     private final List<FieldFormatter.FieldData> fields;
+    private final List<String> extraIncludes;
     private final boolean hasOwnedFields;
 
     public StructureEmitterTemplateData(TemplateDataContext context, StructureType structType)
@@ -31,21 +33,27 @@ public final class StructureEmitterTemplateData
         final PackageName pkg = structType.getPackage().getPackageName();
         final String zserioName = structType.getName();
         this.typeName = CIdentifierFormatter.typeName(pkg, zserioName);
-        // Function names drop the trailing "_t" so prototypes read
-        // `pkg_name_read(...)` instead of `pkg_name_t_read(...)`.
-        this.funcPrefix = this.typeName.substring(0, this.typeName.length() - 2);
+        this.funcPrefix = CIdentifierFormatter.funcPrefix(pkg, zserioName);
         this.includeGuard = CIdentifierFormatter.includeGuard(pkg, zserioName);
         this.headerIncludePath = CIdentifierFormatter.headerIncludePath(pkg, zserioName);
 
         final List<FieldFormatter.FieldData> built = new ArrayList<>();
+        // LinkedHashSet so the include order matches the schema's field
+        // order — readable, and stable across re-runs.
+        final LinkedHashSet<String> includes = new LinkedHashSet<>();
         boolean owned = false;
         for (final Field f : structType.getFields())
         {
             final FieldFormatter.FieldData data = FieldFormatter.format(f);
             built.add(data);
+            if (data.getExtraInclude() != null)
+            {
+                includes.add(data.getExtraInclude());
+            }
             owned = owned || data.getOwned();
         }
         this.fields = built;
+        this.extraIncludes = new ArrayList<>(includes);
         this.hasOwnedFields = owned;
     }
 
@@ -55,5 +63,6 @@ public final class StructureEmitterTemplateData
     public String  getIncludeGuard()         { return includeGuard; }
     public String  getHeaderIncludePath()    { return headerIncludePath; }
     public List<FieldFormatter.FieldData> getFields() { return fields; }
+    public List<String> getExtraIncludes()   { return extraIncludes; }
     public boolean getHasOwnedFields()       { return hasOwnedFields; }
 }

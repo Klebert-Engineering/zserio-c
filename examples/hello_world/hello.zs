@@ -25,9 +25,25 @@ bitmask uint8 Permission
     EXECUTE
 };
 
+struct Address
+{
+    uint16  street_no;
+    string  street;
+};
+
 struct Hello
 {
-    uint8   age;
-    string  name;
-    uint16  salary;
+    uint8       age;
+    string      name;
+    uint16      salary;
+    bit:5       level;
+    int:7       offset;
+    Color       color;
+    Permission  perms;
+    BlockIndex  block_idx;
+    Address     home;
+    bytes       payload;
+    extern      raw_bits;
+    varuint32   item_count;
+    varsize     blob_size;
 };

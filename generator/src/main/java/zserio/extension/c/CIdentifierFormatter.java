@@ -89,6 +89,19 @@ public final class CIdentifierFormatter
     }
 
     /**
+     * Function-name prefix for an entity that has a typedef plus a
+     * family of {@code _init} / {@code _read} / {@code _write} /
+     * {@code _free} helpers. {@code (pkg.foo, MyType)} →
+     * {@code "pkg_foo_my_type"} (i.e. the typeName minus its
+     * trailing {@code _t}).
+     */
+    public static String funcPrefix(PackageName pkg, String entityName)
+    {
+        final String tn = typeName(pkg, entityName);
+        return tn.substring(0, tn.length() - 2);
+    }
+
+    /**
      * The {@code <pkg/path/file.h>} include path for an entity.
      * {@code (pkg.foo, MyType)} → {@code "pkg/foo/my_type.h"}.
      */

@@ -5,10 +5,7 @@
 
 #include <string.h>
 
-#include <zserio/primitives.h>
-<#if hasOwnedFields>
-#include <zserio/string.h>
-</#if>
+#include <zserio/zserio.h>
 
 void ${funcPrefix}_init(${typeName} *self)
 {
