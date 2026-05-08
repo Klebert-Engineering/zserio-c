@@ -11,6 +11,7 @@ import zserio.ast.FixedBitFieldType;
 import zserio.ast.FloatType;
 import zserio.ast.StdIntegerType;
 import zserio.ast.StringType;
+import zserio.ast.Subtype;
 import zserio.ast.TypeInstantiation;
 import zserio.ast.TypeReference;
 import zserio.ast.VarIntegerType;
@@ -45,9 +46,24 @@ public final class CNativeTypeMapper
      */
     public static String nativeType(TypeInstantiation typeInst) throws ZserioExtensionException
     {
-        final TypeReference ref = typeInst.getTypeReference();
+        return nativeType(typeInst.getTypeReference());
+    }
+
+    /** Same as {@link #nativeType(TypeInstantiation)} but starting
+     *  from a {@link TypeReference}. Used by {@code Subtype}, which
+     *  carries a reference rather than a full instantiation. */
+    public static String nativeType(TypeReference ref) throws ZserioExtensionException
+    {
         final ZserioType base = ref.getBaseTypeReference().getType();
-        return nativeTypeFor(base);
+        // Walk through subtype chains so the C output unwraps as
+        // far as the underlying built-in.
+        ZserioType resolved = base;
+        while (resolved instanceof Subtype)
+        {
+            final Subtype st = (Subtype)resolved;
+            resolved = st.getTypeReference().getBaseTypeReference().getType();
+        }
+        return nativeTypeFor(resolved);
     }
 
     private static String nativeTypeFor(ZserioType type) throws ZserioExtensionException
