@@ -34,7 +34,7 @@ typedef struct ${typeName} {
 void            ${funcPrefix}_init(${typeName} *self);
 zserio_status_t ${funcPrefix}_read(${typeName} *self,
         zserio_bitstream_reader_t *bs, const zserio_allocator_t *alloc);
-zserio_status_t ${funcPrefix}_write(const ${typeName} *self,
+zserio_status_t ${funcPrefix}_write(${typeName} *self,
         zserio_bitstream_writer_t *bs);
 void            ${funcPrefix}_free(${typeName} *self, const zserio_allocator_t *alloc);
 

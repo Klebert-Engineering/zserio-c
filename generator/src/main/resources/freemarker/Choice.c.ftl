@@ -53,7 +53,7 @@ zserio_status_t ${funcPrefix}_read(${typeName} *self,
     return ZSERIO_OK;
 }
 
-zserio_status_t ${funcPrefix}_write(const ${typeName} *self,
+zserio_status_t ${funcPrefix}_write(${typeName} *self,
         zserio_bitstream_writer_t *bs)
 {
     if (self == NULL || bs == NULL) {
