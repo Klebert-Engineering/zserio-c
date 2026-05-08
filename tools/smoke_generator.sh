@@ -45,11 +45,15 @@ if [[ ! -d "${OUTPUT_DIR}" ]]; then
     exit 1
 fi
 
-# Verify the ConstEmitter produced one .h per `const` declaration.
+# Verify each emitter produced its expected .h file. The list grows
+# as Phase 2 batches add new emitters.
 EXPECTED=(
     "${OUTPUT_DIR}/hello/max_age.h"
     "${OUTPUT_DIR}/hello/max_name_length.h"
     "${OUTPUT_DIR}/hello/enable_bonus.h"
+    "${OUTPUT_DIR}/hello/block_index.h"
+    "${OUTPUT_DIR}/hello/color.h"
+    "${OUTPUT_DIR}/hello/permission.h"
 )
 for h in "${EXPECTED[@]}"; do
     if [[ ! -f "${h}" ]]; then
