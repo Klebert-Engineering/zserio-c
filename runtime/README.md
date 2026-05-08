@@ -22,11 +22,13 @@ Already implemented:
 - **`<zserio/primitives.h>`** — fixed-width integer (`uint8`/`uint16`/
   `uint32`/`uint64`/`int8`/`int16`/`int32`/`int64`) and `bool` helpers
   on top of bitstream.
+- **`<zserio/varint.h>`** — variable-length integer encoding for
+  `varuint16`/`varuint32`/`varuint64`/`varuint`/`varsize` and the
+  signed counterparts. INT64_MIN special-cased for `varint`. `varsize`
+  decoder validates the artificial 2³¹−1 cap.
 
 To be added next:
 
-- `<zserio/varint.h>` — variable-length integer encoding (`varuint*`,
-  `varint*`, `varsize`)
 - `<zserio/float.h>` — `float16` / `float32` / `float64` pack / unpack
 - `<zserio/string.h>` — UTF-8 string view, owned, read / write
 - `<zserio/extern.h>` — opaque bit blob (`extern` type), with the

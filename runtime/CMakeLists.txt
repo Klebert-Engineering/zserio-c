@@ -7,6 +7,7 @@ add_library(zserio_c_runtime STATIC
     src/allocator.c
     src/bitstream.c
     src/primitives.c
+    src/varint.c
 )
 
 target_include_directories(zserio_c_runtime
