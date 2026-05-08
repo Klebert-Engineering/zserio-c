@@ -48,6 +48,27 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure
 
+  misra:
+    name: MISRA C:2012 (cppcheck) + forbidden-symbols
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - name: Install cppcheck
+        run: sudo apt-get update && sudo apt-get install -y cppcheck
+      - name: Run MISRA + forbidden-symbols check
+        # Non-strict on first pass: surfaces cppcheck findings but only
+        # fails on the clear-cut forbidden-symbol checks (REQ-FS-001,
+        # REQ-FS-002). Promote to --strict once findings are triaged.
+        run: tools/run_misra.sh
+      - name: Upload cppcheck log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cppcheck-log
+          path: cppcheck.log
+
   # Phase 1 follow-ups: coverage.yml (gcov/lcov gated at 100% line+branch),
-  # misra.yml (cppcheck --addon=misra), size.yml (REQ-PF-002 regression
-  # gating). Added when those modules' implementations land.
+  # size.yml (REQ-PF-002 regression gating). Added when those modules'
+  # support arrives.

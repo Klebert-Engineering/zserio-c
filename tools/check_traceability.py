@@ -29,7 +29,14 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 REQUIREMENTS_DIR = REPO / "requirements"
 TESTS_DIR = REPO / "tests"
+TOOLS_DIR = REPO / "tools"
 PHASE_FILE = REPO / ".phase"
+
+# Files scanned for `Verifies: REQ-...` markers.
+# Tests are the primary source. tools/ scripts (e.g. run_misra.sh) carry
+# markers for requirements verified by static analysis.
+SCAN_DIRS = (TESTS_DIR, TOOLS_DIR)
+SCAN_SUFFIXES = {".c", ".h", ".cpp", ".hpp", ".cc", ".py", ".sh"}
 
 REQ_ID_PATTERN = re.compile(r"^REQ-[A-Z]{2}-\d{3}$")
 VERIFIES_PATTERN = re.compile(r"Verifies\s*:\s*(REQ-[A-Z]{2}-\d{3})")
@@ -82,17 +89,18 @@ def load_requirements() -> list[Requirement]:
 
 def load_test_references() -> dict[str, list[Path]]:
     refs: dict[str, list[Path]] = {}
-    if not TESTS_DIR.exists():
-        return refs
-    for src in TESTS_DIR.rglob("*"):
-        if src.suffix not in {".c", ".h", ".cpp", ".hpp", ".cc"}:
+    for scan_dir in SCAN_DIRS:
+        if not scan_dir.exists():
             continue
-        try:
-            text = src.read_text(encoding="utf-8")
-        except UnicodeDecodeError:
-            continue
-        for match in VERIFIES_PATTERN.finditer(text):
-            refs.setdefault(match.group(1), []).append(src)
+        for src in scan_dir.rglob("*"):
+            if src.suffix not in SCAN_SUFFIXES:
+                continue
+            try:
+                text = src.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                continue
+            for match in VERIFIES_PATTERN.finditer(text):
+                refs.setdefault(match.group(1), []).append(src)
     return refs
 
 

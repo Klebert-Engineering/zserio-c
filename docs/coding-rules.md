@@ -14,12 +14,17 @@
 The project targets MISRA C:2012 with amendments 1–4 (so the active rule
 set is the 2023 consolidated edition's content, applied to a C99 baseline).
 
-- `cppcheck --addon=misra` runs in CI and must pass on the runtime and
-  generated code with zero unjustified violations.
-- Any rule deviation is recorded in a per-deviation document under
-  `docs/misra-deviations/` (created when the first deviation is needed).
-  A deviation states: rule, scope, justification, mitigation, approver,
-  reviewer.
+- `cppcheck --addon=misra` runs in CI via `tools/run_misra.sh` (job
+  `misra` in `.github/workflows/ci.yml`). On main and PRs, findings
+  are surfaced but the build fails only on the forbidden-symbol grep
+  checks (REQ-FS-001, REQ-FS-002) until the initial triage is
+  complete. Once deviations are documented, the script is promoted
+  to `--strict` and any cppcheck error fails CI.
+- Any rule deviation is recorded under `docs/misra-deviations/`
+  alongside a suppression entry in `tools/cppcheck-suppressions.txt`.
+  A deviation states: rule, scope, justification, mitigation,
+  approver, reviewer. See `docs/misra-deviations/README.md` for the
+  template and process.
 - Deviations may **not** be added retroactively to suppress findings on
   existing code without going through the deviation process.
 

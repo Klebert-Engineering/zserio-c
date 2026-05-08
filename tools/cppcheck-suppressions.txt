@@ -1,0 +1,24 @@
+# cppcheck suppressions for the zserio-c runtime.
+#
+# Format: <id>[:<file>[:<line>]]
+#
+# Each entry MUST be accompanied by a one-line rationale. Suppressions
+# of MISRA rules ALSO require a corresponding deviation document under
+# docs/misra-deviations/ recording rule, scope, justification, and
+# approver. See docs/coding-rules.md for the policy.
+#
+# Suppressions are reviewed when this file changes.
+
+# cppcheck reports unusedFunction for every public runtime symbol
+# because the runtime is a library — its callers live outside our
+# tree. This is expected, not a bug.
+unusedFunction
+
+# cppcheck warns about <stddef.h>, <stdint.h> etc. when system
+# include paths can't be resolved. We always have them on supported
+# toolchains.
+missingIncludeSystem
+
+# Add MISRA-rule-specific suppressions below as findings are triaged.
+# Format example with rationale:
+#   misra-c2012-10.3:runtime/src/foo.c:42  # see docs/misra-deviations/D001-bit-arith.md
