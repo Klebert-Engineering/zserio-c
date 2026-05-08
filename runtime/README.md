@@ -26,10 +26,17 @@ Already implemented:
   `varuint16`/`varuint32`/`varuint64`/`varuint`/`varsize` and the
   signed counterparts. INT64_MIN special-cased for `varint`. `varsize`
   decoder validates the artificial 2³¹−1 cap.
+- **`<zserio/float.h>`** — IEEE 754 `float16` / `float32` / `float64`
+  pack / unpack via integer-only operations on the bit pattern
+  (REQ-FS-004 boundary). float16 narrowing/widening ported from
+  upstream `FloatUtil.cpp`; float32/64 via `memcpy`.
+- **`<zserio/string.h>`** — UTF-8 strings. Dual API: `zserio_string_view_t`
+  zero-copy borrow (requires byte-aligned source) and
+  `zserio_string_t` owned (allocator-injected, handles bit-misalignment
+  by byte-by-byte copy). UTF-8 well-formedness NOT validated, matching
+  upstream for wire-compat.
 
 To be added next:
-
-- `<zserio/float.h>` — `float16` / `float32` / `float64` pack / unpack
 - `<zserio/string.h>` — UTF-8 string view, owned, read / write
 - `<zserio/extern.h>` — opaque bit blob (`extern` type), with the
   borrow + materialize dual API
