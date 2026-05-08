@@ -45,4 +45,33 @@ if [[ ! -d "${OUTPUT_DIR}" ]]; then
     exit 1
 fi
 
-echo "smoke: zserio-c extension loaded and ran cleanly."
+# Verify the ConstEmitter produced one .h per `const` declaration.
+EXPECTED=(
+    "${OUTPUT_DIR}/hello/max_age.h"
+    "${OUTPUT_DIR}/hello/max_name_length.h"
+    "${OUTPUT_DIR}/hello/enable_bonus.h"
+)
+for h in "${EXPECTED[@]}"; do
+    if [[ ! -f "${h}" ]]; then
+        echo "smoke: expected generated header missing: ${h}" >&2
+        echo "smoke: contents of ${OUTPUT_DIR}:" >&2
+        find "${OUTPUT_DIR}" -type f >&2
+        exit 1
+    fi
+done
+
+# Verify the headers compile cleanly under our top-level warning set.
+echo "smoke: compiling generated headers under -std=c99 -Wall -Wextra -Werror..."
+SMOKE_C="${REPO_ROOT}/build-generator-smoke/include_test.c"
+{
+    printf '%s\n' "$(for h in "${EXPECTED[@]}"; do
+        printf '#include "%s"\n' "${h#${OUTPUT_DIR}/}"
+    done)"
+    printf 'int main(void) { return 0; }\n'
+} > "${SMOKE_C}"
+gcc -std=c99 -Wall -Wextra -Wpedantic -Werror \
+    -I"${OUTPUT_DIR}" \
+    "${SMOKE_C}" \
+    -o "${REPO_ROOT}/build-generator-smoke/include_test"
+
+echo "smoke: zserio-c extension loaded and ran cleanly; generated headers compile."

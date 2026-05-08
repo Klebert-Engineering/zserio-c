@@ -8,6 +8,7 @@ package zserio.extension.c;
 import org.apache.commons.cli.Options;
 
 import zserio.ast.Root;
+import zserio.extension.common.OutputFileManager;
 import zserio.extension.common.ZserioExtensionException;
 import zserio.tools.Extension;
 import zserio.tools.ExtensionParameters;
@@ -73,17 +74,20 @@ public final class CExtension implements Extension
     public void process(Root rootNode, ExtensionParameters parameters)
             throws ZserioExtensionException
     {
-        // Phase 2 skeleton: declare we ran, but emit nothing.
-        // The shape of `process` once filled in will mirror upstream's
-        // CppExtension.process: build an OutputFileManager, run a
-        // PackedTypesCollector pre-pass, then walk the AST once per
-        // emitter (Const, Subtype, Enum, Bitmask, Structure, Choice,
-        // Union — see 01-schema-language.md for the v1 emitter list).
+        // Per docs/upstream-analysis/03-plugin-spi.md §4: build the
+        // output-file manager, instantiate the per-construct emitters,
+        // and walk the AST once per emitter. Phase 2 batch 1 ships
+        // only ConstEmitter; the other six (Subtype, Enumeration,
+        // Bitmask, Structure, Choice, Union) join this list as they
+        // land.
         final CExtensionParameters cParams = new CExtensionParameters(parameters);
         cParams.ensureOutputDirectoryExists();
-        System.out.println("zserio-c extension v"
-                + CExtensionVersion.C_EXTENSION_VERSION_STRING
-                + " (skeleton) — emitting nothing yet to "
-                + cParams.getOutputDir());
+
+        final OutputFileManager files = new OutputFileManager(parameters);
+        final TemplateDataContext context = new TemplateDataContext(cParams);
+
+        rootNode.walk(new ConstEmitter(files, cParams, context));
+
+        files.printReport();
     }
 }
