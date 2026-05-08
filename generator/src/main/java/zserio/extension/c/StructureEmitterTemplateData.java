@@ -32,6 +32,12 @@ public final class StructureEmitterTemplateData
         this.generatorDescription = context.getGeneratorDescription();
         final PackageName pkg = structType.getPackage().getPackageName();
         final String zserioName = structType.getName();
+        if (!structType.getTypeParameters().isEmpty())
+        {
+            throw new ZserioExtensionException(
+                    "zserio-c: parameterised structs are not yet supported (struct '"
+                            + zserioName + "')");
+        }
         this.typeName = CIdentifierFormatter.typeName(pkg, zserioName);
         this.funcPrefix = CIdentifierFormatter.funcPrefix(pkg, zserioName);
         this.includeGuard = CIdentifierFormatter.includeGuard(pkg, zserioName);

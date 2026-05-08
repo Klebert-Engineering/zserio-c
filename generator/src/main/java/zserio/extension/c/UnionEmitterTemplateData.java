@@ -32,6 +32,12 @@ public final class UnionEmitterTemplateData
         this.generatorDescription = context.getGeneratorDescription();
         final PackageName pkg = unionType.getPackage().getPackageName();
         final String zserioName = unionType.getName();
+        if (!unionType.getTypeParameters().isEmpty())
+        {
+            throw new ZserioExtensionException(
+                    "zserio-c: parameterised unions are not yet supported (union '"
+                            + zserioName + "')");
+        }
         this.typeName = CIdentifierFormatter.typeName(pkg, zserioName);
         this.funcPrefix = CIdentifierFormatter.funcPrefix(pkg, zserioName);
         this.includeGuard = CIdentifierFormatter.includeGuard(pkg, zserioName);

@@ -15,9 +15,11 @@ import zserio.ast.Field;
 import zserio.ast.FixedBitFieldType;
 import zserio.ast.FloatType;
 import zserio.ast.PackageName;
+import zserio.ast.ParameterizedTypeInstantiation;
 import zserio.ast.StdIntegerType;
 import zserio.ast.StringType;
 import zserio.ast.Subtype;
+import zserio.ast.TypeInstantiation;
 import zserio.ast.TypeReference;
 import zserio.ast.VarIntegerType;
 import zserio.ast.ZserioType;
@@ -58,7 +60,8 @@ public final class FieldFormatter
     public static FieldData format(Field field, String holderExpr) throws ZserioExtensionException
     {
         final String name = CIdentifierFormatter.toLowerSnake(field.getName());
-        final TypeReference ref = field.getTypeInstantiation().getTypeReference();
+        final TypeInstantiation typeInst = field.getTypeInstantiation();
+        final TypeReference ref = typeInst.getTypeReference();
         final ZserioType direct = ref.getType();
 
         // C member type: prefer the user-facing typedef (subtype /
@@ -71,7 +74,7 @@ public final class FieldFormatter
         // they short-circuit before the underlying-type dispatch.
         if (direct instanceof CompoundType)
         {
-            return compound(name, (CompoundType)direct, b, holderExpr);
+            return compound(name, (CompoundType)direct, typeInst, b, holderExpr);
         }
 
         final ZserioType under = underlyingType(direct);
@@ -191,12 +194,38 @@ public final class FieldFormatter
         return new FieldData(name, "zserio_extern_t", read, write, free, true, "zserio/extern.h");
     }
 
-    private static FieldData compound(String name, CompoundType ct, TypeBinding b, String h)
+    private static FieldData compound(String name, CompoundType ct, TypeInstantiation typeInst,
+            TypeBinding b, String h) throws ZserioExtensionException
     {
         final PackageName pkg = ct.getPackage().getPackageName();
         final String prefix = CIdentifierFormatter.funcPrefix(pkg, ct.getName());
-        final String read  = "ZSERIO_TRY(" + prefix + "_read(&" + h + name + ", bs, alloc));";
-        final String write = "ZSERIO_TRY(" + prefix + "_write(&" + h + name + ", bs));";
+
+        // For a parameterised child, the parent must pin the child's
+        // parameter members before each read or write — the parent's
+        // own state may have changed since the last read, and the
+        // child's read needs its parameters in place to drive the
+        // selector / array-length / constraint expressions.
+        String setParamsLine = "";
+        if (typeInst instanceof ParameterizedTypeInstantiation)
+        {
+            final ParameterizedTypeInstantiation pti = (ParameterizedTypeInstantiation)typeInst;
+            final StringBuilder args = new StringBuilder();
+            for (final ParameterizedTypeInstantiation.InstantiatedParameter ip
+                    : pti.getInstantiatedParameters())
+            {
+                args.append(", ");
+                args.append(CExpressionFormatter.formatRefOrLiteral(ip.getArgumentExpression(), h));
+            }
+            // The trailing newline + indent keeps the rendered statement
+            // visually aligned with the read/write line that follows it
+            // when the template substitutes the placeholder.
+            setParamsLine = prefix + "_set_parameters(&" + h + name + args + ");\n        ";
+        }
+
+        final String read  = setParamsLine + "ZSERIO_TRY(" + prefix
+                + "_read(&" + h + name + ", bs, alloc));";
+        final String write = setParamsLine + "ZSERIO_TRY(" + prefix
+                + "_write(&" + h + name + ", bs));";
         // Always emit a free call. For primitive-only children the
         // generated _free is itself a no-op apart from the NULL guard,
         // so this stays cheap; emitting unconditionally avoids needing

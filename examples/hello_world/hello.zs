@@ -38,6 +38,22 @@ union Greeting
     Address     address_greeting;
 };
 
+choice Variant(uint8 t) on t
+{
+    case 0:
+        uint16  a;
+    case 1, 2:
+        uint32  b;
+    case 3:
+        string  c;
+};
+
+struct Container
+{
+    uint8        tag;
+    Variant(tag) variant;
+};
+
 struct Hello
 {
     uint8       age;
