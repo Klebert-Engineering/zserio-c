@@ -1,0 +1,22 @@
+upstream_class,upstream_file_line,zserio_status,notes
+CppRuntimeException,BitStreamReader.cpp:203,ZSERIO_ERR_INVALID_NUM_BITS,readBits called with invalid numBits
+CppRuntimeException,BitStreamReader.cpp:228,ZSERIO_ERR_END_OF_STREAM,reached eof during read
+CppRuntimeException,BitStreamReader.cpp:369,ZSERIO_ERR_BUFFER_TOO_LARGE,buffer size exceeded MAX_BUFFER_SIZE
+CppRuntimeException,BitStreamReader.cpp:389,ZSERIO_ERR_INVALID_BUFFER,buffer/bit_size mismatch on construction
+CppRuntimeException,BitStreamReader.cpp:810,ZSERIO_ERR_INVALID_ENCODING,varsize value out of range
+CppRuntimeException,BitStreamReader.cpp:851,ZSERIO_ERR_INVALID_POSITION,setBitPosition past end
+CppRuntimeException,BitStreamWriter.cpp:350,ZSERIO_ERR_INVALID_BUFFER,wrong buffer bit size on writer construction
+CppRuntimeException,BitStreamWriter.cpp:359,ZSERIO_ERR_VALUE_OUT_OF_RANGE,write of value too large for numBits
+CppRuntimeException,BitStreamWriter.cpp:370,ZSERIO_ERR_VALUE_OUT_OF_RANGE,write of value too large for numBits
+CppRuntimeException,BitStreamWriter.cpp:382,ZSERIO_ERR_VALUE_OUT_OF_RANGE,write of value too large for numBits
+CppRuntimeException,BitStreamWriter.cpp:394,ZSERIO_ERR_VALUE_OUT_OF_RANGE,write of value too large for numBits
+InsufficientCapacityException,BitStreamWriter.cpp:670,ZSERIO_ERR_BUFFER_OVERFLOW,reached end of write buffer
+CppRuntimeException,BitFieldUtil.cpp:11,ZSERIO_ERR_INVALID_NUM_BITS,bound query for invalid bit-field length
+CppRuntimeException,SizeConvertUtil.cpp:16,ZSERIO_ERR_VALUE_OUT_OF_RANGE,size_t exceeds uint32_t max
+CppRuntimeException,SizeConvertUtil.cpp:29,ZSERIO_ERR_VALUE_OUT_OF_RANGE,uint64_t exceeds size_t max
+CppRuntimeException,Enums.h:87,ZSERIO_ERR_INVALID_ENUM,enum item name not in enum
+ConstraintException,(generated),ZSERIO_ERR_CONSTRAINT_VIOLATED,emitted by generator at field constraint sites
+CppRuntimeException,ParsingInfo.h:51,ZSERIO_ERR_INVALID_ARGUMENT,invalid end bit position to ParsingInfo
+CppRuntimeException,ParsingInfo.h:69,ZSERIO_ERR_INVALID_POSITION,uninitialized bit position queried
+CppRuntimeException,BitBuffer.h,ZSERIO_ERR_INVALID_BUFFER,BitBuffer construction with mismatched buffer/bit_size
+CppRuntimeException,Array.h,ZSERIO_ERR_ARRAY_TOO_LARGE,array length exceeds runtime limit
