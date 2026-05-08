@@ -17,8 +17,13 @@ import zserio.extension.common.ZserioExtensionException;
  */
 public final class ConstEmitterTemplateData
 {
+    // Field names start with a lowercase letter followed by a lowercase
+    // letter so that JavaBean decapitalisation produces the expected
+    // FreeMarker property name. (`getCName()` would expose as `CName`
+    // because both first chars are uppercase — JavaBean spec preserves
+    // the case in that pattern. Use `name` to avoid the trap.)
     private final String generatorDescription;
-    private final String cName;
+    private final String name;
     private final String nativeType;
     private final String includeGuard;
     private final String valueExpression;
@@ -29,9 +34,9 @@ public final class ConstEmitterTemplateData
         this.generatorDescription = context.getGeneratorDescription();
 
         final PackageName pkg = constant.getPackage().getPackageName();
-        final String name = constant.getName();
-        this.cName = CIdentifierFormatter.constantName(pkg, name);
-        this.includeGuard = CIdentifierFormatter.includeGuard(pkg, name);
+        final String zserioName = constant.getName();
+        this.name = CIdentifierFormatter.constantName(pkg, zserioName);
+        this.includeGuard = CIdentifierFormatter.includeGuard(pkg, zserioName);
         this.nativeType = CNativeTypeMapper.nativeType(constant.getTypeInstantiation());
 
         // Phase 2 batch 1: use the literal text from the AST. A future
@@ -43,7 +48,7 @@ public final class ConstEmitterTemplateData
     }
 
     public String getGeneratorDescription() { return generatorDescription; }
-    public String getCName()                { return cName; }
+    public String getName()                 { return name; }
     public String getNativeType()           { return nativeType; }
     public String getIncludeGuard()         { return includeGuard; }
     public String getValueExpression()      { return valueExpression; }

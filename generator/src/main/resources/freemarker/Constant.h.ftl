@@ -7,6 +7,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-static const ${nativeType} ${cName} = (${nativeType})${valueExpression};
+static const ${nativeType} ${name} = (${nativeType})${valueExpression};
 
 #endif /* ${includeGuard} */
