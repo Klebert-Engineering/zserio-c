@@ -54,8 +54,8 @@ public final class FieldFormatter
         if (base instanceof FloatType)
         {
             final FloatType ft = (FloatType)base;
-            final String cType = ft.getBitSize() == 64 ? "double" : "float";
-            return scalar(name, cType, "float" + ft.getBitSize());
+            final String nativeType = ft.getBitSize() == 64 ? "double" : "float";
+            return scalar(name, nativeType, "float" + ft.getBitSize());
         }
         if (base instanceof StringType)
         {
@@ -77,11 +77,11 @@ public final class FieldFormatter
     }
 
     /** Build a `FieldData` for a fixed-width primitive read/write pair. */
-    private static FieldData scalar(String name, String cType, String runtimeSuffix)
+    private static FieldData scalar(String name, String nativeType, String runtimeSuffix)
     {
         final String read  = "ZSERIO_TRY(zserio_read_"  + runtimeSuffix + "(bs, &self->" + name + "));";
         final String write = "ZSERIO_TRY(zserio_write_" + runtimeSuffix + "(bs, self->"  + name + "));";
-        return new FieldData(name, cType, read, write, "", false);
+        return new FieldData(name, nativeType, read, write, "", false);
     }
 
     private static FieldData string(String name)
@@ -104,17 +104,17 @@ public final class FieldFormatter
     public static final class FieldData
     {
         private final String name;
-        private final String cType;
+        private final String nativeType;
         private final String readStmt;
         private final String writeStmt;
         private final String freeStmt;
         private final boolean owned;
 
-        FieldData(String name, String cType, String readStmt, String writeStmt,
+        FieldData(String name, String nativeType, String readStmt, String writeStmt,
                 String freeStmt, boolean owned)
         {
             this.name = name;
-            this.cType = cType;
+            this.nativeType = nativeType;
             this.readStmt = readStmt;
             this.writeStmt = writeStmt;
             this.freeStmt = freeStmt;
@@ -122,7 +122,7 @@ public final class FieldFormatter
         }
 
         public String  getName()      { return name; }
-        public String  getCType()     { return cType; }
+        public String  getNativeType()     { return nativeType; }
         public String  getReadStmt()  { return readStmt; }
         public String  getWriteStmt() { return writeStmt; }
         public String  getFreeStmt()  { return freeStmt; }

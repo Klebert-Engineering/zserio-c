@@ -14,7 +14,7 @@
 
 typedef struct ${typeName} {
 <#list fields as field>
-    ${field.cType} ${field.name};
+    ${field.nativeType} ${field.name};
 </#list>
 } ${typeName};
 
