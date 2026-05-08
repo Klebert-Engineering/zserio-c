@@ -31,6 +31,13 @@ struct Address
     string  street;
 };
 
+union Greeting
+{
+    string      text_greeting;
+    uint32      coded_greeting;
+    Address     address_greeting;
+};
+
 struct Hello
 {
     uint8       age;

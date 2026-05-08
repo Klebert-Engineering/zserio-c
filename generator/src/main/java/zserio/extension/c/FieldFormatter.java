@@ -49,8 +49,13 @@ public final class FieldFormatter
         // utility class
     }
 
-    /** Lower one field. */
-    public static FieldData format(Field field) throws ZserioExtensionException
+    /**
+     * Lower one field. {@code holderExpr} is the C expression that
+     * yields the struct holding the field — typically {@code "self->"}
+     * for top-level structs or {@code "self->u."} for the cases of
+     * a union (where each case lives inside an anonymous member union).
+     */
+    public static FieldData format(Field field, String holderExpr) throws ZserioExtensionException
     {
         final String name = CIdentifierFormatter.toLowerSnake(field.getName());
         final TypeReference ref = field.getTypeInstantiation().getTypeReference();
@@ -66,44 +71,44 @@ public final class FieldFormatter
         // they short-circuit before the underlying-type dispatch.
         if (direct instanceof CompoundType)
         {
-            return compound(name, (CompoundType)direct, b);
+            return compound(name, (CompoundType)direct, b, holderExpr);
         }
 
         final ZserioType under = underlyingType(direct);
 
         if (under instanceof BooleanType)
         {
-            return scalar(name, b, "bool");
+            return scalar(name, b, "bool", holderExpr);
         }
         if (under instanceof StdIntegerType)
         {
             final StdIntegerType std = (StdIntegerType)under;
-            return scalar(name, b, intSuffix(std.getBitSize(), std.isSigned()));
+            return scalar(name, b, intSuffix(std.getBitSize(), std.isSigned()), holderExpr);
         }
         if (under instanceof FloatType)
         {
-            return scalar(name, b, "float" + ((FloatType)under).getBitSize());
+            return scalar(name, b, "float" + ((FloatType)under).getBitSize(), holderExpr);
         }
         if (under instanceof VarIntegerType)
         {
-            return scalar(name, b, varintSuffix((VarIntegerType)under));
+            return scalar(name, b, varintSuffix((VarIntegerType)under), holderExpr);
         }
         if (under instanceof FixedBitFieldType)
         {
             final FixedBitFieldType bf = (FixedBitFieldType)under;
-            return bitField(name, b, bf.getBitSize(), bf.isSigned());
+            return bitField(name, b, bf.getBitSize(), bf.isSigned(), holderExpr);
         }
         if (under instanceof StringType)
         {
-            return string(name);
+            return string(name, holderExpr);
         }
         if (under instanceof BytesType)
         {
-            return bytes(name);
+            return bytes(name, holderExpr);
         }
         if (under instanceof ExternType)
         {
-            return externField(name);
+            return externField(name, holderExpr);
         }
         throw new ZserioExtensionException(
                 "zserio-c: struct field '" + field.getName() + "': "
@@ -114,21 +119,21 @@ public final class FieldFormatter
     /* -------- read/write/free shapes per category -------- */
 
     /** Fixed-width primitive / bool / float / varint via a typed read fn. */
-    private static FieldData scalar(String name, TypeBinding b, String runtimeSuffix)
+    private static FieldData scalar(String name, TypeBinding b, String runtimeSuffix, String h)
     {
         // The runtime function has a stdint-typed pointer parameter,
         // and a C typedef is identical to its underlying type, so we
-        // can pass &self->name directly even when the C type is a
+        // can pass &<holder>name directly even when the C type is a
         // user-facing typedef (subtype / enum / bitmask).
         final String read  = "ZSERIO_TRY(zserio_read_"  + runtimeSuffix
-                + "(bs, &self->" + name + "));";
+                + "(bs, &" + h + name + "));";
         final String write = "ZSERIO_TRY(zserio_write_" + runtimeSuffix
-                + "(bs, self->"  + name + "));";
+                + "(bs, " + h + name + "));";
         return new FieldData(name, b.cType, read, write, "", false, b.extraInclude);
     }
 
     /** Fixed-width bit field; read into a wide raw, then cast. */
-    private static FieldData bitField(String name, TypeBinding b, int bits, boolean signed)
+    private static FieldData bitField(String name, TypeBinding b, int bits, boolean signed, String h)
     {
         final String runtimeRead  = signed ? "zserio_bitstream_read_signed" : "zserio_bitstream_read_bits";
         final String runtimeWrite = signed ? "zserio_bitstream_write_signed" : "zserio_bitstream_write_bits";
@@ -140,63 +145,63 @@ public final class FieldFormatter
                 + "        " + rawType + " " + name + "_raw;\n"
                 + "        ZSERIO_TRY(" + runtimeRead + "(bs, " + bits
                 + ", &" + name + "_raw));\n"
-                + "        self->" + name + " = (" + b.cType + ")" + name + "_raw;\n"
+                + "        " + h + name + " = (" + b.cType + ")" + name + "_raw;\n"
                 + "    }";
         final String write = "ZSERIO_TRY(" + runtimeWrite + "(bs, " + bits
-                + ", " + castOnWrite + "self->" + name + "));";
+                + ", " + castOnWrite + h + name + "));";
         return new FieldData(name, b.cType, read, write, "", false, b.extraInclude);
     }
 
-    private static FieldData string(String name)
+    private static FieldData string(String name, String h)
     {
-        final String read = "ZSERIO_TRY(zserio_read_string(bs, alloc, &self->" + name + "));";
+        final String read = "ZSERIO_TRY(zserio_read_string(bs, alloc, &" + h + name + "));";
         final String write =
                 "{\n"
                 + "        const zserio_string_view_t " + name + "_view = "
-                + "{ self->" + name + ".bytes, self->" + name + ".length };\n"
+                + "{ " + h + name + ".bytes, " + h + name + ".length };\n"
                 + "        ZSERIO_TRY(zserio_write_string(bs, " + name + "_view));\n"
                 + "    }";
-        final String free = "zserio_string_free(&self->" + name + ", alloc);";
+        final String free = "zserio_string_free(&" + h + name + ", alloc);";
         return new FieldData(name, "zserio_string_t", read, write, free, true, "zserio/string.h");
     }
 
-    private static FieldData bytes(String name)
+    private static FieldData bytes(String name, String h)
     {
-        final String read = "ZSERIO_TRY(zserio_read_bytes(bs, alloc, &self->" + name + "));";
+        final String read = "ZSERIO_TRY(zserio_read_bytes(bs, alloc, &" + h + name + "));";
         final String write =
                 "{\n"
                 + "        const zserio_bytes_view_t " + name + "_view = "
-                + "{ self->" + name + ".bytes, self->" + name + ".length };\n"
+                + "{ " + h + name + ".bytes, " + h + name + ".length };\n"
                 + "        ZSERIO_TRY(zserio_write_bytes(bs, " + name + "_view));\n"
                 + "    }";
-        final String free = "zserio_bytes_free(&self->" + name + ", alloc);";
+        final String free = "zserio_bytes_free(&" + h + name + ", alloc);";
         return new FieldData(name, "zserio_bytes_t", read, write, free, true, "zserio/bytes.h");
     }
 
-    private static FieldData externField(String name)
+    private static FieldData externField(String name, String h)
     {
-        final String read = "ZSERIO_TRY(zserio_read_extern(bs, alloc, &self->" + name + "));";
+        final String read = "ZSERIO_TRY(zserio_read_extern(bs, alloc, &" + h + name + "));";
         final String write =
                 "{\n"
                 + "        const zserio_bit_view_t " + name + "_view = "
-                + "{ self->" + name + ".bytes, 0u, self->" + name + ".bit_length };\n"
+                + "{ " + h + name + ".bytes, 0u, " + h + name + ".bit_length };\n"
                 + "        ZSERIO_TRY(zserio_write_extern(bs, " + name + "_view));\n"
                 + "    }";
-        final String free = "zserio_extern_free(&self->" + name + ", alloc);";
+        final String free = "zserio_extern_free(&" + h + name + ", alloc);";
         return new FieldData(name, "zserio_extern_t", read, write, free, true, "zserio/extern.h");
     }
 
-    private static FieldData compound(String name, CompoundType ct, TypeBinding b)
+    private static FieldData compound(String name, CompoundType ct, TypeBinding b, String h)
     {
         final PackageName pkg = ct.getPackage().getPackageName();
         final String prefix = CIdentifierFormatter.funcPrefix(pkg, ct.getName());
-        final String read  = "ZSERIO_TRY(" + prefix + "_read(&self->"  + name + ", bs, alloc));";
-        final String write = "ZSERIO_TRY(" + prefix + "_write(&self->" + name + ", bs));";
+        final String read  = "ZSERIO_TRY(" + prefix + "_read(&" + h + name + ", bs, alloc));";
+        final String write = "ZSERIO_TRY(" + prefix + "_write(&" + h + name + ", bs));";
         // Always emit a free call. For primitive-only children the
         // generated _free is itself a no-op apart from the NULL guard,
         // so this stays cheap; emitting unconditionally avoids needing
         // to look at the child's own field list to decide.
-        final String free = prefix + "_free(&self->" + name + ", alloc);";
+        final String free = prefix + "_free(&" + h + name + ", alloc);";
         return new FieldData(name, b.cType, read, write, free, true, b.extraInclude);
     }
 
