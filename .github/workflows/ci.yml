@@ -115,7 +115,12 @@ jobs:
       - name: Measure sizes
         run: python3 tools/measure_size.py > sizes.json
       - name: Check regression vs baseline
-        run: python3 tools/check_size_regression.py sizes.json | tee size-report.txt
+        # `set -o pipefail` so the script's non-zero exit propagates
+        # through `tee` and fails the step as it should.
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 tools/check_size_regression.py sizes.json | tee size-report.txt
       - name: Post size report as commit comment
         if: always()
         env:
@@ -163,7 +168,10 @@ jobs:
           lcov --summary coverage-runtime.info \
                --rc lcov_branch_coverage=1 2>&1 | tee coverage-summary.txt
       - name: Check thresholds
-        run: python3 tools/check_coverage.py coverage-runtime.info | tee coverage-report.txt
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 tools/check_coverage.py coverage-runtime.info | tee coverage-report.txt
       - name: Post coverage report as commit comment
         if: always()
         env:

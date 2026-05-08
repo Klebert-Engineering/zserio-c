@@ -44,8 +44,15 @@ def main(argv: list[str]) -> int:
 
     baseline = json.loads(BASELINE.read_text())
 
-    print(f"{'section':16s}  {'baseline':>10s}  {'current':>10s}  {'delta %':>10s}")
-    print("-" * 52)
+    # Sections that are *gated* by the regression check. `other` (ELF
+    # metadata: .comment, .note.GNU-stack, debug-info residue) is
+    # reported for visibility but not gated — it varies across
+    # toolchain versions and isn't safety-relevant. .text, .rodata,
+    # .data, .bss are the binary-size dimensions we actually care about.
+    GATED_SECTIONS = {".text", ".rodata", ".data", ".bss"}
+
+    print(f"{'section':16s}  {'baseline':>10s}  {'current':>10s}  {'delta %':>10s}  gated")
+    print("-" * 60)
     failed = False
     for section, current_size in sorted(current["totals"].items()):
         baseline_size = baseline["totals"].get(section, 0)
@@ -55,11 +62,13 @@ def main(argv: list[str]) -> int:
         else:
             change_pct = (current_size - baseline_size) / baseline_size * 100.0
             change_str = f"{change_pct:+.2f}"
+        gated = section in GATED_SECTIONS
         marker = ""
-        if change_pct > THRESHOLD_PCT:
+        if gated and change_pct > THRESHOLD_PCT:
             marker = "  REGRESSION"
             failed = True
-        print(f"{section:16s}  {baseline_size:10d}  {current_size:10d}  {change_str:>10s}{marker}")
+        gated_str = "yes" if gated else "no"
+        print(f"{section:16s}  {baseline_size:10d}  {current_size:10d}  {change_str:>10s}  {gated_str}{marker}")
 
     if failed:
         print(f"\nFAIL: at least one tracked section grew by more than {THRESHOLD_PCT}%.")

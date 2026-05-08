@@ -57,7 +57,13 @@ def configure_and_build() -> None:
         "-DCMAKE_BUILD_TYPE=MinSizeRel",
         "-DZSERIO_C_BUILD_TESTS=OFF",
         "-DZSERIO_C_WERROR=OFF",
-        "-DCMAKE_C_FLAGS=-Os -ffunction-sections -fdata-sections",
+        # `-fno-asynchronous-unwind-tables -fno-unwind-tables` drop the
+        # .eh_frame section. The runtime never throws (REQ-FS-002), so
+        # the unwind tables are pure overhead — and worse, their size is
+        # sensitive to gcc version, which makes the regression gate
+        # noisy across toolchain bumps.
+        "-DCMAKE_C_FLAGS=-Os -ffunction-sections -fdata-sections "
+            "-fno-asynchronous-unwind-tables -fno-unwind-tables",
     ], stdout=subprocess.DEVNULL)
     _run([
         "cmake", "--build", str(BUILD_DIR), "--target", "zserio_c_runtime",
