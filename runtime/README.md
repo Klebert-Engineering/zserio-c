@@ -44,8 +44,27 @@ Already implemented:
   string: `zserio_bytes_view_t` (requires byte-aligned source) and
   `zserio_bytes_t` owned. Note the unit difference vs. extern: bytes
   counts BYTES, extern counts BITS.
+- **`<zserio/delta.h>`** — `DeltaContext` for `packed` arrays of
+  fixed-width integer types. Width-and-signedness API: caller
+  passes element bit patterns as `uint64_t`. Init pass observes
+  elements to compute `maxBitNumber`; use pass writes/reads. v1
+  covers fixed-width integers; varint-typed packed elements are a
+  follow-up.
+- **`<zserio/zserio.h>`** — umbrella include.
 
-To be added next:
+`offset.h` is intentionally NOT a separate header. The offset feature
+is implemented entirely in generated code using `bitstream.align`,
+`bitstream.position`, and `bitstream.seek`. Adding a header for
+this would just re-export those calls under different names.
+
+The public API surface is now feature-complete for the in-scope
+schema language (`01-schema-language.md` §1). Outstanding work:
+
+- Performance optimization of the bitstream (cache + mask table —
+  Phase 6).
+- Static-analysis CI gates for REQ-FS-002 and REQ-FS-003 (no
+  setjmp / no recursion).
+- Code-size CI gate for REQ-PF-002.
 - `<zserio/string.h>` — UTF-8 string view, owned, read / write
 - `<zserio/extern.h>` — opaque bit blob (`extern` type), with the
   borrow + materialize dual API

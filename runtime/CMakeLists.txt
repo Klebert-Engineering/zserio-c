@@ -7,6 +7,7 @@ add_library(zserio_c_runtime STATIC
     src/allocator.c
     src/bitstream.c
     src/bytes.c
+    src/delta.c
     src/extern.c
     src/float.c
     src/primitives.c
