@@ -68,6 +68,35 @@ jobs:
         with:
           name: cppcheck-log
           path: cppcheck.log
+      - name: Post cppcheck output as commit comment
+        # The artifact path requires Azure blob access which our
+        # development environment can't reach. Posting the log as a
+        # commit comment keeps it accessible through the plain
+        # repos/.../commits/<sha>/comments endpoint.
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -u
+          if [[ -s cppcheck.log ]]; then
+            LOG_LINES="$(wc -l < cppcheck.log | tr -d ' ')"
+            LOG_BYTES="$(wc -c < cppcheck.log | tr -d ' ')"
+            # Truncate body to under the GitHub comment limit (65536) just in case.
+            LOG_BODY="$(head -c 60000 cppcheck.log)"
+            HEADER="cppcheck.log (${LOG_LINES} lines, ${LOG_BYTES} bytes) for commit ${GITHUB_SHA}"
+          else
+            LOG_BODY="(empty — cppcheck produced no output)"
+            HEADER="cppcheck.log (0 bytes) for commit ${GITHUB_SHA}"
+          fi
+          {
+            printf '%s\n\n```\n' "${HEADER}"
+            printf '%s' "${LOG_BODY}"
+            printf '\n```\n'
+          } > /tmp/comment_body.md
+          gh api -X POST \
+            "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
+            -F body=@/tmp/comment_body.md \
+            -H 'Accept: application/vnd.github+json'
 
   # Phase 1 follow-ups: coverage.yml (gcov/lcov gated at 100% line+branch),
   # size.yml (REQ-PF-002 regression gating). Added when those modules'
