@@ -94,10 +94,12 @@ zserio_status_t zserio_read_extern(zserio_bitstream_reader_t *bs,
     for (size_t i = 0U; i < full_bytes; i++) {
         uint64_t b = 0U;
         const zserio_status_t st = zserio_bitstream_read_bits(bs, 8U, &b);
-        if (st != ZSERIO_OK) {
+        if (st != ZSERIO_OK) { /* LCOV_EXCL_START — unreachable: bound
+                                * check above guarantees bit_length bits
+                                * remain. */
             alloc->vtable->free(alloc->userdata, dst, byte_count, 1U);
             return st;
-        }
+        } /* LCOV_EXCL_STOP */
         dst[i] = (uint8_t)b;
     }
 
@@ -107,10 +109,12 @@ zserio_status_t zserio_read_extern(zserio_bitstream_reader_t *bs,
     if (trailing_bits > 0U) {
         uint64_t b = 0U;
         const zserio_status_t st = zserio_bitstream_read_bits(bs, (uint8_t)trailing_bits, &b);
-        if (st != ZSERIO_OK) {
+        if (st != ZSERIO_OK) { /* LCOV_EXCL_START — unreachable: bound
+                                * check above guarantees bit_length bits
+                                * remain. */
             alloc->vtable->free(alloc->userdata, dst, byte_count, 1U);
             return st;
-        }
+        } /* LCOV_EXCL_STOP */
         dst[full_bytes] = (uint8_t)(b << (8U - trailing_bits));
     }
 

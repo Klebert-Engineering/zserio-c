@@ -309,6 +309,68 @@ static void test_extern_free_on_zero_struct(void)
     TEST_ASSERT_EQUAL_size_t(0U, g_alloc.free_count);
 }
 
+static void test_extern_view_null_args(void)
+{
+    /* Verifies: REQ-FS-006 */
+    const uint8_t buf[1] = { 0 };
+    zserio_bitstream_reader_t r;
+    (void)zserio_bitstream_reader_init(&r, buf, 8U);
+    zserio_bit_view_t out;
+    TEST_ASSERT_EQUAL(ZSERIO_ERR_INVALID_ARGUMENT, zserio_read_extern_view(NULL, &out));
+    TEST_ASSERT_EQUAL(ZSERIO_ERR_INVALID_ARGUMENT, zserio_read_extern_view(&r, NULL));
+}
+
+static void test_extern_view_truncated_buffer(void)
+{
+    /* varsize 16 bits, buffer has only 8 more bits after the prefix. */
+    const uint8_t buf[2] = { 0x10, 0xAA };
+    zserio_bitstream_reader_t r;
+    (void)zserio_bitstream_reader_init(&r, buf, 16U);
+    zserio_bit_view_t out = { NULL, 0U, 0U };
+    TEST_ASSERT_EQUAL(ZSERIO_ERR_END_OF_STREAM, zserio_read_extern_view(&r, &out));
+    /* Position must be unchanged on failure. */
+    TEST_ASSERT_EQUAL_size_t(0U, zserio_bitstream_reader_position(&r));
+}
+
+static void test_extern_owned_null_args(void)
+{
+    /* Verifies: REQ-FS-006 */
+    const uint8_t buf[1] = { 0 };
+    zserio_bitstream_reader_t r;
+    (void)zserio_bitstream_reader_init(&r, buf, 8U);
+    const zserio_allocator_t alloc = test_allocator();
+    zserio_extern_t out;
+    TEST_ASSERT_EQUAL(ZSERIO_ERR_INVALID_ARGUMENT, zserio_read_extern(NULL, &alloc, &out));
+    TEST_ASSERT_EQUAL(ZSERIO_ERR_INVALID_ARGUMENT, zserio_read_extern(&r, &alloc, NULL));
+    TEST_ASSERT_EQUAL(ZSERIO_ERR_INVALID_ARGUMENT, zserio_read_extern(&r, NULL, &out));
+    const zserio_allocator_t bad = { NULL, NULL };
+    TEST_ASSERT_EQUAL(ZSERIO_ERR_INVALID_ARGUMENT, zserio_read_extern(&r, &bad, &out));
+}
+
+static void test_extern_owned_truncated_buffer_no_leak(void)
+{
+    /* varsize 16 bits, buffer too short. Bound check before alloc. */
+    const uint8_t buf[2] = { 0x10, 0xAA };
+    zserio_bitstream_reader_t r;
+    (void)zserio_bitstream_reader_init(&r, buf, 16U);
+    const zserio_allocator_t alloc = test_allocator();
+    zserio_extern_t out = { NULL, 0U };
+    TEST_ASSERT_EQUAL(ZSERIO_ERR_END_OF_STREAM, zserio_read_extern(&r, &alloc, &out));
+    TEST_ASSERT_EQUAL_size_t(0U, g_alloc.alloc_count);
+}
+
+static void test_extern_write_too_long(void)
+{
+    /* Verifies: REQ-FS-006 */
+    uint8_t buf[1] = { 0 };
+    zserio_bitstream_writer_t w;
+    (void)zserio_bitstream_writer_init(&w, buf, 8U);
+    const uint8_t src[1] = { 0 };
+    /* bit_length larger than ZSERIO_EXTERN_MAX_BITS triggers VALUE_OUT_OF_RANGE. */
+    zserio_bit_view_t v = { src, 0U, (size_t)0x80000000U };
+    TEST_ASSERT_EQUAL(ZSERIO_ERR_VALUE_OUT_OF_RANGE, zserio_write_extern(&w, v));
+}
+
 /* ------------------------------------------------------------------------ */
 /* Test runner                                                              */
 /* ------------------------------------------------------------------------ */
@@ -331,6 +393,11 @@ int main(void)
     RUN_TEST(test_extern_write_null_base_with_length);
     RUN_TEST(test_extern_alloc_failure);
     RUN_TEST(test_extern_free_on_zero_struct);
+    RUN_TEST(test_extern_view_null_args);
+    RUN_TEST(test_extern_view_truncated_buffer);
+    RUN_TEST(test_extern_owned_null_args);
+    RUN_TEST(test_extern_owned_truncated_buffer_no_leak);
+    RUN_TEST(test_extern_write_too_long);
 
     return UNITY_END();
 }

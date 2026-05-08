@@ -121,12 +121,13 @@ static zserio_status_t read_varuint_impl(zserio_bitstream_reader_t *bs,
         const bool is_last = (i == (uint8_t)(max_bytes - 1U));
         if (is_last) {
             /* Last byte: full 8 bits of value, no continuation bit. */
-            if (i == 0U) {
-                /* Single-byte type? Only varuint16 with max_bytes=2 doesn't
-                 * hit this branch — the smallest unsigned varint is 2 bytes
-                 * max. We never call read_varuint_impl with max_bytes==1. */
+            if (i == 0U) { /* LCOV_EXCL_START — only fires when
+                            * max_bytes == 1; we never call this impl
+                            * with max_bytes == 1 (smallest unsigned
+                            * varint type is 2 bytes max). */
                 result = byte;
-            } else {
+            } /* LCOV_EXCL_STOP */
+            else {
                 result = (result << 8U) | byte;
             }
             if ((cap_value != 0U) && (result > cap_value)) {
@@ -150,7 +151,7 @@ static zserio_status_t read_varuint_impl(zserio_bitstream_reader_t *bs,
     }
     /* Unreachable: the loop returns from the is_last branch on the
      * final iteration. Defensive fall-through for the static analyser. */
-    return ZSERIO_ERR_INVALID_ENCODING;
+    return ZSERIO_ERR_INVALID_ENCODING; /* LCOV_EXCL_LINE — unreachable */
 }
 
 /* ------------------------------------------------------------------------ */
@@ -203,7 +204,7 @@ static zserio_status_t read_varint_impl(zserio_bitstream_reader_t *bs,
             return ZSERIO_OK;
         }
     }
-    return ZSERIO_ERR_INVALID_ENCODING;
+    return ZSERIO_ERR_INVALID_ENCODING; /* LCOV_EXCL_LINE — unreachable */
 }
 
 /* ------------------------------------------------------------------------ */

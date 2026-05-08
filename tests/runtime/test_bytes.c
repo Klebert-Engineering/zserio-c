@@ -251,6 +251,76 @@ static void test_bytes_free_on_zero_struct(void)
     TEST_ASSERT_EQUAL_size_t(0U, g_alloc.free_count);
 }
 
+static void test_bytes_view_null_args(void)
+{
+    /* Verifies: REQ-FS-006 */
+    const uint8_t buf[1] = { 0 };
+    zserio_bitstream_reader_t r;
+    (void)zserio_bitstream_reader_init(&r, buf, 8U);
+    zserio_bytes_view_t out;
+    TEST_ASSERT_EQUAL(ZSERIO_ERR_INVALID_ARGUMENT, zserio_read_bytes_view(NULL, &out));
+    TEST_ASSERT_EQUAL(ZSERIO_ERR_INVALID_ARGUMENT, zserio_read_bytes_view(&r, NULL));
+}
+
+static void test_bytes_owned_null_args(void)
+{
+    /* Verifies: REQ-FS-006 */
+    const uint8_t buf[1] = { 0 };
+    zserio_bitstream_reader_t r;
+    (void)zserio_bitstream_reader_init(&r, buf, 8U);
+    const zserio_allocator_t alloc = test_allocator();
+    zserio_bytes_t out;
+    TEST_ASSERT_EQUAL(ZSERIO_ERR_INVALID_ARGUMENT,
+                      zserio_read_bytes(NULL, &alloc, &out));
+    TEST_ASSERT_EQUAL(ZSERIO_ERR_INVALID_ARGUMENT,
+                      zserio_read_bytes(&r, &alloc, NULL));
+    TEST_ASSERT_EQUAL(ZSERIO_ERR_INVALID_ARGUMENT,
+                      zserio_read_bytes(&r, NULL, &out));
+    /* invalid allocator vtable */
+    const zserio_allocator_t bad = { NULL, NULL };
+    TEST_ASSERT_EQUAL(ZSERIO_ERR_INVALID_ARGUMENT,
+                      zserio_read_bytes(&r, &bad, &out));
+}
+
+static void test_bytes_view_truncated_buffer(void)
+{
+    /* Construct a buffer where varsize says length=10 but only 5 bytes follow. */
+    const uint8_t buf[6] = { 0x0A, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE };
+    zserio_bitstream_reader_t r;
+    (void)zserio_bitstream_reader_init(&r, buf, 48U);
+    zserio_bytes_view_t out = { NULL, 0U };
+    TEST_ASSERT_EQUAL(ZSERIO_ERR_END_OF_STREAM, zserio_read_bytes_view(&r, &out));
+    /* Position must be unchanged on failure. */
+    TEST_ASSERT_EQUAL_size_t(0U, zserio_bitstream_reader_position(&r));
+}
+
+static void test_bytes_view_empty_string_succeeds(void)
+{
+    /* Hits the `length == 0` branch (out->base = NULL). */
+    const uint8_t buf[1] = { 0x00 };
+    zserio_bitstream_reader_t r;
+    (void)zserio_bitstream_reader_init(&r, buf, 8U);
+    zserio_bytes_view_t out = { (const uint8_t *)0xDEAD, 99U };
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zserio_read_bytes_view(&r, &out));
+    TEST_ASSERT_NULL(out.base);
+    TEST_ASSERT_EQUAL_size_t(0U, out.length);
+}
+
+static void test_bytes_owned_truncated_buffer_no_leak(void)
+{
+    /* End-of-stream during materialize must not leak: bound check is
+     * before alloc, so alloc_count stays 0. */
+    const uint8_t buf[6] = { 0x0A, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE };
+    zserio_bitstream_reader_t r;
+    (void)zserio_bitstream_reader_init(&r, buf, 48U);
+    const zserio_allocator_t alloc = test_allocator();
+    zserio_bytes_t out = { NULL, 0U };
+    TEST_ASSERT_EQUAL(ZSERIO_ERR_END_OF_STREAM,
+                      zserio_read_bytes(&r, &alloc, &out));
+    TEST_ASSERT_EQUAL_size_t(0U, g_alloc.alloc_count);
+    TEST_ASSERT_EQUAL_size_t(0U, g_alloc.free_count);
+}
+
 /* ------------------------------------------------------------------------ */
 /* Test runner                                                              */
 /* ------------------------------------------------------------------------ */
@@ -269,6 +339,11 @@ int main(void)
     RUN_TEST(test_bytes_write_null_base);
     RUN_TEST(test_bytes_alloc_failure);
     RUN_TEST(test_bytes_free_on_zero_struct);
+    RUN_TEST(test_bytes_view_null_args);
+    RUN_TEST(test_bytes_owned_null_args);
+    RUN_TEST(test_bytes_view_truncated_buffer);
+    RUN_TEST(test_bytes_view_empty_string_succeeds);
+    RUN_TEST(test_bytes_owned_truncated_buffer_no_leak);
 
     return UNITY_END();
 }

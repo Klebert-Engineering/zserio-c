@@ -375,6 +375,18 @@ static void test_string_free_on_zero_struct(void)
     zserio_string_free(NULL, &alloc);
 }
 
+static void test_string_view_truncated_buffer(void)
+{
+    /* varsize claims length=10 but buffer holds fewer bytes. */
+    const uint8_t buf[6] = { 0x0A, 0x41, 0x42, 0x43, 0x44, 0x45 };
+    zserio_bitstream_reader_t r;
+    (void)zserio_bitstream_reader_init(&r, buf, 48U);
+    zserio_string_view_t out = { NULL, 0U };
+    TEST_ASSERT_EQUAL(ZSERIO_ERR_END_OF_STREAM,
+                      zserio_read_string_view(&r, &out));
+    TEST_ASSERT_EQUAL_size_t(0U, zserio_bitstream_reader_position(&r));
+}
+
 /* ------------------------------------------------------------------------ */
 /* Test runner                                                              */
 /* ------------------------------------------------------------------------ */
@@ -403,6 +415,7 @@ int main(void)
     RUN_TEST(test_read_string_view_null_args);
     RUN_TEST(test_read_string_truncated_buffer_no_leak);
     RUN_TEST(test_string_free_on_zero_struct);
+    RUN_TEST(test_string_view_truncated_buffer);
 
     return UNITY_END();
 }

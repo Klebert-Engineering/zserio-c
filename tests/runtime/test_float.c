@@ -209,6 +209,50 @@ static void test_read_eof_propagation(void)
 }
 
 /* ------------------------------------------------------------------------ */
+/* float32 -> float16 conversion edge cases                                 */
+/* ------------------------------------------------------------------------ */
+
+static void test_float32_subnormal_to_float16_zero(void)
+{
+    /* Smallest positive float32 subnormal: 0x00000001. Far below
+     * float16's smallest representable value → underflows to +0
+     * in float16. Hits L138 (significand16 = 0 path). */
+    const uint16_t bits = zserio_float_to_u16(zserio_float_from_u32(0x00000001U));
+    TEST_ASSERT_EQUAL_HEX16(0x0000, bits);
+}
+
+static void test_float32_overflow_to_float16_infinity(void)
+{
+    /* float32 ~1.7e38: exponent way above what float16 can hold.
+     * Hits L149 (exponent16 = INFINITY_NAN path). */
+    const float v = zserio_float_from_u32(0x7F000000U);
+    const uint16_t bits = zserio_float_to_u16(v);
+    TEST_ASSERT_EQUAL_HEX16(0x7C00, bits); /* +infinity */
+}
+
+static void test_float32_underflow_too_small_to_zero(void)
+{
+    /* 2^-25 ≈ 3e-8: smaller than float16's smallest subnormal (~6e-8).
+     * signed_exponent16 = -10 = -FLOAT16_SIGNIFICAND_NUM_BITS, hits the
+     * "too big underflow" branch on L154. */
+    const float v = zserio_float_from_u32(0x33000000U);
+    const uint16_t bits = zserio_float_to_u16(v);
+    TEST_ASSERT_EQUAL_HEX16(0x0000, bits);
+}
+
+static void test_float16_rounding_up(void)
+{
+    /* float32 with mantissa bit 12 set: that's the rounding bit when
+     * narrowing to float16 (which keeps mantissa bits 13..22). The
+     * exponent-OK path computes
+     *   needs_rounding = (significand32 >> 12) & 1
+     * so setting bit 12 triggers round-up to the next representable
+     * float16, exercising L183. Bit pattern 0x3F801000 = 1.0 + 2^-11. */
+    const uint16_t bits = zserio_float_to_u16(zserio_float_from_u32(0x3F801000U));
+    TEST_ASSERT_EQUAL_HEX16(0x3C01, bits);
+}
+
+/* ------------------------------------------------------------------------ */
 /* Test runner                                                              */
 /* ------------------------------------------------------------------------ */
 
@@ -253,6 +297,12 @@ int main(void)
     /* Conversion helpers */
     RUN_TEST(test_float32_helpers_symmetric);
     RUN_TEST(test_float64_helpers_symmetric);
+
+    /* float32 -> float16 edge cases */
+    RUN_TEST(test_float32_subnormal_to_float16_zero);
+    RUN_TEST(test_float32_overflow_to_float16_infinity);
+    RUN_TEST(test_float32_underflow_too_small_to_zero);
+    RUN_TEST(test_float16_rounding_up);
 
     /* Defensive */
     RUN_TEST(test_read_null_out);

@@ -437,6 +437,15 @@ static void test_writer_init_zero_capacity(void)
                       zserio_bitstream_writer_init(&w, buf, 0U));
 }
 
+static void test_writer_init_oversize_capacity(void)
+{
+    /* Verifies: REQ-FS-006 — guard against bit_index + n overflowing size_t. */
+    uint8_t buf[1];
+    zserio_bitstream_writer_t w;
+    TEST_ASSERT_EQUAL(ZSERIO_ERR_INVALID_BUFFER,
+                      zserio_bitstream_writer_init(&w, buf, SIZE_MAX));
+}
+
 /* ------------------------------------------------------------------------ */
 /* Writer: write_bits                                                       */
 /* ------------------------------------------------------------------------ */
@@ -870,6 +879,7 @@ int main(void)
     RUN_TEST(test_writer_init_null_bs);
     RUN_TEST(test_writer_init_null_buffer);
     RUN_TEST(test_writer_init_zero_capacity);
+    RUN_TEST(test_writer_init_oversize_capacity);
 
     /* Writer: write_bits */
     RUN_TEST(test_write_bits_basic);

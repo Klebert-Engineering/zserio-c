@@ -145,6 +145,8 @@ zserio_status_t zserio_delta_observe(zserio_delta_context_t *ctx,
         const uint8_t bits = abs_delta_bit_length(ad);
         if (bits > ctx->max_bit_number) {
             ctx->max_bit_number = bits;
+            /* If the running max exceeds the limit we revoke the
+             * packing-tentative flag so finalise can short-circuit. */
             if (ctx->max_bit_number > DELTA_MAX_BIT_NUMBER_LIMIT) {
                 ctx->flags &= (uint8_t)~DELTA_FLAG_IS_PACKED;
             }

@@ -115,10 +115,12 @@ zserio_status_t zserio_read_string(zserio_bitstream_reader_t *bs,
     for (size_t i = 0U; i < (size_t)length; i++) {
         uint64_t byte = 0U;
         const zserio_status_t st = zserio_bitstream_read_bits(bs, 8U, &byte);
-        if (st != ZSERIO_OK) {
+        if (st != ZSERIO_OK) { /* LCOV_EXCL_START — unreachable: the
+                                * bound check above guarantees the loop
+                                * stays within buffer_bit_size. */
             alloc->vtable->free(alloc->userdata, dst, (size_t)length, 1U);
             return st;
-        }
+        } /* LCOV_EXCL_STOP */
         dst[i] = (char)(uint8_t)byte;
     }
 

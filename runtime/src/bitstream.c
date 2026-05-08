@@ -168,9 +168,10 @@ bool zserio_bitstream_reader_aligned_eof(const zserio_bitstream_reader_t *bs,
         return true;
     }
     /* Saturating arithmetic: if rounding up would overflow size_t,
-     * the stream is certainly exhausted. */
+     * the stream is certainly exhausted. Defensive — unreachable in
+     * practice because reader_init rejects buffers near SIZE_MAX. */
     if (bs->bit_index > (SIZE_MAX - (alignment - 1U))) {
-        return true;
+        return true; /* LCOV_EXCL_LINE — defensive overflow guard */
     }
     const size_t aligned = round_up_pow2(bs->bit_index, alignment);
     return aligned >= bs->buffer_bit_size;

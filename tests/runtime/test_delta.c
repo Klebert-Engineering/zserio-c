@@ -283,6 +283,64 @@ static void test_delta_observe_after_finalise(void)
                       zserio_delta_observe(&ctx, 3U));
 }
 
+static void test_delta_observe_null_ctx(void)
+{
+    /* Verifies: REQ-FS-006 */
+    TEST_ASSERT_EQUAL(ZSERIO_ERR_INVALID_ARGUMENT, zserio_delta_observe(NULL, 0U));
+}
+
+static void test_delta_write_without_observe_takes_unpacked_path(void)
+{
+    /* Skipping the init-pass observes lands the finalise() call on the
+     * "IS_PACKED was never set" early-return branch. Subsequent write
+     * proceeds through the unpacked path. */
+    zserio_delta_context_t ctx;
+    (void)zserio_delta_init(&ctx, 8U, false);
+    uint8_t buf[2] = { 0 };
+    zserio_bitstream_writer_t w;
+    (void)zserio_bitstream_writer_init(&w, buf, 16U);
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zserio_delta_write(&ctx, &w, 0xABU));
+    /* Decode it back: should be unpacked (1 bit = 0) + 8 bits of value. */
+    zserio_bitstream_reader_t r;
+    (void)zserio_bitstream_reader_init(&r, buf, zserio_bitstream_writer_position(&w));
+    zserio_delta_context_t rctx;
+    (void)zserio_delta_init(&rctx, 8U, false);
+    uint64_t v = 0U;
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zserio_delta_read(&rctx, &r, &v));
+    TEST_ASSERT_EQUAL_HEX64(0xABU, v);
+}
+
+static void test_delta_max_bit_number_exceeds_limit(void)
+{
+    /* Verifies: REQ-FN-001 — when the delta width exceeds the 62-bit
+     * MAX_BIT_NUMBER_LIMIT, the encoder falls back to unpacked. */
+    zserio_delta_context_t ctx;
+    (void)zserio_delta_init(&ctx, 64U, false);
+    /* observe 0 and UINT64_MAX → abs_delta = UINT64_MAX, bit_length = 64 > 62 */
+    (void)zserio_delta_observe(&ctx, 0U);
+    (void)zserio_delta_observe(&ctx, UINT64_MAX);
+
+    uint8_t buf[24] = { 0 };
+    zserio_bitstream_writer_t w;
+    (void)zserio_bitstream_writer_init(&w, buf, 192U);
+    /* Re-init for the use pass. */
+    (void)zserio_delta_init(&ctx, 64U, false);
+    (void)zserio_delta_observe(&ctx, 0U);
+    (void)zserio_delta_observe(&ctx, UINT64_MAX);
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zserio_delta_write(&ctx, &w, 0U));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zserio_delta_write(&ctx, &w, UINT64_MAX));
+
+    zserio_bitstream_reader_t r;
+    (void)zserio_bitstream_reader_init(&r, buf, zserio_bitstream_writer_position(&w));
+    zserio_delta_context_t rctx;
+    (void)zserio_delta_init(&rctx, 64U, false);
+    uint64_t a = 0U, b = 0U;
+    (void)zserio_delta_read(&rctx, &r, &a);
+    (void)zserio_delta_read(&rctx, &r, &b);
+    TEST_ASSERT_EQUAL_HEX64(UINT64_C(0), a);
+    TEST_ASSERT_EQUAL_HEX64(UINT64_MAX, b);
+}
+
 static void test_delta_write_read_null_args(void)
 {
     /* Verifies: REQ-FS-006 */
@@ -324,6 +382,9 @@ int main(void)
     RUN_TEST(test_delta_single_element_unpacked);
     RUN_TEST(test_delta_init_invalid_args);
     RUN_TEST(test_delta_observe_after_finalise);
+    RUN_TEST(test_delta_observe_null_ctx);
+    RUN_TEST(test_delta_write_without_observe_takes_unpacked_path);
+    RUN_TEST(test_delta_max_bit_number_exceeds_limit);
     RUN_TEST(test_delta_write_read_null_args);
 
     return UNITY_END();

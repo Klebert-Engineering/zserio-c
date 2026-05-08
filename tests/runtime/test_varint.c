@@ -267,6 +267,12 @@ static void test_varint32_round_trip(void)
 {
     /* Verifies: REQ-FN-001 */
     ROUND_TRIP_INT(zserio_write_varint32, zserio_read_varint32, int32_t,  0, 32U);
+    /* 2-byte and 3-byte values exercise the multi-byte non-max early-exit
+     * path in read_varint_impl (the !n_has_next branch). */
+    ROUND_TRIP_INT(zserio_write_varint32, zserio_read_varint32, int32_t,  1000, 32U);
+    ROUND_TRIP_INT(zserio_write_varint32, zserio_read_varint32, int32_t, -1000, 32U);
+    ROUND_TRIP_INT(zserio_write_varint32, zserio_read_varint32, int32_t,  100000, 32U);
+    ROUND_TRIP_INT(zserio_write_varint32, zserio_read_varint32, int32_t, -100000, 32U);
     ROUND_TRIP_INT(zserio_write_varint32, zserio_read_varint32, int32_t,  ((int32_t)1 << 28) - 1, 32U);
     ROUND_TRIP_INT(zserio_write_varint32, zserio_read_varint32, int32_t, -(((int32_t)1 << 28) - 1), 32U);
     ROUND_TRIP_INT(zserio_write_varint32, zserio_read_varint32, int32_t,  -1054780911 / 4, 32U);

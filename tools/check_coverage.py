@@ -23,11 +23,16 @@ import argparse
 import sys
 from pathlib import Path
 
-# Initial thresholds. These are conservative; tighten as confidence builds.
-DEFAULT_LINE_PCT = 95.0
-DEFAULT_BRANCH_PCT = 80.0
+# Thresholds tuned after the first triage pass: line coverage is at
+# 100% with documented LCOV_EXCL markers on the few defensive paths
+# that bound checks make unreachable; branch coverage is at ~88%
+# (compound NULL checks like `a == NULL || b == NULL` produce
+# multiple branch points per condition that aren't all individually
+# exercisable from public-API tests).
+DEFAULT_LINE_PCT = 99.0
+DEFAULT_BRANCH_PCT = 85.0
 DEFAULT_FUNCTION_PCT = 100.0
-DEFAULT_PATH_FILTER = "runtime/"
+DEFAULT_PATH_FILTER = "runtime/src/"
 
 
 def parse_info(info_path: Path, path_filter: str) -> tuple[int, int, int, int, int, int, list[tuple[str, int, int, int, int]]]:
