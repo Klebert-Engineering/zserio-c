@@ -54,6 +54,12 @@ if [[ -z "${BUILT_JAR}" ]]; then
     exit 1
 fi
 
-cp "${BUILT_JAR}" "${CACHE_JAR}"
+# zserio_core.jar's manifest declares Class-Path entries referencing
+# its 3rdparty jars (antlr, commons-cli, freemarker) as siblings in the
+# same directory. The upstream build copies them next to the jar; we
+# mirror that layout in our cache directory so anything that loads
+# zserio_core.jar (javac, java -jar) finds them.
+BUILT_DIR="$(dirname "${BUILT_JAR}")"
+cp "${BUILT_DIR}"/*.jar "${CACHE_DIR}/"
 touch "${STAMP}"
 echo "${CACHE_JAR}"
