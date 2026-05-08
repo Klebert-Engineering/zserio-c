@@ -20,10 +20,10 @@
 
 typedef struct ${typeName} {
 <#list fields as field>
-<#if field.presenceMember?has_content>
-    ${field.presenceMember}
+<#if field.extraMember?has_content>
+    ${field.extraMember}
 </#if>
-    ${field.nativeType} ${field.name};
+    ${field.declaration};
 </#list>
 } ${typeName};
 

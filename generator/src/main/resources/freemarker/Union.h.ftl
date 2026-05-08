@@ -22,7 +22,7 @@ typedef struct ${typeName} {
     uint32_t tag;
     union {
 <#list cases as case>
-        ${case.field.nativeType} ${case.field.name};
+        ${case.field.declaration};
 </#list>
     } u;
 } ${typeName};

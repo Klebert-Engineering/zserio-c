@@ -5,11 +5,15 @@
 
 package zserio.extension.c;
 
+import java.math.BigInteger;
+
+import zserio.ast.ArrayInstantiation;
 import zserio.ast.BitmaskType;
 import zserio.ast.BooleanType;
 import zserio.ast.BytesType;
 import zserio.ast.CompoundType;
 import zserio.ast.EnumType;
+import zserio.ast.Expression;
 import zserio.ast.ExternType;
 import zserio.ast.Field;
 import zserio.ast.FixedBitFieldType;
@@ -79,6 +83,12 @@ public final class FieldFormatter
     {
         final String name = CIdentifierFormatter.toLowerSnake(field.getName());
         final TypeInstantiation typeInst = field.getTypeInstantiation();
+
+        if (typeInst instanceof ArrayInstantiation)
+        {
+            return arrayField(name, (ArrayInstantiation)typeInst, holderExpr, field.getName());
+        }
+
         final TypeReference ref = typeInst.getTypeReference();
         final ZserioType direct = ref.getType();
 
@@ -169,14 +179,175 @@ public final class FieldFormatter
                 : "if (" + present + ") {\n"
                 + "        " + inner.freeStmt + "\n"
                 + "    }";
-        // Owned for the outer field is owned-of-inner: a primitive
-        // optional doesn't need allocator threading even though it
-        // has a presence read.
+        // Stack the presence flag in front of any extraMember the inner
+        // had (e.g. an array's count member): the outer presence flag
+        // gates the whole storage, count and value alike.
+        final String combinedExtra = "bool " + inner.name + "_present;"
+                + (inner.extraMember.isEmpty() ? "" : "\n    " + inner.extraMember);
         return new FieldData(
-                inner.name, inner.nativeType,
+                inner.name, inner.nativeType, inner.declaration,
                 read, write, free,
                 inner.owned, inner.extraInclude,
-                "bool " + inner.name + "_present;");
+                combinedExtra);
+    }
+
+    /* -------- arrays -------- */
+
+    /**
+     * Lower an array-typed field. Phase 2 batch 8 supports two shapes:
+     *
+     * <ul>
+     *   <li>variable-length ({@code T[]}): a varsize length prefix on
+     *       the wire; storage is {@code size_t <name>_count;
+     *       <eltType> *<name>;} with allocator ownership of the buffer;
+     *   <li>fixed-length ({@code T[N]} where N is a compile-time
+     *       integer): no length prefix; storage is a C array
+     *       {@code <eltType> <name>[N];}.
+     * </ul>
+     *
+     * Implicit ({@code implicit T[]}) and packed ({@code packed T[]})
+     * arrays raise an exception until their batches land. Element
+     * types in this batch are limited to integer primitives, bool,
+     * and {@code float*} (plus subtype / enum / bitmask layers, since
+     * those map to the same runtime helper).
+     */
+    private static FieldData arrayField(String name, ArrayInstantiation ai, String h, String origName)
+            throws ZserioExtensionException
+    {
+        if (ai.isImplicit())
+        {
+            throw new ZserioExtensionException(
+                    "zserio-c: implicit arrays are not yet supported (field '" + origName + "')");
+        }
+        if (ai.isPacked())
+        {
+            throw new ZserioExtensionException(
+                    "zserio-c: packed arrays are not yet supported (field '" + origName + "')");
+        }
+
+        final TypeInstantiation eltInst = ai.getElementTypeInstantiation();
+        final ZserioType eltDirect = eltInst.getTypeReference().getType();
+        final TypeBinding eltBinding = bindType(eltDirect);
+        final ZserioType eltUnder = underlyingType(eltDirect);
+
+        final String runtimeSuffix;
+        if (eltUnder instanceof BooleanType)
+        {
+            runtimeSuffix = "bool";
+        }
+        else if (eltUnder instanceof StdIntegerType)
+        {
+            final StdIntegerType std = (StdIntegerType)eltUnder;
+            runtimeSuffix = intSuffix(std.getBitSize(), std.isSigned());
+        }
+        else if (eltUnder instanceof FloatType)
+        {
+            runtimeSuffix = "float" + ((FloatType)eltUnder).getBitSize();
+        }
+        else
+        {
+            throw new ZserioExtensionException(
+                    "zserio-c: array element type "
+                            + eltUnder.getClass().getSimpleName()
+                            + " is not yet supported (field '" + origName + "')");
+        }
+
+        final Expression lenExpr = ai.getLengthExpression();
+        if (lenExpr == null)
+        {
+            return variableArray(name, eltBinding, runtimeSuffix, h);
+        }
+        final BigInteger fixedLen = lenExpr.getIntegerValue();
+        if (fixedLen == null)
+        {
+            throw new ZserioExtensionException(
+                    "zserio-c: fixed-length array bound for '" + origName
+                            + "' must be a compile-time integer in v1");
+        }
+        return fixedArray(name, eltBinding, runtimeSuffix, fixedLen.toString(), h);
+    }
+
+    private static FieldData variableArray(String name, TypeBinding elt, String suffix, String h)
+    {
+        // Storage: count + heap pointer. The count member sits before
+        // the value member so structs read in the order schemas read.
+        final String countExpr = h + name + "_count";
+        final String ptrExpr   = h + name;
+        final String declaration = elt.cType + " *" + name;
+        final String extraMember = "size_t " + name + "_count;";
+
+        final String read =
+                "{\n"
+                + "        uint32_t " + name + "_size = 0u;\n"
+                + "        ZSERIO_TRY(zserio_read_varsize(bs, &" + name + "_size));\n"
+                + "        " + countExpr + " = (size_t)" + name + "_size;\n"
+                + "        " + ptrExpr   + " = NULL;\n"
+                + "        if (" + countExpr + " > 0u) {\n"
+                + "            " + ptrExpr + " = (" + elt.cType + " *)alloc->vtable->alloc(\n"
+                + "                    alloc->userdata,\n"
+                + "                    " + countExpr + " * sizeof(*(" + ptrExpr + ")),\n"
+                + "                    sizeof(*(" + ptrExpr + ")));\n"
+                + "            if (" + ptrExpr + " == NULL) {\n"
+                + "                return ZSERIO_ERR_OUT_OF_MEMORY;\n"
+                + "            }\n"
+                + "            for (size_t " + name + "_i = 0u; " + name + "_i < "
+                + countExpr + "; ++" + name + "_i) {\n"
+                + "                ZSERIO_TRY(zserio_read_" + suffix + "(bs, &"
+                + ptrExpr + "[" + name + "_i]));\n"
+                + "            }\n"
+                + "        }\n"
+                + "    }";
+        final String write =
+                "{\n"
+                + "        ZSERIO_TRY(zserio_write_varsize(bs, (uint32_t)" + countExpr + "));\n"
+                + "        for (size_t " + name + "_i = 0u; " + name + "_i < "
+                + countExpr + "; ++" + name + "_i) {\n"
+                + "            ZSERIO_TRY(zserio_write_" + suffix + "(bs, "
+                + ptrExpr + "[" + name + "_i]));\n"
+                + "        }\n"
+                + "    }";
+        final String free =
+                "if (" + ptrExpr + " != NULL) {\n"
+                + "        alloc->vtable->free(alloc->userdata, " + ptrExpr + ",\n"
+                + "                " + countExpr + " * sizeof(*(" + ptrExpr + ")),\n"
+                + "                sizeof(*(" + ptrExpr + ")));\n"
+                + "        " + ptrExpr + " = NULL;\n"
+                + "        " + countExpr + " = 0u;\n"
+                + "    }";
+
+        return new FieldData(
+                name, elt.cType + " *", declaration,
+                read, write, free,
+                /* owned */ true, elt.extraInclude, extraMember);
+    }
+
+    private static FieldData fixedArray(String name, TypeBinding elt, String suffix,
+            String lengthLiteral, String h)
+    {
+        final String declaration = elt.cType + " " + name + "[" + lengthLiteral + "]";
+        final String access = h + name;
+
+        final String read =
+                "{\n"
+                + "        for (size_t " + name + "_i = 0u; " + name + "_i < "
+                + lengthLiteral + "u; ++" + name + "_i) {\n"
+                + "            ZSERIO_TRY(zserio_read_" + suffix + "(bs, &"
+                + access + "[" + name + "_i]));\n"
+                + "        }\n"
+                + "    }";
+        final String write =
+                "{\n"
+                + "        for (size_t " + name + "_i = 0u; " + name + "_i < "
+                + lengthLiteral + "u; ++" + name + "_i) {\n"
+                + "            ZSERIO_TRY(zserio_write_" + suffix + "(bs, "
+                + access + "[" + name + "_i]));\n"
+                + "        }\n"
+                + "    }";
+        // Primitive fixed array: no per-element free, no buffer to free.
+        return new FieldData(
+                name, elt.cType, declaration,
+                read, write, /* free */ "",
+                /* owned */ false, elt.extraInclude, /* extraMember */ "");
     }
 
     /* -------- read/write/free shapes per category -------- */
@@ -407,40 +578,57 @@ public final class FieldFormatter
     {
         private final String name;
         private final String nativeType;
+        private final String declaration;
         private final String readStmt;
         private final String writeStmt;
         private final String freeStmt;
         private final boolean owned;
         private final String extraInclude;
-        private final String presenceMember;
+        private final String extraMember;
 
+        /** For non-array fields where the C declaration is just
+         *  {@code <nativeType> <name>}. */
         FieldData(String name, String nativeType, String readStmt, String writeStmt,
                 String freeStmt, boolean owned, String extraInclude)
         {
-            this(name, nativeType, readStmt, writeStmt, freeStmt, owned, extraInclude, "");
+            this(name, nativeType, nativeType + " " + name,
+                    readStmt, writeStmt, freeStmt, owned, extraInclude, "");
         }
 
+        /** Same as the simple constructor, plus an {@code extraMember}. */
         FieldData(String name, String nativeType, String readStmt, String writeStmt,
-                String freeStmt, boolean owned, String extraInclude, String presenceMember)
+                String freeStmt, boolean owned, String extraInclude, String extraMember)
+        {
+            this(name, nativeType, nativeType + " " + name,
+                    readStmt, writeStmt, freeStmt, owned, extraInclude, extraMember);
+        }
+
+        /** Full constructor — used for arrays where the declaration is
+         *  {@code <eltType> <name>[<N>]} or {@code <eltType> *<name>}. */
+        FieldData(String name, String nativeType, String declaration,
+                String readStmt, String writeStmt, String freeStmt,
+                boolean owned, String extraInclude, String extraMember)
         {
             this.name = name;
             this.nativeType = nativeType;
+            this.declaration = declaration;
             this.readStmt = readStmt;
             this.writeStmt = writeStmt;
             this.freeStmt = freeStmt;
             this.owned = owned;
             this.extraInclude = extraInclude;
-            this.presenceMember = presenceMember;
+            this.extraMember = extraMember;
         }
 
         public String  getName()           { return name; }
         public String  getNativeType()     { return nativeType; }
+        public String  getDeclaration()    { return declaration; }
         public String  getReadStmt()       { return readStmt; }
         public String  getWriteStmt()      { return writeStmt; }
         public String  getFreeStmt()       { return freeStmt; }
         public boolean getOwned()          { return owned; }
         public String  getExtraInclude()   { return extraInclude; }
-        public String  getPresenceMember() { return presenceMember; }
+        public String  getExtraMember()    { return extraMember; }
     }
 
     /** Pair of C type + the header providing it (or {@code null} for built-ins). */

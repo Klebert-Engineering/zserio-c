@@ -25,7 +25,7 @@ typedef struct ${typeName} {
     union {
 <#list cases as case>
 <#if case.hasField>
-        ${case.field.nativeType} ${case.field.name};
+        ${case.field.declaration};
 </#if>
 </#list>
     } u;

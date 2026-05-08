@@ -63,6 +63,13 @@ struct Profile
     optional Address   work_address;
 };
 
+struct Telemetry
+{
+    uint8[]            readings;
+    int16[8]           fixed_history;
+    optional uint32[]  optional_samples;
+};
+
 struct Hello
 {
     uint8       age;
