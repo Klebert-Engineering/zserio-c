@@ -194,22 +194,26 @@ public final class FieldFormatter
     /* -------- arrays -------- */
 
     /**
-     * Lower an array-typed field. Phase 2 batch 8 supports two shapes:
+     * Lower an array-typed field.
      *
      * <ul>
      *   <li>variable-length ({@code T[]}): a varsize length prefix on
      *       the wire; storage is {@code size_t <name>_count;
-     *       <eltType> *<name>;} with allocator ownership of the buffer;
+     *       <eltType> *<name>;} with allocator ownership of the buffer.
      *   <li>fixed-length ({@code T[N]} where N is a compile-time
      *       integer): no length prefix; storage is a C array
      *       {@code <eltType> <name>[N];}.
      * </ul>
      *
-     * Implicit ({@code implicit T[]}) and packed ({@code packed T[]})
-     * arrays raise an exception until their batches land. Element
-     * types in this batch are limited to integer primitives, bool,
-     * and {@code float*} (plus subtype / enum / bitmask layers, since
-     * those map to the same runtime helper).
+     * Element types: integer primitives, {@code bool}, {@code float*}
+     * (passed through the matching {@code zserio_read_*} helper);
+     * {@code string} / {@code bytes} / {@code extern} (allocator-owned,
+     * per-element free); non-parameterised compound types (call the
+     * child's {@code _read} / {@code _write} / {@code _free}).
+     *
+     * Out of scope: implicit arrays ({@code implicit T[]}), packed
+     * arrays ({@code packed T[]}), parameterised compound elements,
+     * non-literal length expressions, alignment / offset annotations.
      */
     private static FieldData arrayField(String name, ArrayInstantiation ai, String h, String origName)
             throws ZserioExtensionException
@@ -228,34 +232,12 @@ public final class FieldFormatter
         final TypeInstantiation eltInst = ai.getElementTypeInstantiation();
         final ZserioType eltDirect = eltInst.getTypeReference().getType();
         final TypeBinding eltBinding = bindType(eltDirect);
-        final ZserioType eltUnder = underlyingType(eltDirect);
-
-        final String runtimeSuffix;
-        if (eltUnder instanceof BooleanType)
-        {
-            runtimeSuffix = "bool";
-        }
-        else if (eltUnder instanceof StdIntegerType)
-        {
-            final StdIntegerType std = (StdIntegerType)eltUnder;
-            runtimeSuffix = intSuffix(std.getBitSize(), std.isSigned());
-        }
-        else if (eltUnder instanceof FloatType)
-        {
-            runtimeSuffix = "float" + ((FloatType)eltUnder).getBitSize();
-        }
-        else
-        {
-            throw new ZserioExtensionException(
-                    "zserio-c: array element type "
-                            + eltUnder.getClass().getSimpleName()
-                            + " is not yet supported (field '" + origName + "')");
-        }
+        final ElementOps ops = elementOps(eltDirect, eltInst, eltBinding, origName);
 
         final Expression lenExpr = ai.getLengthExpression();
         if (lenExpr == null)
         {
-            return variableArray(name, eltBinding, runtimeSuffix, h);
+            return variableArray(name, ops, h);
         }
         final BigInteger fixedLen = lenExpr.getIntegerValue();
         if (fixedLen == null)
@@ -264,17 +246,133 @@ public final class FieldFormatter
                     "zserio-c: fixed-length array bound for '" + origName
                             + "' must be a compile-time integer in v1");
         }
-        return fixedArray(name, eltBinding, runtimeSuffix, fixedLen.toString(), h);
+        return fixedArray(name, ops, fixedLen.toString(), h);
     }
 
-    private static FieldData variableArray(String name, TypeBinding elt, String suffix, String h)
+    /**
+     * Per-element runtime ops for an array. Each line is a template
+     * with {@code $SLOT$} substituted with the actual slot expression
+     * ({@code <ptr>[<i>]} for variable, {@code <name>[<i>]} for fixed)
+     * by the array-shape helpers below.
+     */
+    private static ElementOps elementOps(ZserioType direct, TypeInstantiation typeInst,
+            TypeBinding b, String origName) throws ZserioExtensionException
+    {
+        // Non-parameterised compound element: call the child's
+        // _read / _write / _free directly. Parameterised elements need
+        // a per-slot set_parameters call we don't generate yet.
+        if (direct instanceof CompoundType)
+        {
+            final CompoundType ct = (CompoundType)direct;
+            if (!ct.getTypeParameters().isEmpty()
+                    || typeInst instanceof ParameterizedTypeInstantiation)
+            {
+                throw new ZserioExtensionException(
+                        "zserio-c: parameterised compound array elements are not yet supported "
+                                + "(field '" + origName + "')");
+            }
+            final String prefix = CIdentifierFormatter.funcPrefix(
+                    ct.getPackage().getPackageName(), ct.getName());
+            return new ElementOps(b.cType, b.extraInclude, /* owned */ true,
+                    "ZSERIO_TRY(" + prefix + "_read(&$SLOT$, bs, alloc));",
+                    "ZSERIO_TRY(" + prefix + "_write(&$SLOT$, bs));",
+                    prefix + "_free(&$SLOT$, alloc);");
+        }
+
+        final ZserioType under = underlyingType(direct);
+
+        if (under instanceof StringType)
+        {
+            final String write =
+                    "{\n"
+                    + "            const zserio_string_view_t slot_view = "
+                    + "{ $SLOT$.bytes, $SLOT$.length };\n"
+                    + "            ZSERIO_TRY(zserio_write_string(bs, slot_view));\n"
+                    + "        }";
+            return new ElementOps("zserio_string_t", "zserio/string.h", /* owned */ true,
+                    "ZSERIO_TRY(zserio_read_string(bs, alloc, &$SLOT$));",
+                    write,
+                    "zserio_string_free(&$SLOT$, alloc);");
+        }
+        if (under instanceof BytesType)
+        {
+            final String write =
+                    "{\n"
+                    + "            const zserio_bytes_view_t slot_view = "
+                    + "{ $SLOT$.bytes, $SLOT$.length };\n"
+                    + "            ZSERIO_TRY(zserio_write_bytes(bs, slot_view));\n"
+                    + "        }";
+            return new ElementOps("zserio_bytes_t", "zserio/bytes.h", /* owned */ true,
+                    "ZSERIO_TRY(zserio_read_bytes(bs, alloc, &$SLOT$));",
+                    write,
+                    "zserio_bytes_free(&$SLOT$, alloc);");
+        }
+        if (under instanceof ExternType)
+        {
+            final String write =
+                    "{\n"
+                    + "            const zserio_bit_view_t slot_view = "
+                    + "{ $SLOT$.bytes, 0u, $SLOT$.bit_length };\n"
+                    + "            ZSERIO_TRY(zserio_write_extern(bs, slot_view));\n"
+                    + "        }";
+            return new ElementOps("zserio_extern_t", "zserio/extern.h", /* owned */ true,
+                    "ZSERIO_TRY(zserio_read_extern(bs, alloc, &$SLOT$));",
+                    write,
+                    "zserio_extern_free(&$SLOT$, alloc);");
+        }
+
+        // Primitive (or subtype/enum/bitmask layered over a primitive)
+        final String suffix;
+        if (under instanceof BooleanType)
+        {
+            suffix = "bool";
+        }
+        else if (under instanceof StdIntegerType)
+        {
+            final StdIntegerType std = (StdIntegerType)under;
+            suffix = intSuffix(std.getBitSize(), std.isSigned());
+        }
+        else if (under instanceof FloatType)
+        {
+            suffix = "float" + ((FloatType)under).getBitSize();
+        }
+        else
+        {
+            throw new ZserioExtensionException(
+                    "zserio-c: array element type "
+                            + under.getClass().getSimpleName()
+                            + " is not yet supported (field '" + origName + "')");
+        }
+        return new ElementOps(b.cType, b.extraInclude, /* owned */ false,
+                "ZSERIO_TRY(zserio_read_" + suffix + "(bs, &$SLOT$));",
+                "ZSERIO_TRY(zserio_write_" + suffix + "(bs, $SLOT$));",
+                /* freeLine */ null);
+    }
+
+    private static FieldData variableArray(String name, ElementOps ops, String h)
     {
         // Storage: count + heap pointer. The count member sits before
         // the value member so structs read in the order schemas read.
         final String countExpr = h + name + "_count";
         final String ptrExpr   = h + name;
-        final String declaration = elt.cType + " *" + name;
+        final String iVar      = name + "_i";
+        final String slotExpr  = ptrExpr + "[" + iVar + "]";
+        final String declaration = ops.cType + " *" + name;
         final String extraMember = "size_t " + name + "_count;";
+
+        final String elementRead  = ops.readLine.replace("$SLOT$", slotExpr);
+        final String elementWrite = ops.writeLine.replace("$SLOT$", slotExpr);
+
+        // Owned-element variable arrays must zero the freshly-allocated
+        // buffer so a partial-fill failure leaves the unread slots in
+        // a state where the runtime _free is a no-op (NULL bytes / 0
+        // length / zero-init compound members). Primitive elements
+        // don't need the memset — the read fully overwrites each slot
+        // and there's no per-element free that could trip on garbage.
+        final String memsetLine = ops.owned
+                ? "            (void)memset(" + ptrExpr + ", 0, "
+                        + countExpr + " * sizeof(*(" + ptrExpr + ")));\n"
+                : "";
 
         final String read =
                 "{\n"
@@ -283,31 +381,49 @@ public final class FieldFormatter
                 + "        " + countExpr + " = (size_t)" + name + "_size;\n"
                 + "        " + ptrExpr   + " = NULL;\n"
                 + "        if (" + countExpr + " > 0u) {\n"
-                + "            " + ptrExpr + " = (" + elt.cType + " *)alloc->vtable->alloc(\n"
+                + "            " + ptrExpr + " = (" + ops.cType + " *)alloc->vtable->alloc(\n"
                 + "                    alloc->userdata,\n"
                 + "                    " + countExpr + " * sizeof(*(" + ptrExpr + ")),\n"
                 + "                    sizeof(*(" + ptrExpr + ")));\n"
                 + "            if (" + ptrExpr + " == NULL) {\n"
                 + "                return ZSERIO_ERR_OUT_OF_MEMORY;\n"
                 + "            }\n"
-                + "            for (size_t " + name + "_i = 0u; " + name + "_i < "
-                + countExpr + "; ++" + name + "_i) {\n"
-                + "                ZSERIO_TRY(zserio_read_" + suffix + "(bs, &"
-                + ptrExpr + "[" + name + "_i]));\n"
+                + memsetLine
+                + "            for (size_t " + iVar + " = 0u; " + iVar + " < "
+                + countExpr + "; ++" + iVar + ") {\n"
+                + "                " + elementRead + "\n"
                 + "            }\n"
                 + "        }\n"
                 + "    }";
         final String write =
                 "{\n"
                 + "        ZSERIO_TRY(zserio_write_varsize(bs, (uint32_t)" + countExpr + "));\n"
-                + "        for (size_t " + name + "_i = 0u; " + name + "_i < "
-                + countExpr + "; ++" + name + "_i) {\n"
-                + "            ZSERIO_TRY(zserio_write_" + suffix + "(bs, "
-                + ptrExpr + "[" + name + "_i]));\n"
+                + "        for (size_t " + iVar + " = 0u; " + iVar + " < "
+                + countExpr + "; ++" + iVar + ") {\n"
+                + "            " + elementWrite + "\n"
                 + "        }\n"
                 + "    }";
+
+        // Free: per-element free first (if needed), then the buffer.
+        // The element-free loop runs unconditionally on every slot;
+        // the runtime _free helpers are no-ops on zero-init storage.
+        final String elementFreeLoop;
+        if (ops.freeLine != null)
+        {
+            final String elementFree = ops.freeLine.replace("$SLOT$", slotExpr);
+            elementFreeLoop =
+                    "        for (size_t " + iVar + " = 0u; " + iVar + " < "
+                    + countExpr + "; ++" + iVar + ") {\n"
+                    + "            " + elementFree + "\n"
+                    + "        }\n";
+        }
+        else
+        {
+            elementFreeLoop = "";
+        }
         final String free =
                 "if (" + ptrExpr + " != NULL) {\n"
+                + elementFreeLoop
                 + "        alloc->vtable->free(alloc->userdata, " + ptrExpr + ",\n"
                 + "                " + countExpr + " * sizeof(*(" + ptrExpr + ")),\n"
                 + "                sizeof(*(" + ptrExpr + ")));\n"
@@ -316,38 +432,82 @@ public final class FieldFormatter
                 + "    }";
 
         return new FieldData(
-                name, elt.cType + " *", declaration,
+                name, ops.cType + " *", declaration,
                 read, write, free,
-                /* owned */ true, elt.extraInclude, extraMember);
+                /* owned */ true, ops.extraInclude, extraMember);
     }
 
-    private static FieldData fixedArray(String name, TypeBinding elt, String suffix,
+    private static FieldData fixedArray(String name, ElementOps ops,
             String lengthLiteral, String h)
     {
-        final String declaration = elt.cType + " " + name + "[" + lengthLiteral + "]";
-        final String access = h + name;
+        final String declaration = ops.cType + " " + name + "[" + lengthLiteral + "]";
+        final String iVar     = name + "_i";
+        final String slotExpr = h + name + "[" + iVar + "]";
+
+        final String elementRead  = ops.readLine.replace("$SLOT$", slotExpr);
+        final String elementWrite = ops.writeLine.replace("$SLOT$", slotExpr);
 
         final String read =
                 "{\n"
-                + "        for (size_t " + name + "_i = 0u; " + name + "_i < "
-                + lengthLiteral + "u; ++" + name + "_i) {\n"
-                + "            ZSERIO_TRY(zserio_read_" + suffix + "(bs, &"
-                + access + "[" + name + "_i]));\n"
+                + "        for (size_t " + iVar + " = 0u; " + iVar + " < "
+                + lengthLiteral + "u; ++" + iVar + ") {\n"
+                + "            " + elementRead + "\n"
                 + "        }\n"
                 + "    }";
         final String write =
                 "{\n"
-                + "        for (size_t " + name + "_i = 0u; " + name + "_i < "
-                + lengthLiteral + "u; ++" + name + "_i) {\n"
-                + "            ZSERIO_TRY(zserio_write_" + suffix + "(bs, "
-                + access + "[" + name + "_i]));\n"
+                + "        for (size_t " + iVar + " = 0u; " + iVar + " < "
+                + lengthLiteral + "u; ++" + iVar + ") {\n"
+                + "            " + elementWrite + "\n"
                 + "        }\n"
                 + "    }";
-        // Primitive fixed array: no per-element free, no buffer to free.
+
+        // Fixed-array storage lives inline in the parent struct, so
+        // there's no buffer to free — only per-element free for owned
+        // element types. Element 0..N-1 are all initialized (parent
+        // _init zeroed them), so the runtime _free helper is safe even
+        // on partially-read state.
+        final String free;
+        if (ops.freeLine != null)
+        {
+            final String elementFree = ops.freeLine.replace("$SLOT$", slotExpr);
+            free =
+                    "for (size_t " + iVar + " = 0u; " + iVar + " < "
+                    + lengthLiteral + "u; ++" + iVar + ") {\n"
+                    + "        " + elementFree + "\n"
+                    + "    }";
+        }
+        else
+        {
+            free = "";
+        }
+
         return new FieldData(
-                name, elt.cType, declaration,
-                read, write, /* free */ "",
-                /* owned */ false, elt.extraInclude, /* extraMember */ "");
+                name, ops.cType, declaration,
+                read, write, free,
+                /* owned */ ops.freeLine != null, ops.extraInclude, /* extraMember */ "");
+    }
+
+    /** Per-element ops descriptor used by both variable and fixed arrays. */
+    private static final class ElementOps
+    {
+        final String cType;
+        final String extraInclude;
+        final boolean owned;     // true → memset alloc + per-element free loop
+        final String readLine;   // template with $SLOT$
+        final String writeLine;
+        final String freeLine;   // null = no per-element free needed
+
+        ElementOps(String cType, String extraInclude, boolean owned,
+                String readLine, String writeLine, String freeLine)
+        {
+            this.cType = cType;
+            this.extraInclude = extraInclude;
+            this.owned = owned;
+            this.readLine = readLine;
+            this.writeLine = writeLine;
+            this.freeLine = freeLine;
+        }
     }
 
     /* -------- read/write/free shapes per category -------- */

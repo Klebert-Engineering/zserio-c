@@ -70,6 +70,15 @@ struct Telemetry
     optional uint32    optional_samples[];
 };
 
+struct Catalog
+{
+    string             items[];
+    bytes              chunks[];
+    extern             flags[];
+    Address            addresses[];
+    Address            history[2];
+};
+
 struct Hello
 {
     uint8       age;
