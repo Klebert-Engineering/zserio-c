@@ -11,6 +11,7 @@ import java.util.List;
 
 import zserio.ast.ChoiceCase;
 import zserio.ast.ChoiceCaseExpression;
+import zserio.ast.ChoiceDefault;
 import zserio.ast.ChoiceType;
 import zserio.ast.Field;
 import zserio.ast.PackageName;
@@ -27,6 +28,8 @@ public final class ChoiceEmitterTemplateData
     private final List<ParameterData> parameters;
     private final String selectorExpr;
     private final List<CaseData> cases;
+    private final FieldFormatter.FieldData defaultField; // null if no default
+    private final boolean hasDefault;
     private final List<String> extraIncludes;
     private final boolean hasOwnedCases;
 
@@ -58,12 +61,6 @@ public final class ChoiceEmitterTemplateData
         this.selectorExpr =
                 CExpressionFormatter.formatRefOrLiteral(choiceType.getSelectorExpression(), "self->");
 
-        if (choiceType.getChoiceDefault() != null)
-        {
-            throw new ZserioExtensionException(
-                    "zserio-c: choice '" + zserioName + "' has a default case; not supported in v1");
-        }
-
         final List<CaseData> built = new ArrayList<>();
         final LinkedHashSet<String> includes = new LinkedHashSet<>();
         boolean owned = false;
@@ -94,6 +91,42 @@ public final class ChoiceEmitterTemplateData
             built.add(new CaseData(labels, fd));
         }
         this.cases = built;
+
+        // Default case: optional. Empty default (no field) just means
+        // "any unmatched selector value is legal but contributes
+        // nothing to the wire" — the read/write/free dispatch turns
+        // the unmatched arm into a no-op instead of returning
+        // ZSERIO_ERR_INVALID_TAG.
+        final ChoiceDefault def = choiceType.getChoiceDefault();
+        if (def != null)
+        {
+            this.hasDefault = true;
+            if (def.getField() != null)
+            {
+                if (def.getField().isOptional())
+                {
+                    throw new ZserioExtensionException(
+                            "zserio-c: choice '" + zserioName + "' has optional default field '"
+                                    + def.getField().getName() + "'; not supported in v1");
+                }
+                this.defaultField = FieldFormatter.format(def.getField(), "self->u.");
+                if (this.defaultField.getExtraInclude() != null)
+                {
+                    includes.add(this.defaultField.getExtraInclude());
+                }
+                owned = owned || this.defaultField.getOwned();
+            }
+            else
+            {
+                this.defaultField = null;
+            }
+        }
+        else
+        {
+            this.hasDefault = false;
+            this.defaultField = null;
+        }
+
         this.extraIncludes = new ArrayList<>(includes);
         this.hasOwnedCases = owned;
     }
@@ -106,6 +139,9 @@ public final class ChoiceEmitterTemplateData
     public List<ParameterData> getParameters() { return parameters; }
     public String  getSelectorExpr()         { return selectorExpr; }
     public List<CaseData> getCases()         { return cases; }
+    public FieldFormatter.FieldData getDefaultField() { return defaultField; }
+    public boolean getHasDefault()           { return hasDefault; }
+    public boolean getHasDefaultField()      { return defaultField != null; }
     public List<String>   getExtraIncludes() { return extraIncludes; }
     public boolean getHasOwnedCases()        { return hasOwnedCases; }
 

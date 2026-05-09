@@ -47,8 +47,16 @@ zserio_status_t ${funcPrefix}_read(${typeName} *self,
         break;
     }
 </#list>
-    default:
+    default: {
+<#if hasDefault>
+<#if hasDefaultField>
+        ${defaultField.readStmt}
+</#if>
+        break;
+<#else>
         return ZSERIO_ERR_INVALID_TAG;
+</#if>
+    }
     }
     return ZSERIO_OK;
 }
@@ -71,8 +79,16 @@ zserio_status_t ${funcPrefix}_write(${typeName} *self,
         break;
     }
 </#list>
-    default:
+    default: {
+<#if hasDefault>
+<#if hasDefaultField>
+        ${defaultField.writeStmt}
+</#if>
+        break;
+<#else>
         return ZSERIO_ERR_INVALID_TAG;
+</#if>
+    }
     }
     return ZSERIO_OK;
 }
@@ -97,7 +113,11 @@ void ${funcPrefix}_free(${typeName} *self, const zserio_allocator_t *alloc)
     }
 </#if>
 </#list>
-    default:
+    default: {
+<#if hasDefaultField && defaultField.freeStmt?has_content>
+        ${defaultField.freeStmt}
+</#if>
         break;
+    }
     }
 }

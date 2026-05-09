@@ -80,6 +80,12 @@ EXPECTED=(
     "${OUTPUT_DIR}/hello/validated.c"
     "${OUTPUT_DIR}/hello/enum_validated.h"
     "${OUTPUT_DIR}/hello/enum_validated.c"
+    "${OUTPUT_DIR}/hello/with_default.h"
+    "${OUTPUT_DIR}/hello/with_default.c"
+    "${OUTPUT_DIR}/hello/tagged.h"
+    "${OUTPUT_DIR}/hello/tagged.c"
+    "${OUTPUT_DIR}/hello/use_tagged.h"
+    "${OUTPUT_DIR}/hello/use_tagged.c"
 )
 for f in "${EXPECTED[@]}"; do
     if [[ ! -f "${f}" ]]; then

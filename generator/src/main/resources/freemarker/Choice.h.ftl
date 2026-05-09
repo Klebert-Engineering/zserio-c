@@ -28,6 +28,9 @@ typedef struct ${typeName} {
         ${case.field.declaration};
 </#if>
 </#list>
+<#if hasDefaultField>
+        ${defaultField.declaration};
+</#if>
     } u;
 } ${typeName};
 

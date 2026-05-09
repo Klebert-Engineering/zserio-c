@@ -22,6 +22,7 @@ public final class UnionEmitterTemplateData
     private final String funcPrefix;
     private final String includeGuard;
     private final String headerIncludePath;
+    private final List<ParameterData> parameters;
     private final List<CaseData> cases;
     private final List<String> extraIncludes;
     private final boolean hasOwnedCases;
@@ -32,16 +33,11 @@ public final class UnionEmitterTemplateData
         this.generatorDescription = context.getGeneratorDescription();
         final PackageName pkg = unionType.getPackage().getPackageName();
         final String zserioName = unionType.getName();
-        if (!unionType.getTypeParameters().isEmpty())
-        {
-            throw new ZserioExtensionException(
-                    "zserio-c: parameterised unions are not yet supported (union '"
-                            + zserioName + "')");
-        }
         this.typeName = CIdentifierFormatter.typeName(pkg, zserioName);
         this.funcPrefix = CIdentifierFormatter.funcPrefix(pkg, zserioName);
         this.includeGuard = CIdentifierFormatter.includeGuard(pkg, zserioName);
         this.headerIncludePath = CIdentifierFormatter.headerIncludePath(pkg, zserioName);
+        this.parameters = ParameterData.from(unionType.getTypeParameters());
 
         final String tagBase = CIdentifierFormatter.constantName(pkg, zserioName) + "_TAG";
 
@@ -79,6 +75,8 @@ public final class UnionEmitterTemplateData
     public String  getFuncPrefix()           { return funcPrefix; }
     public String  getIncludeGuard()         { return includeGuard; }
     public String  getHeaderIncludePath()    { return headerIncludePath; }
+    public List<ParameterData> getParameters() { return parameters; }
+    public boolean getHasParameters()        { return !parameters.isEmpty(); }
     public List<CaseData> getCases()         { return cases; }
     public List<String>   getExtraIncludes() { return extraIncludes; }
     public boolean getHasOwnedCases()        { return hasOwnedCases; }

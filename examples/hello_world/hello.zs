@@ -112,6 +112,28 @@ struct EnumValidated
     uint16                  fallback if pick == Color.RED;
 };
 
+choice WithDefault(uint8 sel) on sel
+{
+    case 0:
+        uint16  small;
+    case 1:
+        uint32  big;
+    default:
+        string  fallback;
+};
+
+union Tagged(uint32 marker)
+{
+    uint16  small;
+    uint32  large;
+};
+
+struct UseTagged
+{
+    uint32          marker;
+    Tagged(marker)  payload;
+};
+
 struct Hello
 {
     uint8       age;
