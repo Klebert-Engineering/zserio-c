@@ -372,6 +372,34 @@ public final class FieldFormatter
                 return expressionLengthArray(name, fallthrough, formattedLenPC, h);
             }
 
+            // String / bytes / extern / float elements aren't packable
+            // in upstream's sense — there's no integer to delta-encode.
+            // For `packed string[]` and the like, the wire format
+            // matches an unpacked array (no isPacked descriptor; just
+            // count + elements), so route through the regular array
+            // path.
+            final ZserioType eltUnderForPackable = underlyingType(eltDirect);
+            if (eltUnderForPackable instanceof StringType
+                    || eltUnderForPackable instanceof BytesType
+                    || eltUnderForPackable instanceof ExternType
+                    || eltUnderForPackable instanceof FloatType)
+            {
+                final ElementOps fallthrough = elementOps(eltDirect, eltInst, eltBinding,
+                        origName, h, owner, name + "_i");
+                final Expression lenExprS = ai.getLengthExpression();
+                if (lenExprS == null)
+                {
+                    return variableArray(name, fallthrough, h);
+                }
+                final BigInteger fixedLenS = lenExprS.getIntegerValue();
+                if (fixedLenS != null)
+                {
+                    return fixedArray(name, fallthrough, fixedLenS.toString(), h);
+                }
+                final String formattedLenS = CExpressionFormatter.format(lenExprS, h, owner);
+                return expressionLengthArray(name, fallthrough, formattedLenS, h);
+            }
+
             // VarInteger elements take a different path: the wire
             // format wraps a 1-bit isPacked descriptor + per-element
             // varint encoding (rather than the fixed-width delta
