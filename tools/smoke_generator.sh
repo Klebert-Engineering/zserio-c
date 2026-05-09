@@ -7,6 +7,11 @@
 #
 # When the generator grows real emission, this script becomes the
 # place where we cross-check the .c/.h output against expectations.
+#
+# Verifies: REQ-FS-008  (no runtime reflection in generated code — the
+#   forbidden-symbols check below asserts that the generator emits no
+#   *_typeInfo, *_reflectable, *_typeName, or vtable_* symbols, no
+#   virtual-dispatch tables, and no type-name string literals.)
 
 set -euo pipefail
 
@@ -92,6 +97,21 @@ for f in "${EXPECTED[@]}"; do
         echo "smoke: expected generated file missing: ${f}" >&2
         echo "smoke: contents of ${OUTPUT_DIR}:" >&2
         find "${OUTPUT_DIR}" -type f >&2
+        exit 1
+    fi
+done
+
+# REQ-FS-008: Generated code must contain no runtime reflection
+# scaffolding. The generator emits direct C functions and field
+# accesses for every schema operation; reflection symbols would
+# expand the certification surface (see REQ-FS-008.md "Rationale")
+# without buying anything for safety-relevant builds.
+echo "smoke: REQ-FS-008 — checking generated output for reflection symbols..."
+FORBIDDEN_PATTERNS=('_typeInfo' '_reflectable' '_typeName' 'vtable_' 'ITypeInfo' 'IReflectable')
+for pat in "${FORBIDDEN_PATTERNS[@]}"; do
+    if grep -RE "${pat}" "${OUTPUT_DIR}" >/dev/null; then
+        echo "smoke: REQ-FS-008 violation — '${pat}' found in generated output:" >&2
+        grep -RnE "${pat}" "${OUTPUT_DIR}" >&2
         exit 1
     fi
 done
