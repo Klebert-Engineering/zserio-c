@@ -162,6 +162,19 @@ public final class CExpressionFormattingPolicy extends DefaultExpressionFormatti
                 "zserio-c: implicit-array '@index' references are not yet supported");
     }
 
+    /* -------- DOT (member access) -------- */
+
+    @Override
+    public BinaryExpressionFormatting getDot(Expression expr)
+    {
+        // The default policy leaves this abstract because the
+        // separator differs across languages. C uses '.' between a
+        // struct value and its member name, which is exactly what
+        // our generated structs need (the leftmost ID has already
+        // been prefixed with the holder via getIdentifier).
+        return new BinaryExpressionFormatting(".");
+    }
+
     /* -------- unsupported expression categories -------- */
 
     @Override
