@@ -1,3 +1,6 @@
 [submodule "third_party/zserio"]
 	path = third_party/zserio
 	url = https://github.com/ndsev/zserio.git
+[submodule "third_party/zserio-test-data"]
+	path = third_party/zserio-test-data
+	url = https://github.com/ndsev/zserio-test-data.git
