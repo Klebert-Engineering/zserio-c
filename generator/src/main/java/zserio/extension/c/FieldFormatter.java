@@ -170,10 +170,15 @@ public final class FieldFormatter
 
         // Compounds wire through the child's emitted *_read/_write/_free
         // helpers. They don't touch the runtime read/write tables, so
-        // they short-circuit before the underlying-type dispatch.
-        if (direct instanceof CompoundType)
+        // they short-circuit before the underlying-type dispatch. The
+        // compound may be wrapped in one or more subtype layers — the
+        // C side stores the field under the subtype's typedef name
+        // (held by `b.cType`) but the read/write call routes through
+        // the underlying compound's emitted helpers.
+        final CompoundType underlyingCompound = compoundUnderlying(direct);
+        if (underlyingCompound != null)
         {
-            return compound(name, (CompoundType)direct, typeInst, b, holderExpr);
+            return compound(name, underlyingCompound, typeInst, b, holderExpr);
         }
 
         final ZserioType under = underlyingType(direct);
@@ -303,7 +308,7 @@ public final class FieldFormatter
         final TypeInstantiation eltInst = ai.getElementTypeInstantiation();
         final ZserioType eltDirect = eltInst.getTypeReference().getType();
         final TypeBinding eltBinding = bindType(eltDirect);
-        final ElementOps ops = elementOps(eltDirect, eltInst, eltBinding, origName);
+        final ElementOps ops = elementOps(eltDirect, eltInst, eltBinding, origName, h);
 
         final Expression lenExpr = ai.getLengthExpression();
         if (lenExpr == null)
@@ -329,28 +334,50 @@ public final class FieldFormatter
      * with {@code $SLOT$} substituted with the actual slot expression
      * ({@code <ptr>[<i>]} for variable, {@code <name>[<i>]} for fixed)
      * by the array-shape helpers below.
+     *
+     * @param holderExpr   parent struct holder, used when formatting
+     *                     parameter argument expressions for parameterised
+     *                     compound elements (the args reference parent
+     *                     fields/parameters, not per-slot state).
      */
     private static ElementOps elementOps(ZserioType direct, TypeInstantiation typeInst,
-            TypeBinding b, String origName) throws ZserioExtensionException
+            TypeBinding b, String origName, String holderExpr)
+            throws ZserioExtensionException
     {
-        // Non-parameterised compound element: call the child's
-        // _read / _write / _free directly. Parameterised elements need
-        // a per-slot set_parameters call we don't generate yet.
-        if (direct instanceof CompoundType)
+        // Compound element (possibly via subtype layers).
+        final CompoundType compoundElt = compoundUnderlying(direct);
+        if (compoundElt != null)
         {
-            final CompoundType ct = (CompoundType)direct;
-            if (!ct.getTypeParameters().isEmpty()
-                    || typeInst instanceof ParameterizedTypeInstantiation)
-            {
-                throw new ZserioExtensionException(
-                        "zserio-c: parameterised compound array elements are not yet supported "
-                                + "(field '" + origName + "')");
-            }
             final String prefix = CIdentifierFormatter.funcPrefix(
-                    ct.getPackage().getPackageName(), ct.getName());
+                    compoundElt.getPackage().getPackageName(), compoundElt.getName());
+
+            // Parameterised compound element: each slot needs a
+            // _set_parameters call before _read / _write so the slot's
+            // parameter members are pinned to the parent-supplied
+            // values. Args resolve against the parent's holder, not
+            // the per-slot expression — they're parent state.
+            String setParamsRead = "";
+            String setParamsWrite = "";
+            if (typeInst instanceof ParameterizedTypeInstantiation)
+            {
+                final ParameterizedTypeInstantiation pti =
+                        (ParameterizedTypeInstantiation)typeInst;
+                final StringBuilder args = new StringBuilder();
+                for (final ParameterizedTypeInstantiation.InstantiatedParameter ip
+                        : pti.getInstantiatedParameters())
+                {
+                    args.append(", ");
+                    args.append(CExpressionFormatter.format(
+                            ip.getArgumentExpression(), holderExpr));
+                }
+                final String setLine = prefix + "_set_parameters(&$SLOT$" + args + ");\n            ";
+                setParamsRead  = setLine;
+                setParamsWrite = setLine;
+            }
+
             return new ElementOps(b.cType, b.extraInclude, /* owned */ true,
-                    "ZSERIO_TRY(" + prefix + "_read(&$SLOT$, bs, alloc));",
-                    "ZSERIO_TRY(" + prefix + "_write(&$SLOT$, bs));",
+                    setParamsRead  + "ZSERIO_TRY(" + prefix + "_read(&$SLOT$, bs, alloc));",
+                    setParamsWrite + "ZSERIO_TRY(" + prefix + "_write(&$SLOT$, bs));",
                     prefix + "_free(&$SLOT$, alloc);");
         }
 
@@ -880,6 +907,23 @@ public final class FieldFormatter
     }
 
     /* -------- traversal helpers -------- */
+
+    /**
+     * If {@code direct} resolves through any number of subtype layers
+     * to a {@link CompoundType}, return that compound. Otherwise null.
+     * Used so the field-type dispatch routes subtype-of-compound
+     * fields to {@link #compound} the same way it routes direct
+     * compound fields.
+     */
+    private static CompoundType compoundUnderlying(ZserioType direct)
+    {
+        ZserioType t = direct;
+        while (t instanceof Subtype)
+        {
+            t = ((Subtype)t).getTypeReference().getBaseTypeReference().getType();
+        }
+        return (t instanceof CompoundType) ? (CompoundType)t : null;
+    }
 
     private static ZserioType underlyingType(ZserioType direct)
     {
