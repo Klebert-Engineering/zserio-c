@@ -72,6 +72,8 @@ EXPECTED=(
     "${OUTPUT_DIR}/hello/catalog.c"
     "${OUTPUT_DIR}/hello/layer_data.h"
     "${OUTPUT_DIR}/hello/layer_data.c"
+    "${OUTPUT_DIR}/hello/power_of_two_block.h"
+    "${OUTPUT_DIR}/hello/power_of_two_block.c"
     "${OUTPUT_DIR}/hello/frame.h"
     "${OUTPUT_DIR}/hello/frame.c"
 )

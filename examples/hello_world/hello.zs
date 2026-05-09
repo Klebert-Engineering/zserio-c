@@ -81,13 +81,21 @@ struct Catalog
 
 struct LayerData(uint32 byte_count)
 {
-    uint8              data[byte_count];
+    uint8              header[2];
+    uint8              payload[byte_count - 2];
+};
+
+struct PowerOfTwoBlock(uint32 shift_amt)
+{
+    uint8              data[1 << shift_amt];
 };
 
 struct Frame
 {
-    uint32             size;
-    LayerData(size)    layer;
+    uint32                  size;
+    LayerData(size)         layer;
+    uint32                  scale;
+    PowerOfTwoBlock(scale)  power;
 };
 
 struct Hello
