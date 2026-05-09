@@ -6,6 +6,9 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+<#if hasExtraInclude>
+#include "${extraInclude}"
+</#if>
 
 typedef ${nativeType} ${typeName};
 

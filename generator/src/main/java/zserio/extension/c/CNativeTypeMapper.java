@@ -5,10 +5,14 @@
 
 package zserio.extension.c;
 
+import zserio.ast.BitmaskType;
 import zserio.ast.BooleanType;
+import zserio.ast.CompoundType;
 import zserio.ast.DynamicBitFieldType;
+import zserio.ast.EnumType;
 import zserio.ast.FixedBitFieldType;
 import zserio.ast.FloatType;
+import zserio.ast.PackageName;
 import zserio.ast.StdIntegerType;
 import zserio.ast.StringType;
 import zserio.ast.Subtype;
@@ -122,9 +126,34 @@ public final class CNativeTypeMapper
             throw new ZserioExtensionException(
                     "zserio-c: string constants are not yet supported");
         }
+        // Compound / enum / bitmask: emit the user-facing C typedef
+        // name. Reached via `subtype Foo Bar;` chains that terminate
+        // in a compound, and via parameter declarations like
+        // `Choice(Foo arg)`. The corresponding emitter has already
+        // (or will) define `<typedef>_t`.
+        if (type instanceof CompoundType)
+        {
+            final CompoundType ct = (CompoundType)type;
+            return userTypeName(ct.getPackage().getPackageName(), ct.getName());
+        }
+        if (type instanceof EnumType)
+        {
+            final EnumType et = (EnumType)type;
+            return userTypeName(et.getPackage().getPackageName(), et.getName());
+        }
+        if (type instanceof BitmaskType)
+        {
+            final BitmaskType bt = (BitmaskType)type;
+            return userTypeName(bt.getPackage().getPackageName(), bt.getName());
+        }
         throw new ZserioExtensionException(
                 "zserio-c: native type mapping not implemented for "
                         + type.getClass().getSimpleName());
+    }
+
+    private static String userTypeName(PackageName pkg, String name)
+    {
+        return CIdentifierFormatter.typeName(pkg, name);
     }
 
     private static String integerTypeFor(int bitSize, boolean signed) throws ZserioExtensionException
