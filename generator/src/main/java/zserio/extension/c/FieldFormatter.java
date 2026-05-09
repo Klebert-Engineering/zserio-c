@@ -346,14 +346,10 @@ public final class FieldFormatter
             final CompoundType packedCompound = compoundUnderlying(eltDirect);
             if (packedCompound != null && PackingFieldFormatter.hasPackableField(packedCompound))
             {
-                if (packedCompound.getTypeParameters().isEmpty()
-                        && !(eltInst instanceof ParameterizedTypeInstantiation))
-                {
-                    return packedCompoundArray(name, eltBinding, packedCompound, ai, h, owner);
-                }
-                throw new ZserioExtensionException(
-                        "zserio-c: packed arrays of parameterised compound elements "
-                                + "are not yet supported (field '" + origName + "')");
+                final String paramSetupLine =
+                        packedCompoundParameterSetup(eltInst, packedCompound, h, owner);
+                return packedCompoundArray(name, eltBinding, packedCompound, ai, h, owner,
+                        paramSetupLine);
             }
             if (packedCompound != null)
             {
@@ -608,8 +604,42 @@ public final class FieldFormatter
      * (count + heap pointer for variable / expression-length, inline
      * C array for fixed-length); only the wire encoding differs.
      */
+    /**
+     * Build the {@code <prefix>_set_parameters(&slot, args...)} line
+     * for a parameterised compound element of a packed array, or
+     * empty when the element type isn't parameterised.
+     *
+     * The line ends in a newline + indent so the read/write loop
+     * substitutes it cleanly between the loop entry and the
+     * read_packed / write_packed call.
+     */
+    private static String packedCompoundParameterSetup(TypeInstantiation eltInst,
+            CompoundType ct, String h, CompoundType owner) throws ZserioExtensionException
+    {
+        if (!(eltInst instanceof ParameterizedTypeInstantiation))
+        {
+            return "";
+        }
+        final String prefix = CIdentifierFormatter.funcPrefix(
+                ct.getPackage().getPackageName(), ct.getName());
+        final ParameterizedTypeInstantiation pti = (ParameterizedTypeInstantiation)eltInst;
+        final StringBuilder args = new StringBuilder();
+        for (final ParameterizedTypeInstantiation.InstantiatedParameter ip
+                : pti.getInstantiatedParameters())
+        {
+            args.append(", ");
+            args.append(CExpressionFormatter.format(
+                    ip.getArgumentExpression(), h, owner));
+        }
+        // The trailing newline + 16 spaces aligns with the indent
+        // depth of the read/write loops in packedCompoundHeapArray
+        // and packedCompoundFixedArray.
+        return prefix + "_set_parameters(&$SLOT$" + args + ");\n                ";
+    }
+
     private static FieldData packedCompoundArray(String name, TypeBinding b,
-            CompoundType ct, ArrayInstantiation ai, String h, CompoundType owner)
+            CompoundType ct, ArrayInstantiation ai, String h, CompoundType owner,
+            String paramSetupLine)
             throws ZserioExtensionException
     {
         final String prefix = CIdentifierFormatter.funcPrefix(
@@ -618,19 +648,21 @@ public final class FieldFormatter
         final Expression lenExpr = ai.getLengthExpression();
         if (lenExpr == null)
         {
-            return packedCompoundHeapArray(name, b, prefix, h, /* lengthSource */ null);
+            return packedCompoundHeapArray(name, b, prefix, h,
+                    /* lengthSource */ null, paramSetupLine);
         }
         final BigInteger fixedLen = lenExpr.getIntegerValue();
         if (fixedLen != null)
         {
-            return packedCompoundFixedArray(name, b, prefix, fixedLen.toString(), h);
+            return packedCompoundFixedArray(name, b, prefix, fixedLen.toString(), h,
+                    paramSetupLine);
         }
         final String formattedLen = CExpressionFormatter.format(lenExpr, h, owner);
-        return packedCompoundHeapArray(name, b, prefix, h, formattedLen);
+        return packedCompoundHeapArray(name, b, prefix, h, formattedLen, paramSetupLine);
     }
 
     private static FieldData packedCompoundHeapArray(String name, TypeBinding b,
-            String prefix, String h, String formattedLen)
+            String prefix, String h, String formattedLen, String paramSetupLine)
     {
         final String countExpr = h + name + "_count";
         final String ptrExpr   = h + name;
@@ -653,6 +685,14 @@ public final class FieldFormatter
                     + formattedLen + ");\n";
         }
 
+        // The slot expression for $SLOT$ substitution within
+        // paramSetupLine. Empty paramSetupLine (non-parameterised
+        // element) produces empty inserts.
+        final String slotExpr = ptrExpr + "[" + iVar + "]";
+        final String paramSetupRead = paramSetupLine.isEmpty() ? ""
+                : paramSetupLine.replace("$SLOT$", slotExpr);
+        final String paramSetupWrite = paramSetupRead;
+
         final String read =
                 "{\n"
                 + readCountSetup
@@ -671,8 +711,9 @@ public final class FieldFormatter
                 + "            ZSERIO_TRY(" + prefix + "_init_packing_context(&" + ctxVar + "));\n"
                 + "            for (size_t " + iVar + " = 0u; " + iVar + " < "
                 + countExpr + "; ++" + iVar + ") {\n"
-                + "                ZSERIO_TRY(" + prefix + "_read_packed(&"
-                + ptrExpr + "[" + iVar + "], bs, alloc, &" + ctxVar + "));\n"
+                + "                " + paramSetupRead
+                + "ZSERIO_TRY(" + prefix + "_read_packed(&"
+                + slotExpr + ", bs, alloc, &" + ctxVar + "));\n"
                 + "            }\n"
                 + "        }\n"
                 + "    }";
@@ -688,13 +729,15 @@ public final class FieldFormatter
                 + "            ZSERIO_TRY(" + prefix + "_init_packing_context(&" + ctxVar + "));\n"
                 + "            for (size_t " + iVar + " = 0u; " + iVar + " < "
                 + countExpr + "; ++" + iVar + ") {\n"
-                + "                ZSERIO_TRY(" + prefix + "_observe_packing_context(&"
-                + ptrExpr + "[" + iVar + "], &" + ctxVar + "));\n"
+                + "                " + paramSetupWrite
+                + "ZSERIO_TRY(" + prefix + "_observe_packing_context(&"
+                + slotExpr + ", &" + ctxVar + "));\n"
                 + "            }\n"
                 + "            for (size_t " + iVar + " = 0u; " + iVar + " < "
                 + countExpr + "; ++" + iVar + ") {\n"
-                + "                ZSERIO_TRY(" + prefix + "_write_packed(&"
-                + ptrExpr + "[" + iVar + "], bs, &" + ctxVar + "));\n"
+                + "                " + paramSetupWrite
+                + "ZSERIO_TRY(" + prefix + "_write_packed(&"
+                + slotExpr + ", bs, &" + ctxVar + "));\n"
                 + "            }\n"
                 + "        }\n"
                 + "    }";
@@ -722,12 +765,18 @@ public final class FieldFormatter
     }
 
     private static FieldData packedCompoundFixedArray(String name, TypeBinding b,
-            String prefix, String lengthLiteral, String h)
+            String prefix, String lengthLiteral, String h, String paramSetupLine)
     {
         final String declaration = b.cType + " " + name + "[" + lengthLiteral + "]";
         final String iVar   = name + "_i";
         final String ctxVar = name + "_ctx";
         final String access = h + name;
+        final String slotExpr = access + "[" + iVar + "]";
+        // The fixed-array path's read/write loop indent is one level
+        // shallower (8 spaces) than the heap-array path's (16 spaces),
+        // so we re-indent the paramSetupLine.
+        final String paramSetup = paramSetupLine.isEmpty() ? ""
+                : paramSetupLine.replace("$SLOT$", slotExpr).replace("\n                ", "\n            ");
 
         final String read =
                 "{\n"
@@ -735,8 +784,9 @@ public final class FieldFormatter
                 + "        ZSERIO_TRY(" + prefix + "_init_packing_context(&" + ctxVar + "));\n"
                 + "        for (size_t " + iVar + " = 0u; " + iVar + " < "
                 + lengthLiteral + "u; ++" + iVar + ") {\n"
-                + "            ZSERIO_TRY(" + prefix + "_read_packed(&"
-                + access + "[" + iVar + "], bs, alloc, &" + ctxVar + "));\n"
+                + "            " + paramSetup
+                + "ZSERIO_TRY(" + prefix + "_read_packed(&"
+                + slotExpr + ", bs, alloc, &" + ctxVar + "));\n"
                 + "        }\n"
                 + "    }";
         final String write =
@@ -745,13 +795,15 @@ public final class FieldFormatter
                 + "        ZSERIO_TRY(" + prefix + "_init_packing_context(&" + ctxVar + "));\n"
                 + "        for (size_t " + iVar + " = 0u; " + iVar + " < "
                 + lengthLiteral + "u; ++" + iVar + ") {\n"
-                + "            ZSERIO_TRY(" + prefix + "_observe_packing_context(&"
-                + access + "[" + iVar + "], &" + ctxVar + "));\n"
+                + "            " + paramSetup
+                + "ZSERIO_TRY(" + prefix + "_observe_packing_context(&"
+                + slotExpr + ", &" + ctxVar + "));\n"
                 + "        }\n"
                 + "        for (size_t " + iVar + " = 0u; " + iVar + " < "
                 + lengthLiteral + "u; ++" + iVar + ") {\n"
-                + "            ZSERIO_TRY(" + prefix + "_write_packed(&"
-                + access + "[" + iVar + "], bs, &" + ctxVar + "));\n"
+                + "            " + paramSetup
+                + "ZSERIO_TRY(" + prefix + "_write_packed(&"
+                + slotExpr + ", bs, &" + ctxVar + "));\n"
                 + "        }\n"
                 + "    }";
         final String free =
