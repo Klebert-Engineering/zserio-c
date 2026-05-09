@@ -70,6 +70,10 @@ EXPECTED=(
     "${OUTPUT_DIR}/hello/telemetry.c"
     "${OUTPUT_DIR}/hello/catalog.h"
     "${OUTPUT_DIR}/hello/catalog.c"
+    "${OUTPUT_DIR}/hello/layer_data.h"
+    "${OUTPUT_DIR}/hello/layer_data.c"
+    "${OUTPUT_DIR}/hello/frame.h"
+    "${OUTPUT_DIR}/hello/frame.c"
 )
 for f in "${EXPECTED[@]}"; do
     if [[ ! -f "${f}" ]]; then

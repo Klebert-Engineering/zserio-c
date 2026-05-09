@@ -19,6 +19,9 @@
 </#list>
 
 typedef struct ${typeName} {
+<#list parameters as p>
+    ${p.nativeType} ${p.name};
+</#list>
 <#list fields as field>
 <#if field.extraMember?has_content>
     ${field.extraMember}
@@ -28,6 +31,10 @@ typedef struct ${typeName} {
 } ${typeName};
 
 void            ${funcPrefix}_init(${typeName} *self);
+<#if hasParameters>
+void            ${funcPrefix}_set_parameters(${typeName} *self<#list parameters as p>,
+        ${p.nativeType} ${p.name}</#list>);
+</#if>
 zserio_status_t ${funcPrefix}_read(${typeName} *self,
         zserio_bitstream_reader_t *bs, const zserio_allocator_t *alloc);
 zserio_status_t ${funcPrefix}_write(${typeName} *self,

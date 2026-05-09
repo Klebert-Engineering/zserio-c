@@ -240,13 +240,17 @@ public final class FieldFormatter
             return variableArray(name, ops, h);
         }
         final BigInteger fixedLen = lenExpr.getIntegerValue();
-        if (fixedLen == null)
+        if (fixedLen != null)
         {
-            throw new ZserioExtensionException(
-                    "zserio-c: fixed-length array bound for '" + origName
-                            + "' must be a compile-time integer in v1");
+            return fixedArray(name, ops, fixedLen.toString(), h);
         }
-        return fixedArray(name, ops, fixedLen.toString(), h);
+        // Non-literal length expression: heap-allocated array whose
+        // count comes from evaluating the expression at read time
+        // rather than from a wire varsize prefix. Common use: a
+        // parameterised struct with `T data[size]` where `size` is
+        // a parameter or earlier field of the parent.
+        final String formattedLen = CExpressionFormatter.formatRefOrLiteral(lenExpr, h);
+        return expressionLengthArray(name, ops, formattedLen, h);
     }
 
     /**
@@ -407,6 +411,97 @@ public final class FieldFormatter
         // Free: per-element free first (if needed), then the buffer.
         // The element-free loop runs unconditionally on every slot;
         // the runtime _free helpers are no-ops on zero-init storage.
+        final String elementFreeLoop;
+        if (ops.freeLine != null)
+        {
+            final String elementFree = ops.freeLine.replace("$SLOT$", slotExpr);
+            elementFreeLoop =
+                    "        for (size_t " + iVar + " = 0u; " + iVar + " < "
+                    + countExpr + "; ++" + iVar + ") {\n"
+                    + "            " + elementFree + "\n"
+                    + "        }\n";
+        }
+        else
+        {
+            elementFreeLoop = "";
+        }
+        final String free =
+                "if (" + ptrExpr + " != NULL) {\n"
+                + elementFreeLoop
+                + "        alloc->vtable->free(alloc->userdata, " + ptrExpr + ",\n"
+                + "                " + countExpr + " * sizeof(*(" + ptrExpr + ")),\n"
+                + "                sizeof(*(" + ptrExpr + ")));\n"
+                + "        " + ptrExpr + " = NULL;\n"
+                + "        " + countExpr + " = 0u;\n"
+                + "    }";
+
+        return new FieldData(
+                name, ops.cType + " *", declaration,
+                read, write, free,
+                /* owned */ true, ops.extraInclude, extraMember);
+    }
+
+    /**
+     * Heap-allocated array whose count is known at read time but
+     * comes from a non-wire source — typically a parameter ref or an
+     * earlier field. Wire format is just the elements (no length
+     * prefix); read evaluates the formatted length expression to
+     * decide how many slots to allocate, write iterates the stored
+     * count, free uses the stored count.
+     */
+    private static FieldData expressionLengthArray(String name, ElementOps ops,
+            String formattedLen, String h)
+    {
+        final String countExpr = h + name + "_count";
+        final String ptrExpr   = h + name;
+        final String iVar      = name + "_i";
+        final String slotExpr  = ptrExpr + "[" + iVar + "]";
+        final String declaration = ops.cType + " *" + name;
+        final String extraMember = "size_t " + name + "_count;";
+
+        final String elementRead  = ops.readLine.replace("$SLOT$", slotExpr);
+        final String elementWrite = ops.writeLine.replace("$SLOT$", slotExpr);
+
+        final String memsetLine = ops.owned
+                ? "            (void)memset(" + ptrExpr + ", 0, "
+                        + countExpr + " * sizeof(*(" + ptrExpr + ")));\n"
+                : "";
+
+        final String read =
+                "{\n"
+                + "        " + countExpr + " = (size_t)(" + formattedLen + ");\n"
+                + "        " + ptrExpr   + " = NULL;\n"
+                + "        if (" + countExpr + " > 0u) {\n"
+                + "            " + ptrExpr + " = (" + ops.cType + " *)alloc->vtable->alloc(\n"
+                + "                    alloc->userdata,\n"
+                + "                    " + countExpr + " * sizeof(*(" + ptrExpr + ")),\n"
+                + "                    sizeof(*(" + ptrExpr + ")));\n"
+                + "            if (" + ptrExpr + " == NULL) {\n"
+                + "                return ZSERIO_ERR_OUT_OF_MEMORY;\n"
+                + "            }\n"
+                + memsetLine
+                + "            for (size_t " + iVar + " = 0u; " + iVar + " < "
+                + countExpr + "; ++" + iVar + ") {\n"
+                + "                " + elementRead + "\n"
+                + "            }\n"
+                + "        }\n"
+                + "    }";
+
+        // Write does NOT emit a wire-length prefix — the receiver
+        // recovers the count by re-evaluating the same expression on
+        // its own state. We iterate the stored count for safety, since
+        // the expression's parameter values may have shifted between
+        // read and write.
+        final String write =
+                "{\n"
+                + "        for (size_t " + iVar + " = 0u; " + iVar + " < "
+                + countExpr + "; ++" + iVar + ") {\n"
+                + "            " + elementWrite + "\n"
+                + "        }\n"
+                + "    }";
+
+        // Free shape is identical to wire-length variable array; the
+        // length source doesn't matter once read has populated count.
         final String elementFreeLoop;
         if (ops.freeLine != null)
         {

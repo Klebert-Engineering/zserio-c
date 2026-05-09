@@ -22,6 +22,7 @@ public final class StructureEmitterTemplateData
     private final String funcPrefix;
     private final String includeGuard;
     private final String headerIncludePath;
+    private final List<ParameterData> parameters;
     private final List<FieldFormatter.FieldData> fields;
     private final List<String> extraIncludes;
     private final boolean hasOwnedFields;
@@ -32,16 +33,11 @@ public final class StructureEmitterTemplateData
         this.generatorDescription = context.getGeneratorDescription();
         final PackageName pkg = structType.getPackage().getPackageName();
         final String zserioName = structType.getName();
-        if (!structType.getTypeParameters().isEmpty())
-        {
-            throw new ZserioExtensionException(
-                    "zserio-c: parameterised structs are not yet supported (struct '"
-                            + zserioName + "')");
-        }
         this.typeName = CIdentifierFormatter.typeName(pkg, zserioName);
         this.funcPrefix = CIdentifierFormatter.funcPrefix(pkg, zserioName);
         this.includeGuard = CIdentifierFormatter.includeGuard(pkg, zserioName);
         this.headerIncludePath = CIdentifierFormatter.headerIncludePath(pkg, zserioName);
+        this.parameters = ParameterData.from(structType.getTypeParameters());
 
         final List<FieldFormatter.FieldData> built = new ArrayList<>();
         // LinkedHashSet so the include order matches the schema's field
@@ -68,6 +64,8 @@ public final class StructureEmitterTemplateData
     public String  getFuncPrefix()           { return funcPrefix; }
     public String  getIncludeGuard()         { return includeGuard; }
     public String  getHeaderIncludePath()    { return headerIncludePath; }
+    public List<ParameterData> getParameters() { return parameters; }
+    public boolean getHasParameters()        { return !parameters.isEmpty(); }
     public List<FieldFormatter.FieldData> getFields() { return fields; }
     public List<String> getExtraIncludes()   { return extraIncludes; }
     public boolean getHasOwnedFields()       { return hasOwnedFields; }

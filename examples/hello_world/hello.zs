@@ -79,6 +79,17 @@ struct Catalog
     Address            history[2];
 };
 
+struct LayerData(uint32 byte_count)
+{
+    uint8              data[byte_count];
+};
+
+struct Frame
+{
+    uint32             size;
+    LayerData(size)    layer;
+};
+
 struct Hello
 {
     uint8       age;
