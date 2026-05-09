@@ -154,19 +154,19 @@ public final class CExpressionFormattingPolicy extends DefaultExpressionFormatti
         if (sym instanceof EnumItem)
         {
             // The C side has no enum scope — every enumerator is a
-            // flat `pkg_ENUMTYPE_ITEM` constant. Whether the AST sees
-            // this as `Color.RED`, `pkg.Color.RED`, or bare `RED` (in
-            // a context where the enum is in scope), we always emit
-            // the full name.
+            // flat `pkg_ENUMTYPE_ITEM` constant. Try both the
+            // expression's evaluated type and its owner; the upstream
+            // evaluator sets one or the other depending on whether
+            // we got here as `RED` (most-left) or as the right side
+            // of a `Color.RED` dot.
             final EnumItem item = (EnumItem)sym;
-            final ZserioType ownerType = expr.getExprZserioType();
-            if (!(ownerType instanceof EnumType))
+            final EnumType et = resolveEnumType(expr);
+            if (et == null)
             {
                 throw new ZserioExtensionException(
                         "zserio-c: enumerator '" + item.getName()
                                 + "' referenced without a resolvable enum type");
             }
-            final EnumType et = (EnumType)ownerType;
             return CIdentifierFormatter.constantName(
                     et.getPackage().getPackageName(),
                     et.getName() + "_" + item.getName());
@@ -174,14 +174,13 @@ public final class CExpressionFormattingPolicy extends DefaultExpressionFormatti
         if (sym instanceof BitmaskValue)
         {
             final BitmaskValue bv = (BitmaskValue)sym;
-            final ZserioType ownerType = expr.getExprZserioType();
-            if (!(ownerType instanceof BitmaskType))
+            final BitmaskType bt = resolveBitmaskType(expr);
+            if (bt == null)
             {
                 throw new ZserioExtensionException(
                         "zserio-c: bitmask value '" + bv.getName()
                                 + "' referenced without a resolvable bitmask type");
             }
-            final BitmaskType bt = (BitmaskType)ownerType;
             return CIdentifierFormatter.constantName(
                     bt.getPackage().getPackageName(),
                     bt.getName() + "_" + bv.getName());
@@ -198,6 +197,32 @@ public final class CExpressionFormattingPolicy extends DefaultExpressionFormatti
                 "zserio-c: identifier '" + zserioName + "' refers to "
                         + (sym == null ? "an unresolved symbol" : sym.getClass().getSimpleName())
                         + " — not yet supported in expressions");
+    }
+
+    private static EnumType resolveEnumType(Expression expr)
+    {
+        if (expr.getExprZserioType() instanceof EnumType)
+        {
+            return (EnumType)expr.getExprZserioType();
+        }
+        if (expr.getExprOwner() instanceof EnumType)
+        {
+            return (EnumType)expr.getExprOwner();
+        }
+        return null;
+    }
+
+    private static BitmaskType resolveBitmaskType(Expression expr)
+    {
+        if (expr.getExprZserioType() instanceof BitmaskType)
+        {
+            return (BitmaskType)expr.getExprZserioType();
+        }
+        if (expr.getExprOwner() instanceof BitmaskType)
+        {
+            return (BitmaskType)expr.getExprOwner();
+        }
+        return null;
     }
 
     @Override
