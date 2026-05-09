@@ -153,13 +153,20 @@ public final class CExpressionFormattingPolicy extends DefaultExpressionFormatti
         }
         if (sym instanceof EnumItem)
         {
-            // The C side has no enum scope — every enumerator is a
-            // flat `pkg_ENUMTYPE_ITEM` constant. Try both the
-            // expression's evaluated type and its owner; the upstream
-            // evaluator sets one or the other depending on whether
-            // we got here as `RED` (most-left) or as the right side
-            // of a `Color.RED` dot.
+            // C has no enum scope — every enumerator is a flat
+            // `pkg_TYPE_ITEM` constant. Two paths:
+            //  - right side of a `Color.RED` dot: the LEFT
+            //    (EnumType) emits `pkg_COLOR_` (with trailing
+            //    underscore), getDot collapses the separator, this
+            //    side just contributes the upper-snake item name;
+            //  - bare `RED` ref (most-left): we need the parent
+            //    type to assemble the whole name. The AST's expr
+            //    type / owner carry it for direct refs.
             final EnumItem item = (EnumItem)sym;
+            if (!expr.isMostLeftId())
+            {
+                return CIdentifierFormatter.toUpperSnake(item.getName());
+            }
             final EnumType et = resolveEnumType(expr);
             if (et == null)
             {
@@ -174,6 +181,10 @@ public final class CExpressionFormattingPolicy extends DefaultExpressionFormatti
         if (sym instanceof BitmaskValue)
         {
             final BitmaskValue bv = (BitmaskValue)sym;
+            if (!expr.isMostLeftId())
+            {
+                return CIdentifierFormatter.toUpperSnake(bv.getName());
+            }
             final BitmaskType bt = resolveBitmaskType(expr);
             if (bt == null)
             {
@@ -185,12 +196,40 @@ public final class CExpressionFormattingPolicy extends DefaultExpressionFormatti
                     bt.getPackage().getPackageName(),
                     bt.getName() + "_" + bv.getName());
         }
+        if (sym instanceof EnumType)
+        {
+            // Mid-chain `Color` in `Color.RED`: emit `pkg_COLOR_`
+            // (constant prefix + trailing underscore). `getDot`
+            // returns an empty separator when op2 is EnumItem, so
+            // the right side's item name attaches directly.
+            if (isLastInDot)
+            {
+                throw new ZserioExtensionException(
+                        "zserio-c: standalone enum-type reference '" + zserioName
+                                + "' is not yet supported in expressions");
+            }
+            final EnumType et = (EnumType)sym;
+            return CIdentifierFormatter.constantName(
+                    et.getPackage().getPackageName(), et.getName()) + "_";
+        }
+        if (sym instanceof BitmaskType)
+        {
+            if (isLastInDot)
+            {
+                throw new ZserioExtensionException(
+                        "zserio-c: standalone bitmask-type reference '" + zserioName
+                                + "' is not yet supported in expressions");
+            }
+            final BitmaskType bt = (BitmaskType)sym;
+            return CIdentifierFormatter.constantName(
+                    bt.getPackage().getPackageName(), bt.getName()) + "_";
+        }
         if (sym instanceof Package || sym instanceof ZserioType)
         {
-            // The leftmost segment of a `pkg.…` or `Color.…` chain.
-            // The right side carries the full pkg-prefixed constant
-            // name and `getDot` collapses the separator, so this
-            // segment has nothing to emit.
+            // The leftmost segment of a `pkg.…` chain (or a non-
+            // enum/bitmask type ref). `getDot` collapses the
+            // following separator, so this segment has nothing to
+            // emit.
             return "";
         }
         throw new ZserioExtensionException(
