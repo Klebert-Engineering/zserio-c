@@ -327,15 +327,33 @@ public final class FieldFormatter
             throw new ZserioExtensionException(
                     "zserio-c: implicit arrays are not yet supported (field '" + origName + "')");
         }
-        if (ai.isPacked())
-        {
-            throw new ZserioExtensionException(
-                    "zserio-c: packed arrays are not yet supported (field '" + origName + "')");
-        }
 
         final TypeInstantiation eltInst = ai.getElementTypeInstantiation();
         final ZserioType eltDirect = eltInst.getTypeReference().getType();
         final TypeBinding eltBinding = bindType(eltDirect);
+
+        if (ai.isPacked())
+        {
+            // Packed arrays of fixed-width integer / bit-field / bool
+            // elements use the delta-encoding context from the
+            // runtime. Other element types (compound, string, bytes,
+            // extern, varint) need additional encoder state we don't
+            // generate yet.
+            final PackedElementSpec packed = packedElementSpec(eltDirect, eltBinding, origName);
+            final Expression lenExprP = ai.getLengthExpression();
+            if (lenExprP == null)
+            {
+                return packedVariableArray(name, packed, h);
+            }
+            final BigInteger fixedLenP = lenExprP.getIntegerValue();
+            if (fixedLenP != null)
+            {
+                return packedFixedArray(name, packed, fixedLenP.toString(), h);
+            }
+            final String formattedLenP = CExpressionFormatter.format(lenExprP, h, owner);
+            return packedExpressionLengthArray(name, packed, formattedLenP, h);
+        }
+
         final ElementOps ops = elementOps(eltDirect, eltInst, eltBinding, origName, h, owner);
 
         final Expression lenExpr = ai.getLengthExpression();
@@ -355,6 +373,226 @@ public final class FieldFormatter
         // a parameter or earlier field of the parent.
         final String formattedLen = CExpressionFormatter.format(lenExpr, h, owner);
         return expressionLengthArray(name, ops, formattedLen, h);
+    }
+
+    /* -------- packed arrays -------- */
+
+    /**
+     * Per-element spec for the packed-array path: bit width and
+     * signedness for the delta context, plus the C type for the
+     * element slot.
+     */
+    private static PackedElementSpec packedElementSpec(ZserioType eltDirect, TypeBinding b,
+            String origName) throws ZserioExtensionException
+    {
+        final ZserioType under = underlyingType(eltDirect);
+        final int bits;
+        final boolean signed;
+        if (under instanceof BooleanType)
+        {
+            bits = 1;
+            signed = false;
+        }
+        else if (under instanceof StdIntegerType)
+        {
+            final StdIntegerType std = (StdIntegerType)under;
+            bits = std.getBitSize();
+            signed = std.isSigned();
+        }
+        else if (under instanceof FixedBitFieldType)
+        {
+            final FixedBitFieldType bf = (FixedBitFieldType)under;
+            bits = bf.getBitSize();
+            signed = bf.isSigned();
+        }
+        else
+        {
+            throw new ZserioExtensionException(
+                    "zserio-c: packed arrays of "
+                            + under.getClass().getSimpleName()
+                            + " elements are not yet supported (field '" + origName + "')");
+        }
+        return new PackedElementSpec(b.cType, b.extraInclude, bits, signed);
+    }
+
+    /** Spec for the per-element delta context (variable + fixed + expr-length packed). */
+    private static final class PackedElementSpec
+    {
+        final String cType;
+        final String extraInclude;
+        final int bits;
+        final boolean signed;
+
+        PackedElementSpec(String cType, String extraInclude, int bits, boolean signed)
+        {
+            this.cType = cType;
+            this.extraInclude = extraInclude;
+            this.bits = bits;
+            this.signed = signed;
+        }
+    }
+
+    private static FieldData packedVariableArray(String name, PackedElementSpec p, String h)
+    {
+        return packedHeapArray(name, p, h, /* lengthSource */ null);
+    }
+
+    private static FieldData packedExpressionLengthArray(String name, PackedElementSpec p,
+            String formattedLen, String h)
+    {
+        return packedHeapArray(name, p, h, formattedLen);
+    }
+
+    /**
+     * Packed array stored on the heap (count + ptr). When
+     * {@code formattedLen} is {@code null} the count comes from a
+     * varsize wire prefix; otherwise it comes from the expression and
+     * no length prefix is emitted.
+     */
+    private static FieldData packedHeapArray(String name, PackedElementSpec p, String h,
+            String formattedLen)
+    {
+        final String countExpr = h + name + "_count";
+        final String ptrExpr   = h + name;
+        final String iVar      = name + "_i";
+        final String declaration = p.cType + " *" + name;
+        final String extraMember = "size_t " + name + "_count;";
+
+        final String boolStr = p.signed ? "true" : "false";
+        final String elementCast = p.signed ? "(int64_t)" : "(uint64_t)";
+
+        // Read pre-loop count handling differs by length source.
+        final String readCountSetup;
+        if (formattedLen == null)
+        {
+            readCountSetup =
+                    "        uint32_t " + name + "_size = 0u;\n"
+                    + "        ZSERIO_TRY(zserio_read_varsize(bs, &" + name + "_size));\n"
+                    + "        " + countExpr + " = (size_t)" + name + "_size;\n";
+        }
+        else
+        {
+            readCountSetup = "        " + countExpr + " = (size_t)("
+                    + formattedLen + ");\n";
+        }
+
+        final String read =
+                "{\n"
+                + readCountSetup
+                + "        " + ptrExpr + " = NULL;\n"
+                + "        if (" + countExpr + " > 0u) {\n"
+                + "            " + ptrExpr + " = (" + p.cType + " *)alloc->vtable->alloc(\n"
+                + "                    alloc->userdata,\n"
+                + "                    " + countExpr + " * sizeof(*(" + ptrExpr + ")),\n"
+                + "                    sizeof(*(" + ptrExpr + ")));\n"
+                + "            if (" + ptrExpr + " == NULL) {\n"
+                + "                return ZSERIO_ERR_OUT_OF_MEMORY;\n"
+                + "            }\n"
+                + "            zserio_delta_context_t " + name + "_ctx;\n"
+                + "            ZSERIO_TRY(zserio_delta_init(&" + name + "_ctx, "
+                + p.bits + ", " + boolStr + "));\n"
+                + "            for (size_t " + iVar + " = 0u; " + iVar + " < "
+                + countExpr + "; ++" + iVar + ") {\n"
+                + "                uint64_t " + iVar + "_raw;\n"
+                + "                ZSERIO_TRY(zserio_delta_read(&" + name + "_ctx, bs, &"
+                + iVar + "_raw));\n"
+                + "                " + ptrExpr + "[" + iVar + "] = ("
+                + p.cType + ")" + iVar + "_raw;\n"
+                + "            }\n"
+                + "        }\n"
+                + "    }";
+
+        // Write: two passes, both gated on count > 0 so an empty array
+        // doesn't even initialise the context. The optional varsize
+        // prefix matches the read path.
+        final String writeCountPrefix = formattedLen == null
+                ? "        ZSERIO_TRY(zserio_write_varsize(bs, (uint32_t)" + countExpr + "));\n"
+                : "";
+        final String write =
+                "{\n"
+                + writeCountPrefix
+                + "        if (" + countExpr + " > 0u) {\n"
+                + "            zserio_delta_context_t " + name + "_ctx;\n"
+                + "            ZSERIO_TRY(zserio_delta_init(&" + name + "_ctx, "
+                + p.bits + ", " + boolStr + "));\n"
+                + "            for (size_t " + iVar + " = 0u; " + iVar + " < "
+                + countExpr + "; ++" + iVar + ") {\n"
+                + "                ZSERIO_TRY(zserio_delta_observe(&" + name + "_ctx, "
+                + elementCast + ptrExpr + "[" + iVar + "]));\n"
+                + "            }\n"
+                + "            for (size_t " + iVar + " = 0u; " + iVar + " < "
+                + countExpr + "; ++" + iVar + ") {\n"
+                + "                ZSERIO_TRY(zserio_delta_write(&" + name + "_ctx, bs, "
+                + elementCast + ptrExpr + "[" + iVar + "]));\n"
+                + "            }\n"
+                + "        }\n"
+                + "    }";
+
+        // Free: pure deallocation of the heap buffer (no per-element
+        // free since these element types own no further data).
+        final String free =
+                "if (" + ptrExpr + " != NULL) {\n"
+                + "        alloc->vtable->free(alloc->userdata, " + ptrExpr + ",\n"
+                + "                " + countExpr + " * sizeof(*(" + ptrExpr + ")),\n"
+                + "                sizeof(*(" + ptrExpr + ")));\n"
+                + "        " + ptrExpr + " = NULL;\n"
+                + "        " + countExpr + " = 0u;\n"
+                + "    }";
+
+        return new FieldData(
+                name, p.cType + " *", declaration,
+                read, write, free,
+                /* owned */ true, p.extraInclude, extraMember);
+    }
+
+    private static FieldData packedFixedArray(String name, PackedElementSpec p,
+            String lengthLiteral, String h)
+    {
+        // Fixed-length packed array: storage is an inline C array (no
+        // count member, no allocation). Read/write run the delta
+        // context over the N slots; free is empty (primitive elements
+        // own no further data).
+        final String declaration = p.cType + " " + name + "[" + lengthLiteral + "]";
+        final String iVar = name + "_i";
+        final String access = h + name;
+        final String boolStr = p.signed ? "true" : "false";
+        final String elementCast = p.signed ? "(int64_t)" : "(uint64_t)";
+
+        final String read =
+                "{\n"
+                + "        zserio_delta_context_t " + name + "_ctx;\n"
+                + "        ZSERIO_TRY(zserio_delta_init(&" + name + "_ctx, "
+                + p.bits + ", " + boolStr + "));\n"
+                + "        for (size_t " + iVar + " = 0u; " + iVar + " < "
+                + lengthLiteral + "u; ++" + iVar + ") {\n"
+                + "            uint64_t " + iVar + "_raw;\n"
+                + "            ZSERIO_TRY(zserio_delta_read(&" + name + "_ctx, bs, &"
+                + iVar + "_raw));\n"
+                + "            " + access + "[" + iVar + "] = ("
+                + p.cType + ")" + iVar + "_raw;\n"
+                + "        }\n"
+                + "    }";
+        final String write =
+                "{\n"
+                + "        zserio_delta_context_t " + name + "_ctx;\n"
+                + "        ZSERIO_TRY(zserio_delta_init(&" + name + "_ctx, "
+                + p.bits + ", " + boolStr + "));\n"
+                + "        for (size_t " + iVar + " = 0u; " + iVar + " < "
+                + lengthLiteral + "u; ++" + iVar + ") {\n"
+                + "            ZSERIO_TRY(zserio_delta_observe(&" + name + "_ctx, "
+                + elementCast + access + "[" + iVar + "]));\n"
+                + "        }\n"
+                + "        for (size_t " + iVar + " = 0u; " + iVar + " < "
+                + lengthLiteral + "u; ++" + iVar + ") {\n"
+                + "            ZSERIO_TRY(zserio_delta_write(&" + name + "_ctx, bs, "
+                + elementCast + access + "[" + iVar + "]));\n"
+                + "        }\n"
+                + "    }";
+
+        return new FieldData(
+                name, p.cType, declaration,
+                read, write, /* free */ "",
+                /* owned */ false, p.extraInclude, /* extraMember */ "");
     }
 
     /**
