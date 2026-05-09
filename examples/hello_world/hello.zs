@@ -101,8 +101,8 @@ struct Frame
 struct Validated
 {
     uint8                   grade;
-    uint8                   passing if passing == 1;
-    optional uint16         bonus if grade >= 90;
+    uint8                   passing : passing == 1;
+    uint16                  bonus if grade >= 90;
 };
 
 struct Hello
