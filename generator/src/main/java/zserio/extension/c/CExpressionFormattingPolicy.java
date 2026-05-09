@@ -54,6 +54,7 @@ import zserio.extension.common.ZserioExtensionException;
 public final class CExpressionFormattingPolicy extends DefaultExpressionFormattingPolicy
 {
     private final String holderExpr;
+    private final CompoundType currentOwner;
 
     /**
      * @param holderExpr C expression that prefixes a leftmost
@@ -62,7 +63,22 @@ public final class CExpressionFormattingPolicy extends DefaultExpressionFormatti
      */
     public CExpressionFormattingPolicy(String holderExpr)
     {
+        this(holderExpr, null);
+    }
+
+    /**
+     * @param currentOwner the compound that contains the expression
+     *                     being formatted. Used as the implicit
+     *                     receiver for same-compound function calls
+     *                     ({@code area()} where area is declared in
+     *                     this compound), since the AST doesn't always
+     *                     thread a function's owner through
+     *                     {@code expr.getExprOwner()}.
+     */
+    public CExpressionFormattingPolicy(String holderExpr, CompoundType currentOwner)
+    {
         this.holderExpr = holderExpr;
+        this.currentOwner = currentOwner;
     }
 
     /* -------- atoms -------- */
@@ -238,14 +254,14 @@ public final class CExpressionFormattingPolicy extends DefaultExpressionFormatti
                 return "";
             }
             final Function func = (Function)sym;
-            final ZserioType owner = expr.getExprOwner();
-            if (!(owner instanceof CompoundType))
+            final CompoundType owner = resolveFunctionOwner(expr);
+            if (owner == null)
             {
                 throw new ZserioExtensionException(
                         "zserio-c: function '" + func.getName()
                                 + "' has no resolvable owning compound type");
             }
-            return cFunctionName((CompoundType)owner, func);
+            return cFunctionName(owner, func);
         }
         if (sym instanceof Package || sym instanceof ZserioType)
         {
@@ -313,14 +329,25 @@ public final class CExpressionFormattingPolicy extends DefaultExpressionFormatti
             if (rightSym instanceof Function)
             {
                 final Function func = (Function)rightSym;
-                final ZserioType owner = rightSide.getExprOwner();
-                if (!(owner instanceof CompoundType))
+                CompoundType owner = resolveFunctionOwner(rightSide);
+                // For `recv.func()` the receiver's type IS the owning
+                // compound — fall back to that if the ExprOwner /
+                // current-owner lookup didn't pin it.
+                if (owner == null && expr.op1() != null)
+                {
+                    final ZserioType recvType = expr.op1().getExprZserioType();
+                    if (recvType instanceof CompoundType)
+                    {
+                        owner = (CompoundType)recvType;
+                    }
+                }
+                if (owner == null)
                 {
                     throw new ZserioExtensionException(
                             "zserio-c: function '" + func.getName()
                                     + "' has no resolvable owning compound type");
                 }
-                final String funcName = cFunctionName((CompoundType)owner, func);
+                final String funcName = cFunctionName(owner, func);
                 return new BinaryExpressionFormatting(funcName + "(&", "", ")");
             }
         }
@@ -350,6 +377,23 @@ public final class CExpressionFormattingPolicy extends DefaultExpressionFormatti
         return CIdentifierFormatter.funcPrefix(
                 owner.getPackage().getPackageName(), owner.getName())
                 + "_" + CIdentifierFormatter.toLowerSnake(func.getName());
+    }
+
+    /**
+     * Find the compound that owns the function referenced by
+     * {@code expr}. Tries the AST's {@code expr.getExprOwner()} first
+     * (set when the AST evaluator could thread it through); falls
+     * back to the policy's {@code currentOwner} for same-compound
+     * refs that the AST didn't tag.
+     */
+    private CompoundType resolveFunctionOwner(Expression expr)
+    {
+        final ZserioType o = expr.getExprOwner();
+        if (o instanceof CompoundType)
+        {
+            return (CompoundType)o;
+        }
+        return currentOwner;
     }
 
     /* -------- built-in expression functions -------- */

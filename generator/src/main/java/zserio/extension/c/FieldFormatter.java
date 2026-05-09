@@ -62,17 +62,31 @@ public final class FieldFormatter
      * yields the struct holding the field — typically {@code "self->"}
      * for top-level structs or {@code "self->u."} for the cases of
      * a union (where each case lives inside an anonymous member union).
+     * Calls the no-owner overload; same-compound function calls in
+     * field-level expressions can't be resolved without an owner.
      */
     public static FieldData format(Field field, String holderExpr) throws ZserioExtensionException
     {
-        FieldData data = formatBase(field, holderExpr);
+        return format(field, holderExpr, null);
+    }
+
+    /**
+     * Same as {@link #format(Field, String)} but with the compound
+     * that owns the field — used as the implicit receiver for
+     * same-compound function calls in the field's constraint /
+     * optional-clause / array-length / parameter-arg expressions.
+     */
+    public static FieldData format(Field field, String holderExpr, CompoundType owner)
+            throws ZserioExtensionException
+    {
+        FieldData data = formatBase(field, holderExpr, owner);
 
         // Constraint check sits between the value lowering and the
         // optional wrapper so an absent field doesn't fail validation.
         if (field.getConstraintExpr() != null)
         {
             final String formatted =
-                    CExpressionFormatter.format(field.getConstraintExpr(), holderExpr);
+                    CExpressionFormatter.format(field.getConstraintExpr(), holderExpr, owner);
             data = wrapConstraint(data, formatted);
         }
 
@@ -81,7 +95,8 @@ public final class FieldFormatter
             if (field.getOptionalClauseExpr() != null)
             {
                 final String formattedClause =
-                        CExpressionFormatter.format(field.getOptionalClauseExpr(), holderExpr);
+                        CExpressionFormatter.format(
+                                field.getOptionalClauseExpr(), holderExpr, owner);
                 data = wrapIfOptional(data, formattedClause, holderExpr);
             }
             else
@@ -152,14 +167,16 @@ public final class FieldFormatter
     }
 
     /** The non-optional core lowering. */
-    private static FieldData formatBase(Field field, String holderExpr) throws ZserioExtensionException
+    private static FieldData formatBase(Field field, String holderExpr, CompoundType owner)
+            throws ZserioExtensionException
     {
         final String name = CIdentifierFormatter.toLowerSnake(field.getName());
         final TypeInstantiation typeInst = field.getTypeInstantiation();
 
         if (typeInst instanceof ArrayInstantiation)
         {
-            return arrayField(name, (ArrayInstantiation)typeInst, holderExpr, field.getName());
+            return arrayField(name, (ArrayInstantiation)typeInst, holderExpr,
+                    field.getName(), owner);
         }
 
         final TypeReference ref = typeInst.getTypeReference();
@@ -180,7 +197,7 @@ public final class FieldFormatter
         final CompoundType underlyingCompound = compoundUnderlying(direct);
         if (underlyingCompound != null)
         {
-            return compound(name, underlyingCompound, typeInst, b, holderExpr);
+            return compound(name, underlyingCompound, typeInst, b, holderExpr, owner);
         }
 
         final ZserioType under = underlyingType(direct);
@@ -213,7 +230,7 @@ public final class FieldFormatter
             final DynamicBitFieldInstantiation dyn = (DynamicBitFieldInstantiation)typeInst;
             final boolean signed = ((DynamicBitFieldType)under).isSigned();
             final String formattedLen =
-                    CExpressionFormatter.format(dyn.getLengthExpression(), holderExpr);
+                    CExpressionFormatter.format(dyn.getLengthExpression(), holderExpr, owner);
             return dynamicBitField(name, b, formattedLen, signed, holderExpr);
         }
         if (under instanceof StringType)
@@ -302,8 +319,8 @@ public final class FieldFormatter
      * arrays ({@code packed T[]}), parameterised compound elements,
      * non-literal length expressions, alignment / offset annotations.
      */
-    private static FieldData arrayField(String name, ArrayInstantiation ai, String h, String origName)
-            throws ZserioExtensionException
+    private static FieldData arrayField(String name, ArrayInstantiation ai, String h,
+            String origName, CompoundType owner) throws ZserioExtensionException
     {
         if (ai.isImplicit())
         {
@@ -319,7 +336,7 @@ public final class FieldFormatter
         final TypeInstantiation eltInst = ai.getElementTypeInstantiation();
         final ZserioType eltDirect = eltInst.getTypeReference().getType();
         final TypeBinding eltBinding = bindType(eltDirect);
-        final ElementOps ops = elementOps(eltDirect, eltInst, eltBinding, origName, h);
+        final ElementOps ops = elementOps(eltDirect, eltInst, eltBinding, origName, h, owner);
 
         final Expression lenExpr = ai.getLengthExpression();
         if (lenExpr == null)
@@ -336,7 +353,7 @@ public final class FieldFormatter
         // rather than from a wire varsize prefix. Common use: a
         // parameterised struct with `T data[size]` where `size` is
         // a parameter or earlier field of the parent.
-        final String formattedLen = CExpressionFormatter.formatRefOrLiteral(lenExpr, h);
+        final String formattedLen = CExpressionFormatter.format(lenExpr, h, owner);
         return expressionLengthArray(name, ops, formattedLen, h);
     }
 
@@ -352,7 +369,7 @@ public final class FieldFormatter
      *                     fields/parameters, not per-slot state).
      */
     private static ElementOps elementOps(ZserioType direct, TypeInstantiation typeInst,
-            TypeBinding b, String origName, String holderExpr)
+            TypeBinding b, String origName, String holderExpr, CompoundType owner)
             throws ZserioExtensionException
     {
         // Compound element (possibly via subtype layers).
@@ -379,7 +396,7 @@ public final class FieldFormatter
                 {
                     args.append(", ");
                     args.append(CExpressionFormatter.format(
-                            ip.getArgumentExpression(), holderExpr));
+                            ip.getArgumentExpression(), holderExpr, owner));
                 }
                 final String setLine = prefix + "_set_parameters(&$SLOT$" + args + ");\n            ";
                 setParamsRead  = setLine;
@@ -447,7 +464,7 @@ public final class FieldFormatter
             final DynamicBitFieldInstantiation dyn = (DynamicBitFieldInstantiation)typeInst;
             final boolean signed = ((DynamicBitFieldType)under).isSigned();
             final String formattedLen =
-                    CExpressionFormatter.format(dyn.getLengthExpression(), holderExpr);
+                    CExpressionFormatter.format(dyn.getLengthExpression(), holderExpr, owner);
             return dynamicBitFieldElement(b, formattedLen, signed);
         }
 
@@ -883,7 +900,7 @@ public final class FieldFormatter
     }
 
     private static FieldData compound(String name, CompoundType ct, TypeInstantiation typeInst,
-            TypeBinding b, String h) throws ZserioExtensionException
+            TypeBinding b, String h, CompoundType owner) throws ZserioExtensionException
     {
         final PackageName pkg = ct.getPackage().getPackageName();
         final String prefix = CIdentifierFormatter.funcPrefix(pkg, ct.getName());
@@ -902,7 +919,8 @@ public final class FieldFormatter
                     : pti.getInstantiatedParameters())
             {
                 args.append(", ");
-                args.append(CExpressionFormatter.formatRefOrLiteral(ip.getArgumentExpression(), h));
+                args.append(CExpressionFormatter.format(
+                        ip.getArgumentExpression(), h, owner));
             }
             // The trailing newline + indent keeps the rendered statement
             // visually aligned with the read/write line that follows it

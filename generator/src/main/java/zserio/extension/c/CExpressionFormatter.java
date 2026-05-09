@@ -7,6 +7,7 @@ package zserio.extension.c;
 
 import java.math.BigInteger;
 
+import zserio.ast.CompoundType;
 import zserio.ast.Expression;
 import zserio.extension.common.ExpressionFormatter;
 import zserio.extension.common.ZserioExtensionException;
@@ -44,7 +45,20 @@ public final class CExpressionFormatter
     public static String format(Expression expr, String holderExpr)
             throws ZserioExtensionException
     {
-        final CExpressionFormattingPolicy policy = new CExpressionFormattingPolicy(holderExpr);
+        return format(expr, holderExpr, null);
+    }
+
+    /**
+     * Same as {@link #format(Expression, String)} but with the
+     * compound that contains the expression. Used when same-compound
+     * function calls need to find their owning compound for the
+     * generated C function-name prefix.
+     */
+    public static String format(Expression expr, String holderExpr, CompoundType currentOwner)
+            throws ZserioExtensionException
+    {
+        final CExpressionFormattingPolicy policy =
+                new CExpressionFormattingPolicy(holderExpr, currentOwner);
         return new ExpressionFormatter(policy).formatGetter(expr);
     }
 

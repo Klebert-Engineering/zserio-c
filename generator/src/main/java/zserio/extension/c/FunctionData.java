@@ -66,8 +66,13 @@ public final class FunctionData
             final String returnType = CNativeTypeMapper.nativeType(f.getReturnTypeReference());
             // The result expression sees `self` as the implicit
             // receiver; a parameter / field reference there lowers to
-            // `self->...`.
-            final String body = CExpressionFormatter.format(f.getResultExpression(), "self->");
+            // `self->...`. The owner is also passed so any same-
+            // compound function call inside this function's body
+            // (`area() * 2` referencing another function on the same
+            // compound) resolves its owner via the policy's
+            // currentOwner fallback.
+            final String body = CExpressionFormatter.format(
+                    f.getResultExpression(), "self->", owner);
             out.add(new FunctionData(localName, fullName, returnType, body));
         }
         return out;

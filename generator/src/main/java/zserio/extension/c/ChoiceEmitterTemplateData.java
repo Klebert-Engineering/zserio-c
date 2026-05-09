@@ -56,11 +56,13 @@ public final class ChoiceEmitterTemplateData
         }
         this.parameters = ParameterData.from(choiceType.getTypeParameters());
 
-        // v1: selector must be a simple parameter ref (or a field ref
-        // for choices nested in a struct's local scope); the formatter
-        // throws if it sees anything more complex.
+        // The selector resolves against the choice's own state —
+        // typically a parameter ref but the formatter accepts any
+        // expression now. The owner is the choice itself so any
+        // function calls in the selector resolve to this compound.
         this.selectorExpr =
-                CExpressionFormatter.formatRefOrLiteral(choiceType.getSelectorExpression(), "self->");
+                CExpressionFormatter.format(
+                        choiceType.getSelectorExpression(), "self->", choiceType);
 
         final List<CaseData> built = new ArrayList<>();
         final LinkedHashSet<String> includes = new LinkedHashSet<>();
@@ -82,7 +84,7 @@ public final class ChoiceEmitterTemplateData
                             "zserio-c: choice '" + zserioName + "' has optional case field '"
                                     + caseField.getName() + "'; not supported in v1");
                 }
-                fd = FieldFormatter.format(caseField, "self->u.");
+                fd = FieldFormatter.format(caseField, "self->u.", choiceType);
                 if (fd.getExtraInclude() != null)
                 {
                     includes.add(fd.getExtraInclude());
@@ -110,7 +112,7 @@ public final class ChoiceEmitterTemplateData
                             "zserio-c: choice '" + zserioName + "' has optional default field '"
                                     + def.getField().getName() + "'; not supported in v1");
                 }
-                this.defaultField = FieldFormatter.format(def.getField(), "self->u.");
+                this.defaultField = FieldFormatter.format(def.getField(), "self->u.", choiceType);
                 if (this.defaultField.getExtraInclude() != null)
                 {
                     includes.add(this.defaultField.getExtraInclude());

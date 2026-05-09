@@ -47,7 +47,7 @@ public final class StructureEmitterTemplateData
         boolean owned = false;
         for (final Field f : structType.getFields())
         {
-            final FieldFormatter.FieldData data = FieldFormatter.format(f, "self->");
+            final FieldFormatter.FieldData data = FieldFormatter.format(f, "self->", structType);
             built.add(data);
             if (data.getExtraInclude() != null)
             {

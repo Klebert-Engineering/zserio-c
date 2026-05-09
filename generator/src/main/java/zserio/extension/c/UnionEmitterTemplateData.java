@@ -56,7 +56,7 @@ public final class UnionEmitterTemplateData
             }
             // Each case lives inside an anonymous member union named
             // `u`, so the field statements use `self->u.<name>`.
-            final FieldFormatter.FieldData field = FieldFormatter.format(f, "self->u.");
+            final FieldFormatter.FieldData field = FieldFormatter.format(f, "self->u.", unionType);
             final String tagSuffix = CIdentifierFormatter.toUpperSnake(f.getName());
             built.add(new CaseData(tagBase + "_" + tagSuffix, index + "u", field));
             if (field.getExtraInclude() != null)
