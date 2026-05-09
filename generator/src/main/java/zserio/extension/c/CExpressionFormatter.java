@@ -57,8 +57,20 @@ public final class CExpressionFormatter
     public static String format(Expression expr, String holderExpr, CompoundType currentOwner)
             throws ZserioExtensionException
     {
+        return format(expr, holderExpr, currentOwner, null);
+    }
+
+    /**
+     * Same as {@link #format(Expression, String, CompoundType)} but
+     * with an {@code @index} substitution — used when the expression
+     * is a parameter argument for an array element type and may
+     * reference the enclosing array's iteration index.
+     */
+    public static String format(Expression expr, String holderExpr,
+            CompoundType currentOwner, String indexVar) throws ZserioExtensionException
+    {
         final CExpressionFormattingPolicy policy =
-                new CExpressionFormattingPolicy(holderExpr, currentOwner);
+                new CExpressionFormattingPolicy(holderExpr, currentOwner, indexVar);
         return new ExpressionFormatter(policy).formatGetter(expr);
     }
 

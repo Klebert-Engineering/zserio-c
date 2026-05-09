@@ -55,6 +55,7 @@ public final class CExpressionFormattingPolicy extends DefaultExpressionFormatti
 {
     private final String holderExpr;
     private final CompoundType currentOwner;
+    private final String indexVar;
 
     /**
      * @param holderExpr C expression that prefixes a leftmost
@@ -63,7 +64,7 @@ public final class CExpressionFormattingPolicy extends DefaultExpressionFormatti
      */
     public CExpressionFormattingPolicy(String holderExpr)
     {
-        this(holderExpr, null);
+        this(holderExpr, null, null);
     }
 
     /**
@@ -77,8 +78,22 @@ public final class CExpressionFormattingPolicy extends DefaultExpressionFormatti
      */
     public CExpressionFormattingPolicy(String holderExpr, CompoundType currentOwner)
     {
+        this(holderExpr, currentOwner, null);
+    }
+
+    /**
+     * @param indexVar C expression for the {@code @index} magic
+     *                 identifier — typically the iteration variable
+     *                 of the enclosing array's read / write loop.
+     *                 {@code null} when no array iteration is
+     *                 active; {@code @index} use throws in that case.
+     */
+    public CExpressionFormattingPolicy(String holderExpr, CompoundType currentOwner,
+            String indexVar)
+    {
         this.holderExpr = holderExpr;
         this.currentOwner = currentOwner;
+        this.indexVar = indexVar;
     }
 
     /* -------- atoms -------- */
@@ -306,8 +321,16 @@ public final class CExpressionFormattingPolicy extends DefaultExpressionFormatti
     @Override
     public String getIndex(Expression expr) throws ZserioExtensionException
     {
-        throw new ZserioExtensionException(
-                "zserio-c: implicit-array '@index' references are not yet supported");
+        if (indexVar == null)
+        {
+            throw new ZserioExtensionException(
+                    "zserio-c: '@index' referenced outside an array iteration context");
+        }
+        // Cast to (uint32_t) to keep the result type stable —
+        // @index is a varsize-shaped value upstream, and parameter
+        // arguments expect that shape so set_parameters takes a
+        // matching argument.
+        return "(uint32_t)" + indexVar;
     }
 
     /* -------- DOT (member access) -------- */

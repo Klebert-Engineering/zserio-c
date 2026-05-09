@@ -347,7 +347,8 @@ public final class FieldFormatter
             if (packedCompound != null && PackingFieldFormatter.hasPackableField(packedCompound))
             {
                 final String paramSetupLine =
-                        packedCompoundParameterSetup(eltInst, packedCompound, h, owner);
+                        packedCompoundParameterSetup(eltInst, packedCompound, h, owner,
+                                name + "_i");
                 return packedCompoundArray(name, eltBinding, packedCompound, ai, h, owner,
                         paramSetupLine);
             }
@@ -356,7 +357,7 @@ public final class FieldFormatter
                 // Compound element with NO packable fields — same wire
                 // shape as an unpacked compound array.
                 final ElementOps fallthrough = elementOps(eltDirect, eltInst, eltBinding,
-                        origName, h, owner);
+                        origName, h, owner, name + "_i");
                 final Expression lenExprPC = ai.getLengthExpression();
                 if (lenExprPC == null)
                 {
@@ -391,7 +392,8 @@ public final class FieldFormatter
             return packedExpressionLengthArray(name, packed, formattedLenP, h);
         }
 
-        final ElementOps ops = elementOps(eltDirect, eltInst, eltBinding, origName, h, owner);
+        final ElementOps ops = elementOps(eltDirect, eltInst, eltBinding, origName, h, owner,
+                name + "_i");
 
         final Expression lenExpr = ai.getLengthExpression();
         if (lenExpr == null)
@@ -614,7 +616,8 @@ public final class FieldFormatter
      * read_packed / write_packed call.
      */
     private static String packedCompoundParameterSetup(TypeInstantiation eltInst,
-            CompoundType ct, String h, CompoundType owner) throws ZserioExtensionException
+            CompoundType ct, String h, CompoundType owner, String indexVar)
+            throws ZserioExtensionException
     {
         if (!(eltInst instanceof ParameterizedTypeInstantiation))
         {
@@ -629,7 +632,7 @@ public final class FieldFormatter
         {
             args.append(", ");
             args.append(CExpressionFormatter.format(
-                    ip.getArgumentExpression(), h, owner));
+                    ip.getArgumentExpression(), h, owner, indexVar));
         }
         // The trailing newline + 16 spaces aligns with the indent
         // depth of the read/write loops in packedCompoundHeapArray
@@ -880,8 +883,8 @@ public final class FieldFormatter
      *                     fields/parameters, not per-slot state).
      */
     private static ElementOps elementOps(ZserioType direct, TypeInstantiation typeInst,
-            TypeBinding b, String origName, String holderExpr, CompoundType owner)
-            throws ZserioExtensionException
+            TypeBinding b, String origName, String holderExpr, CompoundType owner,
+            String indexVar) throws ZserioExtensionException
     {
         // Compound element (possibly via subtype layers).
         final CompoundType compoundElt = compoundUnderlying(direct);
@@ -907,7 +910,7 @@ public final class FieldFormatter
                 {
                     args.append(", ");
                     args.append(CExpressionFormatter.format(
-                            ip.getArgumentExpression(), holderExpr, owner));
+                            ip.getArgumentExpression(), holderExpr, owner, indexVar));
                 }
                 final String setLine = prefix + "_set_parameters(&$SLOT$" + args + ");\n            ";
                 setParamsRead  = setLine;
