@@ -7,31 +7,26 @@ package zserio.extension.c;
 
 import java.math.BigInteger;
 
-import zserio.ast.AstNode;
 import zserio.ast.Expression;
-import zserio.ast.Field;
-import zserio.ast.Parameter;
+import zserio.extension.common.ExpressionFormatter;
 import zserio.extension.common.ZserioExtensionException;
 
 /**
- * Minimal expression-to-C formatter for the limited expression
- * categories that Phase 2 batch 6 actually needs:
+ * Thin facade over the upstream {@link ExpressionFormatter} +
+ * {@link CExpressionFormattingPolicy} pair.
+ *
+ * Two entry points cover what generated C99 needs today:
  *
  * <ul>
- *   <li>{@link #formatRefOrLiteral} — a single identifier referring
- *       to a {@link Parameter} or a {@link Field} (rendered as
- *       {@code <holder><name>}), or a compile-time integer / boolean
- *       literal.</li>
- *   <li>{@link #formatCaseLabel} — a compile-time integer expression
- *       used as a {@code case} label (rendered as {@code <value>u}).</li>
+ *   <li>{@link #format} — full expression lowering against a holder
+ *       expression. Used for choice selectors, parameter argument
+ *       expressions, expression-length array bounds, and (in upcoming
+ *       batches) constraints + {@code if}-optional clauses.</li>
+ *   <li>{@link #formatCaseLabel} — Choice case labels need a C
+ *       <em>integer constant expression</em>; static-const enum
+ *       members don't qualify in C99, so the value is taken from the
+ *       AST's compile-time integer evaluation directly.</li>
  * </ul>
- *
- * Anything else — arithmetic, function calls, struct-of-struct access
- * paths — raises {@link ZserioExtensionException}. A fuller
- * {@code CExpressionFormattingPolicy} (mirroring upstream's
- * CppExpressionFormattingPolicy with operator-precedence-aware output)
- * will replace this once we need it for constraints / array lengths /
- * dynamic-bit fields.
  */
 public final class CExpressionFormatter
 {
@@ -41,43 +36,33 @@ public final class CExpressionFormatter
     }
 
     /**
-     * Format an identifier reference (parameter / field) or a literal.
-     * For an identifier, the result is {@code <holderExpr><name>}.
+     * Lower {@code expr} to C99 source. Identifier references resolve
+     * against the supplied holder ({@code "self->"} for top-level
+     * compound bodies, occasionally something else for nested
+     * scopes).
+     */
+    public static String format(Expression expr, String holderExpr)
+            throws ZserioExtensionException
+    {
+        final CExpressionFormattingPolicy policy = new CExpressionFormattingPolicy(holderExpr);
+        return new ExpressionFormatter(policy).formatGetter(expr);
+    }
+
+    /**
+     * Convenience for the existing call sites that lower a single
+     * identifier reference or literal — kept stable while the
+     * surrounding code migrates to {@link #format}.
      */
     public static String formatRefOrLiteral(Expression expr, String holderExpr)
             throws ZserioExtensionException
     {
-        final AstNode sym = expr.getExprSymbolObject();
-        if (sym instanceof Parameter)
-        {
-            return holderExpr + CIdentifierFormatter.toLowerSnake(((Parameter)sym).getName());
-        }
-        if (sym instanceof Field)
-        {
-            return holderExpr + CIdentifierFormatter.toLowerSnake(((Field)sym).getName());
-        }
-        final BigInteger iv = expr.getIntegerValue();
-        if (iv != null)
-        {
-            return iv.toString();
-        }
-        if (expr.getExprType() == Expression.ExpressionType.BOOLEAN)
-        {
-            // Boolean literals come through as "true" / "false" raw text.
-            final String text = expr.getText();
-            if ("true".equals(text) || "false".equals(text))
-            {
-                return text;
-            }
-        }
-        throw new ZserioExtensionException(
-                "zserio-c: expression '" + expr.getText() + "' is too complex for the v1 formatter; "
-                        + "only single identifier refs and integer/boolean literals are supported here");
+        return format(expr, holderExpr);
     }
 
     /**
      * Format a Choice case-label expression. Must evaluate to a
-     * compile-time integer.
+     * compile-time integer; the C result is suffixed with {@code u}
+     * so it matches the unsigned switch discriminant.
      */
     public static String formatCaseLabel(Expression expr) throws ZserioExtensionException
     {
