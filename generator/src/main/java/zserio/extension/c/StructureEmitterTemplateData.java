@@ -24,6 +24,8 @@ public final class StructureEmitterTemplateData
     private final String headerIncludePath;
     private final List<ParameterData> parameters;
     private final List<FieldFormatter.FieldData> fields;
+    private final List<PackingFieldFormatter.PackedField> packedFields;
+    private final boolean hasPackingContext;
     private final List<FunctionData> functions;
     private final List<String> extraIncludes;
     private final boolean hasOwnedFields;
@@ -41,6 +43,8 @@ public final class StructureEmitterTemplateData
         this.parameters = ParameterData.from(structType.getTypeParameters());
 
         final List<FieldFormatter.FieldData> built = new ArrayList<>();
+        final List<PackingFieldFormatter.PackedField> packedBuilt = new ArrayList<>();
+        boolean usesContext = false;
         // LinkedHashSet so the include order matches the schema's field
         // order — readable, and stable across re-runs.
         final LinkedHashSet<String> includes = new LinkedHashSet<>();
@@ -49,6 +53,10 @@ public final class StructureEmitterTemplateData
         {
             final FieldFormatter.FieldData data = FieldFormatter.format(f, "self->", structType);
             built.add(data);
+            final PackingFieldFormatter.PackedField packed =
+                    PackingFieldFormatter.format(f, data, "self->", structType, "ctx->");
+            packedBuilt.add(packed);
+            usesContext = usesContext || packed.getUsesContext();
             if (data.getExtraInclude() != null)
             {
                 includes.add(data.getExtraInclude());
@@ -56,6 +64,8 @@ public final class StructureEmitterTemplateData
             owned = owned || data.getOwned();
         }
         this.fields = built;
+        this.packedFields = packedBuilt;
+        this.hasPackingContext = usesContext;
         this.functions = FunctionData.from(structType);
         this.extraIncludes = new ArrayList<>(includes);
         this.hasOwnedFields = owned;
@@ -69,6 +79,8 @@ public final class StructureEmitterTemplateData
     public List<ParameterData> getParameters() { return parameters; }
     public boolean getHasParameters()        { return !parameters.isEmpty(); }
     public List<FieldFormatter.FieldData> getFields() { return fields; }
+    public List<PackingFieldFormatter.PackedField> getPackedFields() { return packedFields; }
+    public boolean getHasPackingContext()    { return hasPackingContext; }
     public List<FunctionData> getFunctions() { return functions; }
     public boolean getHasFunctions()         { return !functions.isEmpty(); }
     public List<String> getExtraIncludes()   { return extraIncludes; }

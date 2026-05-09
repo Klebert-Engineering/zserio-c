@@ -337,10 +337,48 @@ public final class FieldFormatter
 
         if (ai.isPacked())
         {
+            // Compound element with packable fields: route through the
+            // compound's emitted *_init_packing_context /
+            // *_read_packed / *_write_packed helpers. Compound elements
+            // without packable fields produce an effectively-unpacked
+            // wire format (no delta bits to write), so they fall
+            // through to the regular compound-array path below.
+            final CompoundType packedCompound = compoundUnderlying(eltDirect);
+            if (packedCompound != null && PackingFieldFormatter.hasPackableField(packedCompound))
+            {
+                if (packedCompound.getTypeParameters().isEmpty()
+                        && !(eltInst instanceof ParameterizedTypeInstantiation))
+                {
+                    return packedCompoundArray(name, eltBinding, packedCompound, ai, h, owner);
+                }
+                throw new ZserioExtensionException(
+                        "zserio-c: packed arrays of parameterised compound elements "
+                                + "are not yet supported (field '" + origName + "')");
+            }
+            if (packedCompound != null)
+            {
+                // Compound element with NO packable fields — same wire
+                // shape as an unpacked compound array.
+                final ElementOps fallthrough = elementOps(eltDirect, eltInst, eltBinding,
+                        origName, h, owner);
+                final Expression lenExprPC = ai.getLengthExpression();
+                if (lenExprPC == null)
+                {
+                    return variableArray(name, fallthrough, h);
+                }
+                final BigInteger fixedLenPC = lenExprPC.getIntegerValue();
+                if (fixedLenPC != null)
+                {
+                    return fixedArray(name, fallthrough, fixedLenPC.toString(), h);
+                }
+                final String formattedLenPC = CExpressionFormatter.format(lenExprPC, h, owner);
+                return expressionLengthArray(name, fallthrough, formattedLenPC, h);
+            }
+
             // Packed arrays of fixed-width integer / bit-field / bool
             // elements use the delta-encoding context from the
-            // runtime. Other element types (compound, string, bytes,
-            // extern, varint) need additional encoder state we don't
+            // runtime. Other element types (string, bytes, extern,
+            // varint) need additional encoder state we don't
             // generate yet.
             final PackedElementSpec packed = packedElementSpec(eltDirect, eltBinding, origName);
             final Expression lenExprP = ai.getLengthExpression();
@@ -558,6 +596,174 @@ public final class FieldFormatter
                 name, p.cType + " *", declaration,
                 read, write, free,
                 /* owned */ true, p.extraInclude, extraMember);
+    }
+
+    /**
+     * Packed array of compound elements where the compound has at
+     * least one packable scalar field. Uses the compound's emitted
+     * {@code _init_packing_context} / {@code _read_packed} /
+     * {@code _observe_packing_context} / {@code _write_packed}
+     * helpers to delta-encode every packable field across all array
+     * elements. Storage matches the unpacked compound-array path
+     * (count + heap pointer for variable / expression-length, inline
+     * C array for fixed-length); only the wire encoding differs.
+     */
+    private static FieldData packedCompoundArray(String name, TypeBinding b,
+            CompoundType ct, ArrayInstantiation ai, String h, CompoundType owner)
+            throws ZserioExtensionException
+    {
+        final String prefix = CIdentifierFormatter.funcPrefix(
+                ct.getPackage().getPackageName(), ct.getName());
+
+        final Expression lenExpr = ai.getLengthExpression();
+        if (lenExpr == null)
+        {
+            return packedCompoundHeapArray(name, b, prefix, h, /* lengthSource */ null);
+        }
+        final BigInteger fixedLen = lenExpr.getIntegerValue();
+        if (fixedLen != null)
+        {
+            return packedCompoundFixedArray(name, b, prefix, fixedLen.toString(), h);
+        }
+        final String formattedLen = CExpressionFormatter.format(lenExpr, h, owner);
+        return packedCompoundHeapArray(name, b, prefix, h, formattedLen);
+    }
+
+    private static FieldData packedCompoundHeapArray(String name, TypeBinding b,
+            String prefix, String h, String formattedLen)
+    {
+        final String countExpr = h + name + "_count";
+        final String ptrExpr   = h + name;
+        final String iVar      = name + "_i";
+        final String ctxVar    = name + "_ctx";
+        final String declaration = b.cType + " *" + name;
+        final String extraMember = "size_t " + name + "_count;";
+
+        final String readCountSetup;
+        if (formattedLen == null)
+        {
+            readCountSetup =
+                    "        uint32_t " + name + "_size = 0u;\n"
+                    + "        ZSERIO_TRY(zserio_read_varsize(bs, &" + name + "_size));\n"
+                    + "        " + countExpr + " = (size_t)" + name + "_size;\n";
+        }
+        else
+        {
+            readCountSetup = "        " + countExpr + " = (size_t)("
+                    + formattedLen + ");\n";
+        }
+
+        final String read =
+                "{\n"
+                + readCountSetup
+                + "        " + ptrExpr + " = NULL;\n"
+                + "        if (" + countExpr + " > 0u) {\n"
+                + "            " + ptrExpr + " = (" + b.cType + " *)alloc->vtable->alloc(\n"
+                + "                    alloc->userdata,\n"
+                + "                    " + countExpr + " * sizeof(*(" + ptrExpr + ")),\n"
+                + "                    sizeof(*(" + ptrExpr + ")));\n"
+                + "            if (" + ptrExpr + " == NULL) {\n"
+                + "                return ZSERIO_ERR_OUT_OF_MEMORY;\n"
+                + "            }\n"
+                + "            (void)memset(" + ptrExpr + ", 0, "
+                + countExpr + " * sizeof(*(" + ptrExpr + ")));\n"
+                + "            " + prefix + "_packing_ctx_t " + ctxVar + ";\n"
+                + "            ZSERIO_TRY(" + prefix + "_init_packing_context(&" + ctxVar + "));\n"
+                + "            for (size_t " + iVar + " = 0u; " + iVar + " < "
+                + countExpr + "; ++" + iVar + ") {\n"
+                + "                ZSERIO_TRY(" + prefix + "_read_packed(&"
+                + ptrExpr + "[" + iVar + "], bs, alloc, &" + ctxVar + "));\n"
+                + "            }\n"
+                + "        }\n"
+                + "    }";
+
+        final String writeCountPrefix = formattedLen == null
+                ? "        ZSERIO_TRY(zserio_write_varsize(bs, (uint32_t)" + countExpr + "));\n"
+                : "";
+        final String write =
+                "{\n"
+                + writeCountPrefix
+                + "        if (" + countExpr + " > 0u) {\n"
+                + "            " + prefix + "_packing_ctx_t " + ctxVar + ";\n"
+                + "            ZSERIO_TRY(" + prefix + "_init_packing_context(&" + ctxVar + "));\n"
+                + "            for (size_t " + iVar + " = 0u; " + iVar + " < "
+                + countExpr + "; ++" + iVar + ") {\n"
+                + "                ZSERIO_TRY(" + prefix + "_observe_packing_context(&"
+                + ptrExpr + "[" + iVar + "], &" + ctxVar + "));\n"
+                + "            }\n"
+                + "            for (size_t " + iVar + " = 0u; " + iVar + " < "
+                + countExpr + "; ++" + iVar + ") {\n"
+                + "                ZSERIO_TRY(" + prefix + "_write_packed(&"
+                + ptrExpr + "[" + iVar + "], bs, &" + ctxVar + "));\n"
+                + "            }\n"
+                + "        }\n"
+                + "    }";
+
+        // Free runs the per-element compound _free first to release
+        // any owned data the children hold (strings, nested heap
+        // members, etc.), then frees the buffer itself.
+        final String free =
+                "if (" + ptrExpr + " != NULL) {\n"
+                + "        for (size_t " + iVar + " = 0u; " + iVar + " < "
+                + countExpr + "; ++" + iVar + ") {\n"
+                + "            " + prefix + "_free(&" + ptrExpr + "[" + iVar + "], alloc);\n"
+                + "        }\n"
+                + "        alloc->vtable->free(alloc->userdata, " + ptrExpr + ",\n"
+                + "                " + countExpr + " * sizeof(*(" + ptrExpr + ")),\n"
+                + "                sizeof(*(" + ptrExpr + ")));\n"
+                + "        " + ptrExpr + " = NULL;\n"
+                + "        " + countExpr + " = 0u;\n"
+                + "    }";
+
+        return new FieldData(
+                name, b.cType + " *", declaration,
+                read, write, free,
+                /* owned */ true, b.extraInclude, extraMember);
+    }
+
+    private static FieldData packedCompoundFixedArray(String name, TypeBinding b,
+            String prefix, String lengthLiteral, String h)
+    {
+        final String declaration = b.cType + " " + name + "[" + lengthLiteral + "]";
+        final String iVar   = name + "_i";
+        final String ctxVar = name + "_ctx";
+        final String access = h + name;
+
+        final String read =
+                "{\n"
+                + "        " + prefix + "_packing_ctx_t " + ctxVar + ";\n"
+                + "        ZSERIO_TRY(" + prefix + "_init_packing_context(&" + ctxVar + "));\n"
+                + "        for (size_t " + iVar + " = 0u; " + iVar + " < "
+                + lengthLiteral + "u; ++" + iVar + ") {\n"
+                + "            ZSERIO_TRY(" + prefix + "_read_packed(&"
+                + access + "[" + iVar + "], bs, alloc, &" + ctxVar + "));\n"
+                + "        }\n"
+                + "    }";
+        final String write =
+                "{\n"
+                + "        " + prefix + "_packing_ctx_t " + ctxVar + ";\n"
+                + "        ZSERIO_TRY(" + prefix + "_init_packing_context(&" + ctxVar + "));\n"
+                + "        for (size_t " + iVar + " = 0u; " + iVar + " < "
+                + lengthLiteral + "u; ++" + iVar + ") {\n"
+                + "            ZSERIO_TRY(" + prefix + "_observe_packing_context(&"
+                + access + "[" + iVar + "], &" + ctxVar + "));\n"
+                + "        }\n"
+                + "        for (size_t " + iVar + " = 0u; " + iVar + " < "
+                + lengthLiteral + "u; ++" + iVar + ") {\n"
+                + "            ZSERIO_TRY(" + prefix + "_write_packed(&"
+                + access + "[" + iVar + "], bs, &" + ctxVar + "));\n"
+                + "        }\n"
+                + "    }";
+        final String free =
+                "for (size_t " + iVar + " = 0u; " + iVar + " < "
+                + lengthLiteral + "u; ++" + iVar + ") {\n"
+                + "        " + prefix + "_free(&" + access + "[" + iVar + "], alloc);\n"
+                + "    }";
+
+        return new FieldData(
+                name, b.cType, declaration,
+                read, write, free,
+                /* owned */ true, b.extraInclude, /* extraMember */ "");
     }
 
     private static FieldData packedFixedArray(String name, PackedElementSpec p,
