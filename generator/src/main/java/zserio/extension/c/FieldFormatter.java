@@ -224,14 +224,17 @@ public final class FieldFormatter
             final FixedBitFieldType bf = (FixedBitFieldType)under;
             return bitField(name, b, bf.getBitSize(), bf.isSigned(), holderExpr);
         }
-        if (under instanceof DynamicBitFieldType
-                && typeInst instanceof DynamicBitFieldInstantiation)
+        if (under instanceof DynamicBitFieldType)
         {
-            final DynamicBitFieldInstantiation dyn = (DynamicBitFieldInstantiation)typeInst;
-            final boolean signed = ((DynamicBitFieldType)under).isSigned();
-            final String formattedLen =
-                    CExpressionFormatter.format(dyn.getLengthExpression(), holderExpr, owner);
-            return dynamicBitField(name, b, formattedLen, signed, holderExpr);
+            final DynamicBitFieldInstantiation dyn =
+                    findDynamicBitFieldInstantiation(direct, typeInst);
+            if (dyn != null)
+            {
+                final boolean signed = ((DynamicBitFieldType)under).isSigned();
+                final String formattedLen =
+                        CExpressionFormatter.format(dyn.getLengthExpression(), holderExpr, owner);
+                return dynamicBitField(name, b, formattedLen, signed, holderExpr);
+            }
         }
         if (under instanceof StringType)
         {
@@ -696,14 +699,17 @@ public final class FieldFormatter
             final FixedBitFieldType bf = (FixedBitFieldType)under;
             return bitFieldElement(b, bf.getBitSize(), bf.isSigned());
         }
-        if (under instanceof DynamicBitFieldType
-                && typeInst instanceof DynamicBitFieldInstantiation)
+        if (under instanceof DynamicBitFieldType)
         {
-            final DynamicBitFieldInstantiation dyn = (DynamicBitFieldInstantiation)typeInst;
-            final boolean signed = ((DynamicBitFieldType)under).isSigned();
-            final String formattedLen =
-                    CExpressionFormatter.format(dyn.getLengthExpression(), holderExpr, owner);
-            return dynamicBitFieldElement(b, formattedLen, signed);
+            final DynamicBitFieldInstantiation dyn =
+                    findDynamicBitFieldInstantiation(direct, typeInst);
+            if (dyn != null)
+            {
+                final boolean signed = ((DynamicBitFieldType)under).isSigned();
+                final String formattedLen =
+                        CExpressionFormatter.format(dyn.getLengthExpression(), holderExpr, owner);
+                return dynamicBitFieldElement(b, formattedLen, signed);
+            }
         }
 
         // Variable-length integers: typed read/write helper.
@@ -1232,28 +1238,93 @@ public final class FieldFormatter
     /* -------- traversal helpers -------- */
 
     /**
-     * If {@code direct} resolves through any number of subtype layers
-     * to a {@link CompoundType}, return that compound. Otherwise null.
-     * Used so the field-type dispatch routes subtype-of-compound
-     * fields to {@link #compound} the same way it routes direct
-     * compound fields.
+     * If {@code direct} resolves through any number of subtype /
+     * instantiate-type layers to a {@link CompoundType}, return that
+     * compound. Otherwise null. Used so the field-type dispatch
+     * routes subtype-of-compound and instantiate-of-template fields
+     * to {@link #compound} the same way it routes direct compound
+     * fields.
      */
     private static CompoundType compoundUnderlying(ZserioType direct)
     {
         ZserioType t = direct;
-        while (t instanceof Subtype)
+        while (t instanceof Subtype || t instanceof zserio.ast.InstantiateType)
         {
-            t = ((Subtype)t).getTypeReference().getBaseTypeReference().getType();
+            if (t instanceof Subtype)
+            {
+                t = ((Subtype)t).getTypeReference().getBaseTypeReference().getType();
+            }
+            else
+            {
+                t = ((zserio.ast.InstantiateType)t).getTypeReference()
+                        .getBaseTypeReference().getType();
+            }
         }
         return (t instanceof CompoundType) ? (CompoundType)t : null;
+    }
+
+    /**
+     * Recover the {@link DynamicBitFieldInstantiation} whose length
+     * expression governs a dynamic-width bit field. The instantiation
+     * may live directly on the field's typeInst (bare {@code bit<n>}
+     * field), or one layer down on an enum / bitmask's
+     * {@code getTypeInstantiation()} (the field is an enum / bitmask
+     * whose underlying is a dynamic bit field). Subtype / instantiate
+     * layers are walked through.
+     */
+    private static DynamicBitFieldInstantiation findDynamicBitFieldInstantiation(
+            ZserioType direct, TypeInstantiation typeInst)
+    {
+        if (typeInst instanceof DynamicBitFieldInstantiation)
+        {
+            return (DynamicBitFieldInstantiation)typeInst;
+        }
+        ZserioType t = direct;
+        while (t instanceof Subtype || t instanceof zserio.ast.InstantiateType)
+        {
+            if (t instanceof Subtype)
+            {
+                t = ((Subtype)t).getTypeReference().getBaseTypeReference().getType();
+            }
+            else
+            {
+                t = ((zserio.ast.InstantiateType)t).getTypeReference()
+                        .getBaseTypeReference().getType();
+            }
+        }
+        if (t instanceof BitmaskType)
+        {
+            final TypeInstantiation ti = ((BitmaskType)t).getTypeInstantiation();
+            if (ti instanceof DynamicBitFieldInstantiation)
+            {
+                return (DynamicBitFieldInstantiation)ti;
+            }
+        }
+        else if (t instanceof EnumType)
+        {
+            final TypeInstantiation ti = ((EnumType)t).getTypeInstantiation();
+            if (ti instanceof DynamicBitFieldInstantiation)
+            {
+                return (DynamicBitFieldInstantiation)ti;
+            }
+        }
+        return null;
     }
 
     private static ZserioType underlyingType(ZserioType direct)
     {
         ZserioType t = direct;
-        while (t instanceof Subtype)
+        while (t instanceof Subtype || t instanceof zserio.ast.InstantiateType)
         {
-            t = ((Subtype)t).getTypeReference().getBaseTypeReference().getType();
+            if (t instanceof Subtype)
+            {
+                t = ((Subtype)t).getTypeReference().getBaseTypeReference().getType();
+            }
+            else
+            {
+                t = ((zserio.ast.InstantiateType)t).getTypeReference()
+                        .getBaseTypeReference().getType();
+            }
         }
         if (t instanceof EnumType)
         {
@@ -1265,11 +1336,19 @@ public final class FieldFormatter
             t = ((BitmaskType)t).getTypeInstantiation().getTypeReference()
                     .getBaseTypeReference().getType();
         }
-        // The underlying of an enum/bitmask could itself be wrapped in a
-        // subtype layer.
-        while (t instanceof Subtype)
+        // The underlying of an enum/bitmask could itself be wrapped in
+        // a subtype / instantiate layer.
+        while (t instanceof Subtype || t instanceof zserio.ast.InstantiateType)
         {
-            t = ((Subtype)t).getTypeReference().getBaseTypeReference().getType();
+            if (t instanceof Subtype)
+            {
+                t = ((Subtype)t).getTypeReference().getBaseTypeReference().getType();
+            }
+            else
+            {
+                t = ((zserio.ast.InstantiateType)t).getTypeReference()
+                        .getBaseTypeReference().getType();
+            }
         }
         return t;
     }

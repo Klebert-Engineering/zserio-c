@@ -13,6 +13,7 @@ import zserio.ast.DynamicBitFieldType;
 import zserio.ast.EnumType;
 import zserio.ast.ExternType;
 import zserio.ast.FixedBitFieldType;
+import zserio.ast.InstantiateType;
 import zserio.ast.FloatType;
 import zserio.ast.PackageName;
 import zserio.ast.StdIntegerType;
@@ -61,13 +62,22 @@ public final class CNativeTypeMapper
     public static String nativeType(TypeReference ref) throws ZserioExtensionException
     {
         final ZserioType base = ref.getBaseTypeReference().getType();
-        // Walk through subtype chains so the C output unwraps as
-        // far as the underlying built-in.
+        // Walk through subtype + instantiate-type chains so the C
+        // output unwraps to the underlying type. Both layers are pure
+        // name aliases at the C level.
         ZserioType resolved = base;
-        while (resolved instanceof Subtype)
+        while (resolved instanceof Subtype || resolved instanceof InstantiateType)
         {
-            final Subtype st = (Subtype)resolved;
-            resolved = st.getTypeReference().getBaseTypeReference().getType();
+            if (resolved instanceof Subtype)
+            {
+                resolved = ((Subtype)resolved).getTypeReference()
+                        .getBaseTypeReference().getType();
+            }
+            else
+            {
+                resolved = ((InstantiateType)resolved).getTypeReference()
+                        .getBaseTypeReference().getType();
+            }
         }
         return nativeTypeFor(resolved);
     }
