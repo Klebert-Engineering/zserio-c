@@ -12,6 +12,8 @@ import zserio.ast.BitmaskType;
 import zserio.ast.BooleanType;
 import zserio.ast.BytesType;
 import zserio.ast.CompoundType;
+import zserio.ast.DynamicBitFieldInstantiation;
+import zserio.ast.DynamicBitFieldType;
 import zserio.ast.EnumType;
 import zserio.ast.Expression;
 import zserio.ast.ExternType;
@@ -204,6 +206,15 @@ public final class FieldFormatter
         {
             final FixedBitFieldType bf = (FixedBitFieldType)under;
             return bitField(name, b, bf.getBitSize(), bf.isSigned(), holderExpr);
+        }
+        if (under instanceof DynamicBitFieldType
+                && typeInst instanceof DynamicBitFieldInstantiation)
+        {
+            final DynamicBitFieldInstantiation dyn = (DynamicBitFieldInstantiation)typeInst;
+            final boolean signed = ((DynamicBitFieldType)under).isSigned();
+            final String formattedLen =
+                    CExpressionFormatter.format(dyn.getLengthExpression(), holderExpr);
+            return dynamicBitField(name, b, formattedLen, signed, holderExpr);
         }
         if (under instanceof StringType)
         {
@@ -430,6 +441,15 @@ public final class FieldFormatter
             final FixedBitFieldType bf = (FixedBitFieldType)under;
             return bitFieldElement(b, bf.getBitSize(), bf.isSigned());
         }
+        if (under instanceof DynamicBitFieldType
+                && typeInst instanceof DynamicBitFieldInstantiation)
+        {
+            final DynamicBitFieldInstantiation dyn = (DynamicBitFieldInstantiation)typeInst;
+            final boolean signed = ((DynamicBitFieldType)under).isSigned();
+            final String formattedLen =
+                    CExpressionFormatter.format(dyn.getLengthExpression(), holderExpr);
+            return dynamicBitFieldElement(b, formattedLen, signed);
+        }
 
         // Variable-length integers: typed read/write helper.
         if (under instanceof VarIntegerType)
@@ -467,6 +487,27 @@ public final class FieldFormatter
                 "ZSERIO_TRY(zserio_read_" + suffix + "(bs, &$SLOT$));",
                 "ZSERIO_TRY(zserio_write_" + suffix + "(bs, $SLOT$));",
                 /* freeLine */ null);
+    }
+
+    private static ElementOps dynamicBitFieldElement(TypeBinding b, String formattedLen,
+            boolean signed)
+    {
+        final String runtimeRead  = signed ? "zserio_bitstream_read_signed" : "zserio_bitstream_read_bits";
+        final String runtimeWrite = signed ? "zserio_bitstream_write_signed" : "zserio_bitstream_write_bits";
+        final String rawType      = signed ? "int64_t" : "uint64_t";
+        final String castOnWrite  = signed ? "(int64_t)" : "(uint64_t)";
+
+        final String read =
+                "{\n"
+                + "            " + rawType + " slot_raw;\n"
+                + "            ZSERIO_TRY(" + runtimeRead + "(bs, (uint8_t)("
+                + formattedLen + "), &slot_raw));\n"
+                + "            $SLOT$ = (" + b.cType + ")slot_raw;\n"
+                + "        }";
+        final String write = "ZSERIO_TRY(" + runtimeWrite + "(bs, (uint8_t)("
+                + formattedLen + "), " + castOnWrite + "$SLOT$));";
+        return new ElementOps(b.cType, b.extraInclude, /* owned */ false,
+                read, write, /* freeLine */ null);
     }
 
     private static ElementOps bitFieldElement(TypeBinding b, int bits, boolean signed)
@@ -753,6 +794,32 @@ public final class FieldFormatter
                 + "(bs, &" + h + name + "));";
         final String write = "ZSERIO_TRY(zserio_write_" + runtimeSuffix
                 + "(bs, " + h + name + "));";
+        return new FieldData(name, b.cType, read, write, "", false, b.extraInclude);
+    }
+
+    /**
+     * Dynamic-width bit field — bit count is a runtime expression
+     * over parent state. Storage is the widest fixed-width type
+     * (uint64_t / int64_t); read evaluates the length expression at
+     * each call and uses the bitstream primitives with that width.
+     */
+    private static FieldData dynamicBitField(String name, TypeBinding b,
+            String formattedLen, boolean signed, String h)
+    {
+        final String runtimeRead  = signed ? "zserio_bitstream_read_signed" : "zserio_bitstream_read_bits";
+        final String runtimeWrite = signed ? "zserio_bitstream_write_signed" : "zserio_bitstream_write_bits";
+        final String rawType      = signed ? "int64_t" : "uint64_t";
+        final String castOnWrite  = signed ? "(int64_t)" : "(uint64_t)";
+
+        final String read =
+                "{\n"
+                + "        " + rawType + " " + name + "_raw;\n"
+                + "        ZSERIO_TRY(" + runtimeRead + "(bs, (uint8_t)("
+                + formattedLen + "), &" + name + "_raw));\n"
+                + "        " + h + name + " = (" + b.cType + ")" + name + "_raw;\n"
+                + "    }";
+        final String write = "ZSERIO_TRY(" + runtimeWrite + "(bs, (uint8_t)("
+                + formattedLen + "), " + castOnWrite + h + name + "));";
         return new FieldData(name, b.cType, read, write, "", false, b.extraInclude);
     }
 
