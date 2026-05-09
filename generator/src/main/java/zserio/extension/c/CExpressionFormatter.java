@@ -60,19 +60,35 @@ public final class CExpressionFormatter
     }
 
     /**
-     * Format a Choice case-label expression. Must evaluate to a
-     * compile-time integer; the C result is suffixed with {@code u}
-     * so it matches the unsigned switch discriminant.
+     * Format a Choice case-label expression. The expression must
+     * evaluate to a compile-time scalar — typically an integer or
+     * a boolean. Boolean selectors lower to {@code 0u} / {@code 1u}
+     * so the case label fits the C switch shape uniformly.
      */
     public static String formatCaseLabel(Expression expr) throws ZserioExtensionException
     {
         final BigInteger iv = expr.getIntegerValue();
-        if (iv == null)
+        if (iv != null)
         {
-            throw new ZserioExtensionException(
-                    "zserio-c: choice case label '" + expr.getText()
-                            + "' does not have a compile-time integer value");
+            return iv.toString() + "u";
         }
-        return iv.toString() + "u";
+        // Boolean choice selectors: zserio writes `case true:` and
+        // `case false:`; the C selector reads the discriminant as
+        // 0 / 1 so we map the labels accordingly.
+        if (expr.getExprType() == Expression.ExpressionType.BOOLEAN)
+        {
+            final String text = expr.getText();
+            if ("true".equals(text))
+            {
+                return "1u";
+            }
+            if ("false".equals(text))
+            {
+                return "0u";
+            }
+        }
+        throw new ZserioExtensionException(
+                "zserio-c: choice case label '" + expr.getText()
+                        + "' does not evaluate to a compile-time integer or boolean");
     }
 }

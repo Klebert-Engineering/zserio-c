@@ -396,6 +396,24 @@ public final class FieldFormatter
                     "zserio_extern_free(&$SLOT$, alloc);");
         }
 
+        // Bit-field elements: read/write per-element via the bitstream
+        // primitives with a temp + cast to the typedef'd C type.
+        if (under instanceof FixedBitFieldType)
+        {
+            final FixedBitFieldType bf = (FixedBitFieldType)under;
+            return bitFieldElement(b, bf.getBitSize(), bf.isSigned());
+        }
+
+        // Variable-length integers: typed read/write helper.
+        if (under instanceof VarIntegerType)
+        {
+            final String suffix = varintSuffix((VarIntegerType)under);
+            return new ElementOps(b.cType, b.extraInclude, /* owned */ false,
+                    "ZSERIO_TRY(zserio_read_" + suffix + "(bs, &$SLOT$));",
+                    "ZSERIO_TRY(zserio_write_" + suffix + "(bs, $SLOT$));",
+                    /* freeLine */ null);
+        }
+
         // Primitive (or subtype/enum/bitmask layered over a primitive)
         final String suffix;
         if (under instanceof BooleanType)
@@ -422,6 +440,25 @@ public final class FieldFormatter
                 "ZSERIO_TRY(zserio_read_" + suffix + "(bs, &$SLOT$));",
                 "ZSERIO_TRY(zserio_write_" + suffix + "(bs, $SLOT$));",
                 /* freeLine */ null);
+    }
+
+    private static ElementOps bitFieldElement(TypeBinding b, int bits, boolean signed)
+    {
+        final String runtimeRead  = signed ? "zserio_bitstream_read_signed" : "zserio_bitstream_read_bits";
+        final String runtimeWrite = signed ? "zserio_bitstream_write_signed" : "zserio_bitstream_write_bits";
+        final String rawType      = signed ? "int64_t" : "uint64_t";
+        final String castOnWrite  = signed ? "(int64_t)" : "(uint64_t)";
+
+        final String read =
+                "{\n"
+                + "            " + rawType + " slot_raw;\n"
+                + "            ZSERIO_TRY(" + runtimeRead + "(bs, " + bits + ", &slot_raw));\n"
+                + "            $SLOT$ = (" + b.cType + ")slot_raw;\n"
+                + "        }";
+        final String write = "ZSERIO_TRY(" + runtimeWrite + "(bs, " + bits
+                + ", " + castOnWrite + "$SLOT$));";
+        return new ElementOps(b.cType, b.extraInclude, /* owned */ false,
+                read, write, /* freeLine */ null);
     }
 
     private static FieldData variableArray(String name, ElementOps ops, String h)

@@ -7,13 +7,17 @@ package zserio.extension.c;
 
 import zserio.ast.Constant;
 import zserio.ast.PackageName;
+import zserio.ast.StringType;
+import zserio.ast.TypeInstantiation;
+import zserio.ast.ZserioType;
 import zserio.extension.common.ZserioExtensionException;
 
 /**
  * FreeMarker data model for {@link ConstEmitter}'s {@code Constant.h.ftl}.
  *
- * All fields are exposed via getters so the FreeMarker template can
- * reference them as {@code ${cName}}, {@code ${nativeType}}, etc.
+ * The {@code declaration} field carries the full {@code static const …}
+ * line so the template doesn't need to branch on scalar vs. string
+ * shape — the difference is captured here.
  */
 public final class ConstEmitterTemplateData
 {
@@ -24,9 +28,8 @@ public final class ConstEmitterTemplateData
     // the case in that pattern. Use `name` to avoid the trap.)
     private final String generatorDescription;
     private final String name;
-    private final String nativeType;
     private final String includeGuard;
-    private final String valueExpression;
+    private final String declaration;
 
     public ConstEmitterTemplateData(TemplateDataContext context, Constant constant)
             throws ZserioExtensionException
@@ -37,19 +40,37 @@ public final class ConstEmitterTemplateData
         final String zserioName = constant.getName();
         this.name = CIdentifierFormatter.constantName(pkg, zserioName);
         this.includeGuard = CIdentifierFormatter.includeGuard(pkg, zserioName);
-        this.nativeType = CNativeTypeMapper.nativeType(constant.getTypeInstantiation());
 
-        // Phase 2 batch 1: use the literal text from the AST. A future
-        // expression formatter will rewrite identifier references and
-        // typed-suffix integer literals; for now we wrap the value in
-        // an explicit cast to the native type, which makes it
-        // type-correct regardless of the literal's original form.
-        this.valueExpression = constant.getValueExpression().getText();
+        // The const's value expression is formatted against an empty
+        // holder — a top-level const has no `self`. Other constant
+        // refs in the RHS resolve through the policy's Constant
+        // branch (package-prefixed C macro name).
+        final String formattedValue =
+                CExpressionFormatter.format(constant.getValueExpression(), "");
+
+        final TypeInstantiation ti = constant.getTypeInstantiation();
+        final ZserioType base = ti.getTypeReference().getBaseTypeReference().getType();
+        if (base instanceof StringType)
+        {
+            // String const: `static const char NAME[] = "value";` so
+            // the symbol has linkage (callers can take its address)
+            // rather than the macro form.
+            this.declaration = "static const char " + this.name + "[] = "
+                    + formattedValue + ";";
+        }
+        else
+        {
+            final String nativeType = CNativeTypeMapper.nativeType(ti);
+            // The cast keeps the assignment well-typed even when the
+            // RHS is a wider literal (e.g. `const uint8 X = 150` —
+            // 150 is `int` in C without the cast).
+            this.declaration = "static const " + nativeType + " " + this.name
+                    + " = (" + nativeType + ")" + formattedValue + ";";
+        }
     }
 
     public String getGeneratorDescription() { return generatorDescription; }
     public String getName()                 { return name; }
-    public String getNativeType()           { return nativeType; }
     public String getIncludeGuard()         { return includeGuard; }
-    public String getValueExpression()      { return valueExpression; }
+    public String getDeclaration()          { return declaration; }
 }

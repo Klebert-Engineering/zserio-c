@@ -7,6 +7,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-static const ${nativeType} ${name} = (${nativeType})${valueExpression};
+${declaration}
 
 #endif /* ${includeGuard} */
