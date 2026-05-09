@@ -296,38 +296,53 @@ public final class CExpressionFormattingPolicy extends DefaultExpressionFormatti
         return new BinaryExpressionFormatting(".");
     }
 
-    /* -------- unsupported expression categories -------- */
+    /* -------- built-in expression functions -------- */
+
+    @Override
+    public UnaryExpressionFormatting getLengthOf(Expression expr)
+    {
+        // `lengthof(arr)` lowers to the array's stored count member.
+        // Variable-length and expression-length arrays already track
+        // their count next to the data pointer as `<arr>_count`. The
+        // operand emits as `<holder><arr>` (or a dot-chain ending in
+        // `<arr>`), so suffixing `_count` produces the right access
+        // path.
+        return new UnaryExpressionFormatting("", "_count");
+    }
+
+    @Override
+    public UnaryExpressionFormatting getValueOf(Expression expr)
+    {
+        // `valueof(enumValue)` and `valueof(bitmaskValue)` extract the
+        // underlying integer. In our C output the typedef IS the
+        // underlying integer (every enum/bitmask is a typedef of the
+        // chosen std-int type), so this is a structural no-op.
+        return new UnaryExpressionFormatting("", "");
+    }
+
+    @Override
+    public UnaryExpressionFormatting getNumBits(Expression expr)
+    {
+        return new UnaryExpressionFormatting("zserio_num_bits((uint64_t)(", "))");
+    }
+
+    @Override
+    public BinaryExpressionFormatting getIsSet(Expression expr)
+    {
+        return new BinaryExpressionFormatting(
+                "zserio_isset((uint64_t)(", "), (uint64_t)(", "))");
+    }
+
+    /* -------- still unsupported -------- */
 
     @Override
     public UnaryExpressionFormatting getFunctionCall(Expression expr)
             throws ZserioExtensionException
     {
+        // User-defined zserio functions (`function T name() { return … }`)
+        // need their own emitted C function, which is a separate batch.
         throw new ZserioExtensionException(
-                "zserio-c: zserio expression-function calls are not yet supported");
-    }
-
-    @Override
-    public UnaryExpressionFormatting getLengthOf(Expression expr)
-            throws ZserioExtensionException
-    {
-        throw new ZserioExtensionException(
-                "zserio-c: lengthof() is not yet supported");
-    }
-
-    @Override
-    public UnaryExpressionFormatting getValueOf(Expression expr)
-            throws ZserioExtensionException
-    {
-        throw new ZserioExtensionException(
-                "zserio-c: valueof() is not yet supported");
-    }
-
-    @Override
-    public UnaryExpressionFormatting getNumBits(Expression expr)
-            throws ZserioExtensionException
-    {
-        throw new ZserioExtensionException(
-                "zserio-c: numbits() is not yet supported");
+                "zserio-c: user-defined zserio functions are not yet supported");
     }
 
     @Override
@@ -336,13 +351,5 @@ public final class CExpressionFormattingPolicy extends DefaultExpressionFormatti
     {
         throw new ZserioExtensionException(
                 "zserio-c: array-element expressions are not yet supported");
-    }
-
-    @Override
-    public BinaryExpressionFormatting getIsSet(Expression expr)
-            throws ZserioExtensionException
-    {
-        throw new ZserioExtensionException(
-                "zserio-c: isset() is not yet supported");
     }
 }

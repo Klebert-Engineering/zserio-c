@@ -22,6 +22,7 @@
 #include "zserio/bitstream.h"
 #include "zserio/bytes.h"
 #include "zserio/delta.h"
+#include "zserio/expressions.h"
 #include "zserio/extern.h"
 #include "zserio/float.h"
 #include "zserio/primitives.h"
