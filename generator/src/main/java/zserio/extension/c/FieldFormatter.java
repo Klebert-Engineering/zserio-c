@@ -372,11 +372,35 @@ public final class FieldFormatter
                 return expressionLengthArray(name, fallthrough, formattedLenPC, h);
             }
 
+            // VarInteger elements take a different path: the wire
+            // format wraps a 1-bit isPacked descriptor + per-element
+            // varint encoding (rather than the fixed-width delta
+            // context). Generated read handles both packed and
+            // unpacked descriptors; write emits the unpacked-descriptor
+            // shape (still a valid, decodable encoding).
+            final ZserioType eltUnder = underlyingType(eltDirect);
+            if (eltUnder instanceof VarIntegerType)
+            {
+                final String varintSuf = varintSuffix((VarIntegerType)eltUnder);
+                final Expression lenExprV = ai.getLengthExpression();
+                if (lenExprV == null)
+                {
+                    return packedVarintHeapArray(name, eltBinding, varintSuf, h, null);
+                }
+                final BigInteger fixedLenV = lenExprV.getIntegerValue();
+                if (fixedLenV != null)
+                {
+                    return packedVarintFixedArray(name, eltBinding, varintSuf,
+                            fixedLenV.toString(), h);
+                }
+                final String formattedLenV = CExpressionFormatter.format(lenExprV, h, owner);
+                return packedVarintHeapArray(name, eltBinding, varintSuf, h, formattedLenV);
+            }
+
             // Packed arrays of fixed-width integer / bit-field / bool
             // elements use the delta-encoding context from the
-            // runtime. Other element types (string, bytes, extern,
-            // varint) need additional encoder state we don't
-            // generate yet.
+            // runtime. Other element types (string, bytes, extern)
+            // need additional encoder state we don't generate yet.
             final PackedElementSpec packed = packedElementSpec(eltDirect, eltBinding, origName);
             final Expression lenExprP = ai.getLengthExpression();
             if (lenExprP == null)
@@ -464,6 +488,182 @@ public final class FieldFormatter
                             + " elements are not yet supported (field '" + origName + "')");
         }
         return new PackedElementSpec(b.cType, b.extraInclude, bits, signed);
+    }
+
+    /**
+     * Produce the read / write / free strings for a packed array of
+     * variable-length-integer elements (varuint16/32/64/varuint,
+     * varint16/32/64/varint, varsize). The wire format is the same
+     * delta-encoded shape upstream uses: a 1-bit isPacked flag, then
+     * (if packed) a 6-bit maxBitNumber, then the first element as a
+     * full varint and subsequent elements as either a signed delta
+     * of (maxBitNumber + 1) bits or another full varint. The read
+     * path handles both wire shapes; the write path always emits
+     * the unpacked shape (isPacked = 0) for simplicity — output is
+     * still a valid wire format any zserio-c reader can decode.
+     */
+    private static FieldData packedVarintHeapArray(String name, TypeBinding b,
+            String runtimeSuffix, String h, String formattedLen)
+    {
+        final String countExpr = h + name + "_count";
+        final String ptrExpr   = h + name;
+        final String iVar      = name + "_i";
+        final String declaration = b.cType + " *" + name;
+        final String extraMember = "size_t " + name + "_count;";
+
+        final String readCountSetup;
+        if (formattedLen == null)
+        {
+            readCountSetup =
+                    "        uint32_t " + name + "_size = 0u;\n"
+                    + "        ZSERIO_TRY(zserio_read_varsize(bs, &" + name + "_size));\n"
+                    + "        " + countExpr + " = (size_t)" + name + "_size;\n";
+        }
+        else
+        {
+            readCountSetup = "        " + countExpr + " = (size_t)("
+                    + formattedLen + ");\n";
+        }
+
+        final String read =
+                "{\n"
+                + readCountSetup
+                + "        " + ptrExpr + " = NULL;\n"
+                + "        if (" + countExpr + " > 0u) {\n"
+                + "            " + ptrExpr + " = (" + b.cType + " *)alloc->vtable->alloc(\n"
+                + "                    alloc->userdata,\n"
+                + "                    " + countExpr + " * sizeof(*(" + ptrExpr + ")),\n"
+                + "                    sizeof(*(" + ptrExpr + ")));\n"
+                + "            if (" + ptrExpr + " == NULL) {\n"
+                + "                return ZSERIO_ERR_OUT_OF_MEMORY;\n"
+                + "            }\n"
+                + "            uint64_t " + name + "_pkbit = 0u;\n"
+                + "            ZSERIO_TRY(zserio_bitstream_read_bits(bs, 1, &"
+                + name + "_pkbit));\n"
+                + "            uint8_t " + name + "_maxb = 0u;\n"
+                + "            if (" + name + "_pkbit != 0u) {\n"
+                + "                uint64_t " + name + "_mb = 0u;\n"
+                + "                ZSERIO_TRY(zserio_bitstream_read_bits(bs, 6, &"
+                + name + "_mb));\n"
+                + "                " + name + "_maxb = (uint8_t)" + name + "_mb;\n"
+                + "            }\n"
+                + "            ZSERIO_TRY(zserio_read_" + runtimeSuffix + "(bs, &"
+                + ptrExpr + "[0]));\n"
+                + "            int64_t " + name + "_prev = (int64_t)" + ptrExpr + "[0];\n"
+                + "            for (size_t " + iVar + " = 1u; " + iVar + " < "
+                + countExpr + "; ++" + iVar + ") {\n"
+                + "                if (" + name + "_pkbit == 0u) {\n"
+                + "                    ZSERIO_TRY(zserio_read_" + runtimeSuffix + "(bs, &"
+                + ptrExpr + "[" + iVar + "]));\n"
+                + "                    " + name + "_prev = (int64_t)" + ptrExpr
+                + "[" + iVar + "];\n"
+                + "                } else if (" + name + "_maxb > 0u) {\n"
+                + "                    int64_t " + name + "_delta = 0;\n"
+                + "                    ZSERIO_TRY(zserio_bitstream_read_signed(bs, (uint8_t)("
+                + name + "_maxb + 1u), &" + name + "_delta));\n"
+                + "                    " + name + "_prev += " + name + "_delta;\n"
+                + "                    " + ptrExpr + "[" + iVar + "] = ("
+                + b.cType + ")" + name + "_prev;\n"
+                + "                } else {\n"
+                + "                    " + ptrExpr + "[" + iVar + "] = ("
+                + b.cType + ")" + name + "_prev;\n"
+                + "                }\n"
+                + "            }\n"
+                + "        }\n"
+                + "    }";
+
+        final String writeCountPrefix = formattedLen == null
+                ? "        ZSERIO_TRY(zserio_write_varsize(bs, (uint32_t)" + countExpr + "));\n"
+                : "";
+        // Simplified write: always emit isPacked=0 + each element as a
+        // full varint. The output is a valid encoding that any
+        // zserio-c reader (or upstream's, which also handles
+        // isPacked=0) can decode. Bit-for-bit equality with upstream's
+        // packed encoder isn't guaranteed for the same input, but the
+        // round-trip values are.
+        final String write =
+                "{\n"
+                + writeCountPrefix
+                + "        if (" + countExpr + " > 0u) {\n"
+                + "            ZSERIO_TRY(zserio_bitstream_write_bits(bs, 1, 0u));\n"
+                + "            for (size_t " + iVar + " = 0u; " + iVar + " < "
+                + countExpr + "; ++" + iVar + ") {\n"
+                + "                ZSERIO_TRY(zserio_write_" + runtimeSuffix + "(bs, "
+                + ptrExpr + "[" + iVar + "]));\n"
+                + "            }\n"
+                + "        }\n"
+                + "    }";
+
+        final String free =
+                "if (" + ptrExpr + " != NULL) {\n"
+                + "        alloc->vtable->free(alloc->userdata, " + ptrExpr + ",\n"
+                + "                " + countExpr + " * sizeof(*(" + ptrExpr + ")),\n"
+                + "                sizeof(*(" + ptrExpr + ")));\n"
+                + "        " + ptrExpr + " = NULL;\n"
+                + "        " + countExpr + " = 0u;\n"
+                + "    }";
+
+        return new FieldData(
+                name, b.cType + " *", declaration,
+                read, write, free,
+                /* owned */ true, b.extraInclude, extraMember);
+    }
+
+    private static FieldData packedVarintFixedArray(String name, TypeBinding b,
+            String runtimeSuffix, String lengthLiteral, String h)
+    {
+        final String declaration = b.cType + " " + name + "[" + lengthLiteral + "]";
+        final String iVar = name + "_i";
+        final String access = h + name;
+
+        final String read =
+                "{\n"
+                + "        uint64_t " + name + "_pkbit = 0u;\n"
+                + "        ZSERIO_TRY(zserio_bitstream_read_bits(bs, 1, &"
+                + name + "_pkbit));\n"
+                + "        uint8_t " + name + "_maxb = 0u;\n"
+                + "        if (" + name + "_pkbit != 0u) {\n"
+                + "            uint64_t " + name + "_mb = 0u;\n"
+                + "            ZSERIO_TRY(zserio_bitstream_read_bits(bs, 6, &"
+                + name + "_mb));\n"
+                + "            " + name + "_maxb = (uint8_t)" + name + "_mb;\n"
+                + "        }\n"
+                + "        ZSERIO_TRY(zserio_read_" + runtimeSuffix + "(bs, &"
+                + access + "[0]));\n"
+                + "        int64_t " + name + "_prev = (int64_t)" + access + "[0];\n"
+                + "        for (size_t " + iVar + " = 1u; " + iVar + " < "
+                + lengthLiteral + "u; ++" + iVar + ") {\n"
+                + "            if (" + name + "_pkbit == 0u) {\n"
+                + "                ZSERIO_TRY(zserio_read_" + runtimeSuffix + "(bs, &"
+                + access + "[" + iVar + "]));\n"
+                + "                " + name + "_prev = (int64_t)" + access
+                + "[" + iVar + "];\n"
+                + "            } else if (" + name + "_maxb > 0u) {\n"
+                + "                int64_t " + name + "_delta = 0;\n"
+                + "                ZSERIO_TRY(zserio_bitstream_read_signed(bs, (uint8_t)("
+                + name + "_maxb + 1u), &" + name + "_delta));\n"
+                + "                " + name + "_prev += " + name + "_delta;\n"
+                + "                " + access + "[" + iVar + "] = ("
+                + b.cType + ")" + name + "_prev;\n"
+                + "            } else {\n"
+                + "                " + access + "[" + iVar + "] = ("
+                + b.cType + ")" + name + "_prev;\n"
+                + "            }\n"
+                + "        }\n"
+                + "    }";
+        final String write =
+                "{\n"
+                + "        ZSERIO_TRY(zserio_bitstream_write_bits(bs, 1, 0u));\n"
+                + "        for (size_t " + iVar + " = 0u; " + iVar + " < "
+                + lengthLiteral + "u; ++" + iVar + ") {\n"
+                + "            ZSERIO_TRY(zserio_write_" + runtimeSuffix + "(bs, "
+                + access + "[" + iVar + "]));\n"
+                + "        }\n"
+                + "    }";
+        return new FieldData(
+                name, b.cType, declaration,
+                read, write, /* free */ "",
+                /* owned */ false, b.extraInclude, /* extraMember */ "");
     }
 
     /** Spec for the per-element delta context (variable + fixed + expr-length packed). */
