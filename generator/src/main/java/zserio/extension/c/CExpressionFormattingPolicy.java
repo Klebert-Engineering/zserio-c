@@ -10,11 +10,13 @@ import java.math.BigInteger;
 import zserio.ast.AstNode;
 import zserio.ast.BitmaskType;
 import zserio.ast.BitmaskValue;
+import zserio.ast.CompoundType;
 import zserio.ast.Constant;
 import zserio.ast.EnumItem;
 import zserio.ast.EnumType;
 import zserio.ast.Expression;
 import zserio.ast.Field;
+import zserio.ast.Function;
 import zserio.ast.Package;
 import zserio.ast.Parameter;
 import zserio.ast.ZserioType;
@@ -224,6 +226,27 @@ public final class CExpressionFormattingPolicy extends DefaultExpressionFormatti
             return CIdentifierFormatter.constantName(
                     bt.getPackage().getPackageName(), bt.getName()) + "_";
         }
+        if (sym instanceof Function)
+        {
+            // Function name. When the function call is `func()`
+            // (most-left), we emit the full C name and the call's
+            // `(self)` arrives via getFunctionCall. When the call is
+            // `recv.func()`, getDot has already emitted both the name
+            // and the receiver, so this side has nothing to emit.
+            if (!expr.isMostLeftId())
+            {
+                return "";
+            }
+            final Function func = (Function)sym;
+            final ZserioType owner = expr.getExprOwner();
+            if (!(owner instanceof CompoundType))
+            {
+                throw new ZserioExtensionException(
+                        "zserio-c: function '" + func.getName()
+                                + "' has no resolvable owning compound type");
+            }
+            return cFunctionName((CompoundType)owner, func);
+        }
         if (sym instanceof Package || sym instanceof ZserioType)
         {
             // The leftmost segment of a `pkg.…` chain (or a non-
@@ -274,8 +297,34 @@ public final class CExpressionFormattingPolicy extends DefaultExpressionFormatti
     /* -------- DOT (member access) -------- */
 
     @Override
-    public BinaryExpressionFormatting getDot(Expression expr)
+    public BinaryExpressionFormatting getDot(Expression expr) throws ZserioExtensionException
     {
+        // Function call via `recv.func()`: the right-hand side is a
+        // Function symbol. We collapse the dot into a full C call
+        // expression with the receiver passed by address, so the
+        // overall shape becomes `<funcName>(&LEFT)`. The
+        // FunctionCallExpression wrapper around this then emits
+        // empty before/after — the dot has produced the complete
+        // call.
+        final Expression rightSide = expr.op2();
+        if (rightSide != null)
+        {
+            final AstNode rightSym = rightSide.getExprSymbolObject();
+            if (rightSym instanceof Function)
+            {
+                final Function func = (Function)rightSym;
+                final ZserioType owner = rightSide.getExprOwner();
+                if (!(owner instanceof CompoundType))
+                {
+                    throw new ZserioExtensionException(
+                            "zserio-c: function '" + func.getName()
+                                    + "' has no resolvable owning compound type");
+                }
+                final String funcName = cFunctionName((CompoundType)owner, func);
+                return new BinaryExpressionFormatting(funcName + "(&", "", ")");
+            }
+        }
+
         // C has no scoping operator for enum / bitmask members —
         // each enumerator is a flat `pkg_TYPE_ITEM` macro. When the
         // dot's left side is a package or zserio type reference, the
@@ -294,6 +343,13 @@ public final class CExpressionFormattingPolicy extends DefaultExpressionFormatti
         // `self->header.tag`, where the leftmost ID already carried
         // the holder prefix.
         return new BinaryExpressionFormatting(".");
+    }
+
+    private static String cFunctionName(CompoundType owner, Function func)
+    {
+        return CIdentifierFormatter.funcPrefix(
+                owner.getPackage().getPackageName(), owner.getName())
+                + "_" + CIdentifierFormatter.toLowerSnake(func.getName());
     }
 
     /* -------- built-in expression functions -------- */
@@ -339,10 +395,27 @@ public final class CExpressionFormattingPolicy extends DefaultExpressionFormatti
     public UnaryExpressionFormatting getFunctionCall(Expression expr)
             throws ZserioExtensionException
     {
-        // User-defined zserio functions (`function T name() { return … }`)
-        // need their own emitted C function, which is a separate batch.
+        final Expression op1 = expr.op1();
+        if (op1 == null)
+        {
+            throw new ZserioExtensionException(
+                    "zserio-c: function call without operand");
+        }
+        // `recv.func()` — the dot already produced `<funcName>(&recv)`.
+        // We pile nothing on top.
+        if (op1.getType() == zserio.antlr.ZserioParser.DOT)
+        {
+            return new UnaryExpressionFormatting("", "");
+        }
+        // `func()` — same-compound call. op1's getIdentifier produced
+        // the C function name already; we close with `(self)`.
+        final AstNode sym = op1.getExprSymbolObject();
+        if (sym instanceof Function)
+        {
+            return new UnaryExpressionFormatting("", "(self)");
+        }
         throw new ZserioExtensionException(
-                "zserio-c: user-defined zserio functions are not yet supported");
+                "zserio-c: unsupported function-call shape");
     }
 
     @Override

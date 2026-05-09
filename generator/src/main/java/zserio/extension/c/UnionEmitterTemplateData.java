@@ -24,6 +24,7 @@ public final class UnionEmitterTemplateData
     private final String headerIncludePath;
     private final List<ParameterData> parameters;
     private final List<CaseData> cases;
+    private final List<FunctionData> functions;
     private final List<String> extraIncludes;
     private final boolean hasOwnedCases;
 
@@ -66,6 +67,7 @@ public final class UnionEmitterTemplateData
             ++index;
         }
         this.cases = built;
+        this.functions = FunctionData.from(unionType);
         this.extraIncludes = new ArrayList<>(includes);
         this.hasOwnedCases = owned;
     }
@@ -78,6 +80,8 @@ public final class UnionEmitterTemplateData
     public List<ParameterData> getParameters() { return parameters; }
     public boolean getHasParameters()        { return !parameters.isEmpty(); }
     public List<CaseData> getCases()         { return cases; }
+    public List<FunctionData> getFunctions() { return functions; }
+    public boolean getHasFunctions()         { return !functions.isEmpty(); }
     public List<String>   getExtraIncludes() { return extraIncludes; }
     public boolean getHasOwnedCases()        { return hasOwnedCases; }
 

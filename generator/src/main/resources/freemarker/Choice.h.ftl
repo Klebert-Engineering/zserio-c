@@ -43,4 +43,11 @@ zserio_status_t ${funcPrefix}_write(${typeName} *self,
         zserio_bitstream_writer_t *bs);
 void            ${funcPrefix}_free(${typeName} *self, const zserio_allocator_t *alloc);
 
+<#list functions as fn>
+static inline ${fn.returnType} ${fn.fullName}(const ${typeName} *self)
+{
+    return (${fn.returnType})(${fn.body});
+}
+
+</#list>
 #endif /* ${includeGuard} */

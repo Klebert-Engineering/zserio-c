@@ -24,6 +24,7 @@ public final class StructureEmitterTemplateData
     private final String headerIncludePath;
     private final List<ParameterData> parameters;
     private final List<FieldFormatter.FieldData> fields;
+    private final List<FunctionData> functions;
     private final List<String> extraIncludes;
     private final boolean hasOwnedFields;
 
@@ -55,6 +56,7 @@ public final class StructureEmitterTemplateData
             owned = owned || data.getOwned();
         }
         this.fields = built;
+        this.functions = FunctionData.from(structType);
         this.extraIncludes = new ArrayList<>(includes);
         this.hasOwnedFields = owned;
     }
@@ -67,6 +69,8 @@ public final class StructureEmitterTemplateData
     public List<ParameterData> getParameters() { return parameters; }
     public boolean getHasParameters()        { return !parameters.isEmpty(); }
     public List<FieldFormatter.FieldData> getFields() { return fields; }
+    public List<FunctionData> getFunctions() { return functions; }
+    public boolean getHasFunctions()         { return !functions.isEmpty(); }
     public List<String> getExtraIncludes()   { return extraIncludes; }
     public boolean getHasOwnedFields()       { return hasOwnedFields; }
 }

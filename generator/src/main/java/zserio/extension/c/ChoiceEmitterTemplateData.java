@@ -30,6 +30,7 @@ public final class ChoiceEmitterTemplateData
     private final List<CaseData> cases;
     private final FieldFormatter.FieldData defaultField; // null if no default
     private final boolean hasDefault;
+    private final List<FunctionData> functions;
     private final List<String> extraIncludes;
     private final boolean hasOwnedCases;
 
@@ -127,6 +128,7 @@ public final class ChoiceEmitterTemplateData
             this.defaultField = null;
         }
 
+        this.functions = FunctionData.from(choiceType);
         this.extraIncludes = new ArrayList<>(includes);
         this.hasOwnedCases = owned;
     }
@@ -142,6 +144,8 @@ public final class ChoiceEmitterTemplateData
     public FieldFormatter.FieldData getDefaultField() { return defaultField; }
     public boolean getHasDefault()           { return hasDefault; }
     public boolean getHasDefaultField()      { return defaultField != null; }
+    public List<FunctionData> getFunctions() { return functions; }
+    public boolean getHasFunctions()         { return !functions.isEmpty(); }
     public List<String>   getExtraIncludes() { return extraIncludes; }
     public boolean getHasOwnedCases()        { return hasOwnedCases; }
 
