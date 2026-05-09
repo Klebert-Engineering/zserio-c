@@ -105,6 +105,13 @@ struct Validated
     uint16                  bonus if grade >= 90;
 };
 
+struct EnumValidated
+{
+    Color                   pick;
+    uint8                   ranking : pick != Color.NONE;
+    uint16                  fallback if pick == Color.RED;
+};
+
 struct Hello
 {
     uint8       age;

@@ -78,6 +78,8 @@ EXPECTED=(
     "${OUTPUT_DIR}/hello/frame.c"
     "${OUTPUT_DIR}/hello/validated.h"
     "${OUTPUT_DIR}/hello/validated.c"
+    "${OUTPUT_DIR}/hello/enum_validated.h"
+    "${OUTPUT_DIR}/hello/enum_validated.c"
 )
 for f in "${EXPECTED[@]}"; do
     if [[ ! -f "${f}" ]]; then

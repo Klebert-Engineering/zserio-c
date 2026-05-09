@@ -8,10 +8,16 @@ package zserio.extension.c;
 import java.math.BigInteger;
 
 import zserio.ast.AstNode;
+import zserio.ast.BitmaskType;
+import zserio.ast.BitmaskValue;
 import zserio.ast.Constant;
+import zserio.ast.EnumItem;
+import zserio.ast.EnumType;
 import zserio.ast.Expression;
 import zserio.ast.Field;
+import zserio.ast.Package;
 import zserio.ast.Parameter;
+import zserio.ast.ZserioType;
 import zserio.extension.common.DefaultExpressionFormattingPolicy;
 import zserio.extension.common.ZserioExtensionException;
 
@@ -145,10 +151,49 @@ public final class CExpressionFormattingPolicy extends DefaultExpressionFormatti
             final Constant c = (Constant)sym;
             return CIdentifierFormatter.constantName(c.getPackage().getPackageName(), c.getName());
         }
-        // EnumItem / BitmaskValue / ZserioType references and other
-        // less-common symbol categories land in a follow-up batch.
-        // Be loud rather than silent — silently misformatting an enum
-        // ref could ship as a wrong constraint.
+        if (sym instanceof EnumItem)
+        {
+            // The C side has no enum scope — every enumerator is a
+            // flat `pkg_ENUMTYPE_ITEM` constant. Whether the AST sees
+            // this as `Color.RED`, `pkg.Color.RED`, or bare `RED` (in
+            // a context where the enum is in scope), we always emit
+            // the full name.
+            final EnumItem item = (EnumItem)sym;
+            final ZserioType ownerType = expr.getExprZserioType();
+            if (!(ownerType instanceof EnumType))
+            {
+                throw new ZserioExtensionException(
+                        "zserio-c: enumerator '" + item.getName()
+                                + "' referenced without a resolvable enum type");
+            }
+            final EnumType et = (EnumType)ownerType;
+            return CIdentifierFormatter.constantName(
+                    et.getPackage().getPackageName(),
+                    et.getName() + "_" + item.getName());
+        }
+        if (sym instanceof BitmaskValue)
+        {
+            final BitmaskValue bv = (BitmaskValue)sym;
+            final ZserioType ownerType = expr.getExprZserioType();
+            if (!(ownerType instanceof BitmaskType))
+            {
+                throw new ZserioExtensionException(
+                        "zserio-c: bitmask value '" + bv.getName()
+                                + "' referenced without a resolvable bitmask type");
+            }
+            final BitmaskType bt = (BitmaskType)ownerType;
+            return CIdentifierFormatter.constantName(
+                    bt.getPackage().getPackageName(),
+                    bt.getName() + "_" + bv.getName());
+        }
+        if (sym instanceof Package || sym instanceof ZserioType)
+        {
+            // The leftmost segment of a `pkg.…` or `Color.…` chain.
+            // The right side carries the full pkg-prefixed constant
+            // name and `getDot` collapses the separator, so this
+            // segment has nothing to emit.
+            return "";
+        }
         throw new ZserioExtensionException(
                 "zserio-c: identifier '" + zserioName + "' refers to "
                         + (sym == null ? "an unresolved symbol" : sym.getClass().getSimpleName())
@@ -167,11 +212,23 @@ public final class CExpressionFormattingPolicy extends DefaultExpressionFormatti
     @Override
     public BinaryExpressionFormatting getDot(Expression expr)
     {
-        // The default policy leaves this abstract because the
-        // separator differs across languages. C uses '.' between a
-        // struct value and its member name, which is exactly what
-        // our generated structs need (the leftmost ID has already
-        // been prefixed with the holder via getIdentifier).
+        // C has no scoping operator for enum / bitmask members —
+        // each enumerator is a flat `pkg_TYPE_ITEM` macro. When the
+        // dot's left side is a package or zserio type reference, the
+        // right side will produce that full flat name on its own, so
+        // the separator collapses to empty.
+        final Expression leftSide = expr.op1();
+        if (leftSide != null)
+        {
+            final AstNode leftSym = leftSide.getExprSymbolObject();
+            if (leftSym instanceof Package || leftSym instanceof ZserioType)
+            {
+                return new BinaryExpressionFormatting("");
+            }
+        }
+        // Otherwise it's struct member access — `header.tag` →
+        // `self->header.tag`, where the leftmost ID already carried
+        // the holder prefix.
         return new BinaryExpressionFormatting(".");
     }
 
