@@ -63,19 +63,90 @@ public final class FieldFormatter
      */
     public static FieldData format(Field field, String holderExpr) throws ZserioExtensionException
     {
-        if (field.isOptional() && field.getOptionalClauseExpr() != null)
+        FieldData data = formatBase(field, holderExpr);
+
+        // Constraint check sits between the value lowering and the
+        // optional wrapper so an absent field doesn't fail validation.
+        if (field.getConstraintExpr() != null)
         {
-            throw new ZserioExtensionException(
-                    "zserio-c: field '" + field.getName()
-                            + "' has an `optional ... if` clause; only auto-optionals are supported in v1");
+            final String formatted =
+                    CExpressionFormatter.format(field.getConstraintExpr(), holderExpr);
+            data = wrapConstraint(data, formatted);
         }
 
-        final FieldData base = formatBase(field, holderExpr);
         if (field.isOptional())
         {
-            return wrapAutoOptional(base, holderExpr);
+            if (field.getOptionalClauseExpr() != null)
+            {
+                final String formattedClause =
+                        CExpressionFormatter.format(field.getOptionalClauseExpr(), holderExpr);
+                data = wrapIfOptional(data, formattedClause, holderExpr);
+            }
+            else
+            {
+                data = wrapAutoOptional(data, holderExpr);
+            }
         }
-        return base;
+        return data;
+    }
+
+    /**
+     * Wrap a {@link FieldData} with a runtime constraint check. The
+     * generated code returns {@code ZSERIO_ERR_CONSTRAINT_VIOLATED}
+     * if the constraint expression evaluates to false at read or
+     * write time.
+     */
+    private static FieldData wrapConstraint(FieldData inner, String formattedExpr)
+    {
+        final String violated =
+                "if (!(" + formattedExpr + ")) {\n"
+                + "        return ZSERIO_ERR_CONSTRAINT_VIOLATED;\n"
+                + "    }";
+        // Read: validate after the value is in place. Write: validate
+        // before any wire bytes are emitted, so a violated write
+        // aborts cleanly with the buffer cursor unchanged.
+        final String read  = inner.readStmt + "\n    " + violated;
+        final String write = violated + "\n    " + inner.writeStmt;
+        return new FieldData(
+                inner.name, inner.nativeType, inner.declaration,
+                read, write, inner.freeStmt,
+                inner.owned, inner.extraInclude, inner.extraMember);
+    }
+
+    /**
+     * Wrap a {@link FieldData} for an {@code optional T x if expr;}
+     * field. Presence is derived from the clause expression rather
+     * than a 1-bit wire prefix: read evaluates the expression and
+     * conditionally reads; write evaluates the expression again and
+     * conditionally writes; free uses the stored {@code _present}
+     * flag (set by read) so it's safe even if parameters changed
+     * between read and free.
+     */
+    private static FieldData wrapIfOptional(FieldData inner, String formattedClause, String h)
+    {
+        final String present = h + inner.name + "_present";
+        final String read =
+                "if (" + formattedClause + ") {\n"
+                + "        " + present + " = true;\n"
+                + "        " + inner.readStmt + "\n"
+                + "    } else {\n"
+                + "        " + present + " = false;\n"
+                + "    }";
+        final String write =
+                "if (" + formattedClause + ") {\n"
+                + "        " + inner.writeStmt + "\n"
+                + "    }";
+        final String free = inner.freeStmt.isEmpty() ? ""
+                : "if (" + present + ") {\n"
+                + "        " + inner.freeStmt + "\n"
+                + "    }";
+        final String combinedExtra = "bool " + inner.name + "_present;"
+                + (inner.extraMember.isEmpty() ? "" : "\n    " + inner.extraMember);
+        return new FieldData(
+                inner.name, inner.nativeType, inner.declaration,
+                read, write, free,
+                inner.owned, inner.extraInclude,
+                combinedExtra);
     }
 
     /** The non-optional core lowering. */

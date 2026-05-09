@@ -76,6 +76,8 @@ EXPECTED=(
     "${OUTPUT_DIR}/hello/power_of_two_block.c"
     "${OUTPUT_DIR}/hello/frame.h"
     "${OUTPUT_DIR}/hello/frame.c"
+    "${OUTPUT_DIR}/hello/validated.h"
+    "${OUTPUT_DIR}/hello/validated.c"
 )
 for f in "${EXPECTED[@]}"; do
     if [[ ! -f "${f}" ]]; then

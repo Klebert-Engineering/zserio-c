@@ -98,6 +98,13 @@ struct Frame
     PowerOfTwoBlock(scale)  power;
 };
 
+struct Validated
+{
+    uint8                   grade;
+    uint8                   passing if passing == 1;
+    optional uint16         bonus if grade >= 90;
+};
+
 struct Hello
 {
     uint8       age;
