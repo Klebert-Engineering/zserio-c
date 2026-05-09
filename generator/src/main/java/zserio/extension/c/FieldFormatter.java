@@ -1189,6 +1189,14 @@ public final class FieldFormatter
     /** What C type to emit for the field, plus the include needed for it. */
     private static TypeBinding bindType(ZserioType direct) throws ZserioExtensionException
     {
+        if (direct instanceof zserio.ast.InstantiateType)
+        {
+            // The instantiate-type is a name alias for a concrete
+            // template instantiation; resolve to the underlying
+            // compound and use its typedef.
+            return bindType(((zserio.ast.InstantiateType)direct).getTypeReference()
+                    .getBaseTypeReference().getType());
+        }
         if (direct instanceof Subtype)
         {
             final Subtype st = (Subtype)direct;
