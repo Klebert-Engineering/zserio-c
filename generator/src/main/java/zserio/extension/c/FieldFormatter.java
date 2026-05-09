@@ -408,6 +408,18 @@ public final class FieldFormatter
             bits = bf.getBitSize();
             signed = bf.isSigned();
         }
+        else if (under instanceof DynamicBitFieldType)
+        {
+            // Dynamic-width packed: every element shares the same
+            // runtime-evaluated width. Storage uses the widest
+            // container; the delta context's `num_bits` argument
+            // ideally matches the per-array width but the runtime
+            // protocol caps at 64 — so we use the maximum and cast
+            // each element through it.
+            final DynamicBitFieldType dyn = (DynamicBitFieldType)under;
+            bits = 64;
+            signed = dyn.isSigned();
+        }
         else
         {
             throw new ZserioExtensionException(
