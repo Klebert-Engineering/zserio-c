@@ -7,9 +7,11 @@ package zserio.extension.c;
 
 import zserio.ast.BitmaskType;
 import zserio.ast.BooleanType;
+import zserio.ast.BytesType;
 import zserio.ast.CompoundType;
 import zserio.ast.DynamicBitFieldType;
 import zserio.ast.EnumType;
+import zserio.ast.ExternType;
 import zserio.ast.FixedBitFieldType;
 import zserio.ast.FloatType;
 import zserio.ast.PackageName;
@@ -120,11 +122,17 @@ public final class CNativeTypeMapper
         }
         if (type instanceof StringType)
         {
-            // string consts don't fit a `static const T name = value;`
-            // pattern cleanly; reject for now and revisit when we have
-            // the string-const lowering pattern designed.
-            throw new ZserioExtensionException(
-                    "zserio-c: string constants are not yet supported");
+            // String parameters / subtype targets land here. (String
+            // consts take a separate code path in ConstEmitter.)
+            return "zserio_string_t";
+        }
+        if (type instanceof BytesType)
+        {
+            return "zserio_bytes_t";
+        }
+        if (type instanceof ExternType)
+        {
+            return "zserio_extern_t";
         }
         // Compound / enum / bitmask: emit the user-facing C typedef
         // name. Reached via `subtype Foo Bar;` chains that terminate

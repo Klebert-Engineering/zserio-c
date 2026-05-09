@@ -464,9 +464,11 @@ public final class CExpressionFormattingPolicy extends DefaultExpressionFormatti
 
     @Override
     public BinaryExpressionFormatting getArrayElement(Expression expr, boolean isSetter)
-            throws ZserioExtensionException
     {
-        throw new ZserioExtensionException(
-                "zserio-c: array-element expressions are not yet supported");
+        // C indexing syntax matches zserio's: `<arr>[<idx>]`. For
+        // variable arrays the C `<arr>` is the heap pointer, which
+        // the compiler indexes the same way as a stack array — both
+        // emit the same access expression.
+        return new BinaryExpressionFormatting("", "[", "]");
     }
 }
