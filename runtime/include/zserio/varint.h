@@ -71,4 +71,49 @@ zserio_status_t zserio_write_varint32(zserio_bitstream_writer_t *bs, int32_t v);
 zserio_status_t zserio_write_varint64(zserio_bitstream_writer_t *bs, int64_t v);
 zserio_status_t zserio_write_varint  (zserio_bitstream_writer_t *bs, int64_t v);
 
+/* ------------------------------------------------------------------------ */
+/* Bit-size helpers                                                         */
+/* ------------------------------------------------------------------------ */
+
+/**
+ * Wire bit-size of a value when encoded with the corresponding
+ * write_varX function. Used by the packing-decision math in
+ * `zserio_delta` (trait-driven mode) — the per-element unpacked cost
+ * of a varint depends on the value, not just the type.
+ *
+ * Inputs MUST be in the encoded range listed in the file-level doc;
+ * out-of-range inputs return the maximum encoded size (a safe
+ * over-estimate that won't change the eventual write_varX outcome,
+ * which would error with VALUE_OUT_OF_RANGE).
+ */
+size_t zserio_bitsize_varuint16(uint16_t v);
+size_t zserio_bitsize_varuint32(uint32_t v);
+size_t zserio_bitsize_varuint64(uint64_t v);
+size_t zserio_bitsize_varuint  (uint64_t v);
+size_t zserio_bitsize_varsize  (uint32_t v);
+
+size_t zserio_bitsize_varint16(int16_t v);
+size_t zserio_bitsize_varint32(int32_t v);
+size_t zserio_bitsize_varint64(int64_t v);
+size_t zserio_bitsize_varint  (int64_t v);
+
+/* ------------------------------------------------------------------------ */
+/* Delta-context traits — one static const per varint flavour.              */
+/* Defined in varint.c. Plug into                                            */
+/* `zserio_delta_init_traits(&ctx, &zserio_delta_traits_varuintXX)` for      */
+/* packed arrays whose element shape is the matching varint family.         */
+/* ------------------------------------------------------------------------ */
+
+#include "zserio/delta.h"
+
+extern const zserio_delta_traits_t zserio_delta_traits_varuint16;
+extern const zserio_delta_traits_t zserio_delta_traits_varuint32;
+extern const zserio_delta_traits_t zserio_delta_traits_varuint64;
+extern const zserio_delta_traits_t zserio_delta_traits_varuint;
+extern const zserio_delta_traits_t zserio_delta_traits_varsize;
+extern const zserio_delta_traits_t zserio_delta_traits_varint16;
+extern const zserio_delta_traits_t zserio_delta_traits_varint32;
+extern const zserio_delta_traits_t zserio_delta_traits_varint64;
+extern const zserio_delta_traits_t zserio_delta_traits_varint;
+
 #endif /* ZSERIO_VARINT_H_ */

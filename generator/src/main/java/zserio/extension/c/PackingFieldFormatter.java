@@ -136,19 +136,39 @@ public final class PackingFieldFormatter
 
         final TypeInstantiation typeInst = field.getTypeInstantiation();
         final ZserioType direct = typeInst.getTypeReference().getType();
-
-        // Resolve to the packable scalar — walk subtype/instantiate
-        // and unwrap enum/bitmask so we get to the underlying
-        // integer / bit-field whose width feeds zserio_delta_init.
-        final PackedScalar scalar = packedScalar(direct, typeInst, holderExpr, owner);
+        final ZserioType under = scalarUnderlying(direct);
 
         final String ctxMember = "zserio_delta_context_t " + name + ";";
 
-        final String initStmt = "ZSERIO_TRY(zserio_delta_init(&" + ctxField + ", "
-                + scalar.bitsExpr + ", " + (scalar.signed ? "true" : "false") + "));";
+        final String initStmt;
+        final boolean signed;
+        final String uintCast;
+        if (under instanceof VarIntegerType)
+        {
+            // Varint elements use the trait-driven delta mode: the
+            // runtime's traits struct supplies the typed varint codec
+            // and per-value bit-size. The delta machinery — packed
+            // descriptor, max-bit-number tracking, signed-bit-bag
+            // delta — runs identically to the fixed-width path.
+            final String traitsSym = traitsSymbol((VarIntegerType)under);
+            initStmt = "ZSERIO_TRY(zserio_delta_init_traits(&" + ctxField
+                    + ", &" + traitsSym + "));";
+            signed = ((VarIntegerType)under).isSigned();
+            uintCast = uintCastFor(signed);
+        }
+        else
+        {
+            // Fixed-width integer / bit-field / enum / bitmask.
+            final PackedScalar scalar = packedScalar(direct, typeInst, holderExpr, owner);
+            initStmt = "ZSERIO_TRY(zserio_delta_init(&" + ctxField + ", "
+                    + scalar.bitsExpr + ", "
+                    + (scalar.signed ? "true" : "false") + "));";
+            signed = scalar.signed;
+            uintCast = scalar.uintCast;
+        }
 
         final String observeStmt = "ZSERIO_TRY(zserio_delta_observe(&" + ctxField + ", "
-                + scalar.uintCast + access + "));";
+                + uintCast + access + "));";
 
         final String cType = plainData.getNativeType();
         final String readStmt =
@@ -160,10 +180,39 @@ public final class PackingFieldFormatter
                 + "    }";
 
         final String writeStmt = "ZSERIO_TRY(zserio_delta_write(&" + ctxField + ", bs, "
-                + scalar.uintCast + access + "));";
+                + uintCast + access + "));";
 
         return new PackedField(/* usesContext */ true,
                 name, ctxMember, initStmt, observeStmt, readStmt, writeStmt);
+    }
+
+    /**
+     * Map a {@link VarIntegerType} to the corresponding global
+     * {@code zserio_delta_traits_t} symbol exported by the runtime.
+     * The traits struct holds the typed varint codec callbacks plus
+     * the bit-size cost function — the delta context plugs straight
+     * into them via {@code zserio_delta_init_traits}.
+     */
+    private static String traitsSymbol(VarIntegerType vi) throws ZserioExtensionException
+    {
+        final int max = vi.getMaxBitSize();
+        final boolean signed = vi.isSigned();
+        // Match the table in CNativeTypeMapper.nativeTypeFor:
+        //   varuint16 → 16, varuint32 → 32, varuint64 → 64, varuint → 72
+        //   varint16  → 16, varint32  → 32, varint64  → 64, varint  → 72
+        //   varsize   → 40
+        if (!signed && max == 40)  return "zserio_delta_traits_varsize";
+        if (!signed && max == 16)  return "zserio_delta_traits_varuint16";
+        if (!signed && max == 32)  return "zserio_delta_traits_varuint32";
+        if (!signed && max == 64)  return "zserio_delta_traits_varuint64";
+        if (!signed && max == 72)  return "zserio_delta_traits_varuint";
+        if (signed  && max == 16)  return "zserio_delta_traits_varint16";
+        if (signed  && max == 32)  return "zserio_delta_traits_varint32";
+        if (signed  && max == 64)  return "zserio_delta_traits_varint64";
+        if (signed  && max == 72)  return "zserio_delta_traits_varint";
+        throw new ZserioExtensionException(
+                "zserio-c: no delta traits for varint with maxBitSize="
+                        + max + ", signed=" + signed);
     }
 
     /* -------- packability classification -------- */
@@ -214,15 +263,10 @@ public final class PackingFieldFormatter
         final ZserioType under = scalarUnderlying(direct);
         if (under instanceof StdIntegerType
                 || under instanceof FixedBitFieldType
-                || under instanceof DynamicBitFieldType)
+                || under instanceof DynamicBitFieldType
+                || under instanceof VarIntegerType)
         {
             return true;
-        }
-        // VarInteger is upstream-packable but our delta context
-        // operates on fixed-width integers only.
-        if (under instanceof VarIntegerType)
-        {
-            return false;
         }
         // BoolType is NOT in upstream's packable set; matching that
         // keeps our wire format compatible with the original

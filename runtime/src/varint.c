@@ -5,6 +5,8 @@
 
 #include "zserio/varint.h"
 
+#include "zserio/delta.h"
+
 #include <string.h>
 
 /*
@@ -433,6 +435,85 @@ zserio_status_t zserio_read_varint(zserio_bitstream_reader_t *bs, int64_t *out)
 /* Per-type write wrappers                                                  */
 /* ------------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------------ */
+/* Bit-size helpers (byte count × 8)                                         */
+/* ------------------------------------------------------------------------ */
+
+/* The byte count is the same lookup write_varuint_impl runs at the
+ * top of its body — we factor it out here so the bit-size helpers
+ * and the writer agree by construction. */
+static uint8_t bytes_for_unsigned(uint64_t value,
+                                  const uint64_t *max_table,
+                                  uint8_t max_bytes)
+{
+    for (uint8_t i = 0U; i < max_bytes; i++) {
+        if (value <= max_table[i]) {
+            return (uint8_t)(i + 1U);
+        }
+    }
+    /* Out-of-range value: return the maximum byte count. The writer
+     * itself will fail with VALUE_OUT_OF_RANGE; this is just a
+     * defensive over-estimate so the bit-size helper is total. */
+    return max_bytes;
+}
+
+static uint8_t bytes_for_signed(int64_t value,
+                                const uint64_t *max_table,
+                                uint8_t max_bytes,
+                                bool support_int64_min)
+{
+    if ((value == INT64_MIN) && support_int64_min) {
+        return 1U; /* sign=1, magnitude=0, single-byte special form */
+    }
+    uint64_t magnitude;
+    if (value < 0) {
+        if (value == INT64_MIN) {
+            return max_bytes;
+        }
+        magnitude = (uint64_t)(-value);
+    } else {
+        magnitude = (uint64_t)value;
+    }
+    return bytes_for_unsigned(magnitude, max_table, max_bytes);
+}
+
+size_t zserio_bitsize_varuint16(uint16_t v)
+{
+    return 8U * (size_t)bytes_for_unsigned((uint64_t)v, VARUINT16_MAX, 2U);
+}
+size_t zserio_bitsize_varuint32(uint32_t v)
+{
+    return 8U * (size_t)bytes_for_unsigned((uint64_t)v, VARUINT32_MAX, 4U);
+}
+size_t zserio_bitsize_varuint64(uint64_t v)
+{
+    return 8U * (size_t)bytes_for_unsigned(v, VARUINT64_MAX, 8U);
+}
+size_t zserio_bitsize_varuint(uint64_t v)
+{
+    return 8U * (size_t)bytes_for_unsigned(v, VARUINT_MAX, 9U);
+}
+size_t zserio_bitsize_varsize(uint32_t v)
+{
+    return 8U * (size_t)bytes_for_unsigned((uint64_t)v, VARSIZE_MAX, 5U);
+}
+size_t zserio_bitsize_varint16(int16_t v)
+{
+    return 8U * (size_t)bytes_for_signed((int64_t)v, VARINT16_MAX, 2U, false);
+}
+size_t zserio_bitsize_varint32(int32_t v)
+{
+    return 8U * (size_t)bytes_for_signed((int64_t)v, VARINT32_MAX, 4U, false);
+}
+size_t zserio_bitsize_varint64(int64_t v)
+{
+    return 8U * (size_t)bytes_for_signed(v, VARINT64_MAX, 8U, false);
+}
+size_t zserio_bitsize_varint(int64_t v)
+{
+    return 8U * (size_t)bytes_for_signed(v, VARINT_MAX, 9U, true);
+}
+
 zserio_status_t zserio_write_varuint16(zserio_bitstream_writer_t *bs, uint16_t v)
 {
     return write_varuint_impl(bs, (uint64_t)v, VARUINT16_MAX, 2U);
@@ -477,3 +558,69 @@ zserio_status_t zserio_write_varint(zserio_bitstream_writer_t *bs, int64_t v)
 {
     return write_varint_impl(bs, v, VARINT_MAX, 9U, true);
 }
+
+/* ------------------------------------------------------------------------ */
+/* Delta-context traits, one per varint flavour. Each pair of read/write    */
+/* wrappers materialises the typed varint codec through the                 */
+/* zserio_delta_traits_t (uint64_t-typed) interface. The bit-size callback  */
+/* drives upstream-compatible packed-vs-unpacked decisions.                 */
+/* ------------------------------------------------------------------------ */
+
+#define DELTA_TRAITS_UNSIGNED(SUF, T)                                                  \
+static zserio_status_t delta_read_##SUF(zserio_bitstream_reader_t *bs, uint64_t *out)  \
+{                                                                                      \
+    T v = 0;                                                                           \
+    ZSERIO_TRY(zserio_read_##SUF(bs, &v));                                             \
+    *out = (uint64_t)v;                                                                \
+    return ZSERIO_OK;                                                                  \
+}                                                                                      \
+static zserio_status_t delta_write_##SUF(zserio_bitstream_writer_t *bs, uint64_t v)    \
+{                                                                                      \
+    return zserio_write_##SUF(bs, (T)v);                                               \
+}                                                                                      \
+static size_t delta_bitsize_##SUF(uint64_t v)                                          \
+{                                                                                      \
+    return zserio_bitsize_##SUF((T)v);                                                 \
+}                                                                                      \
+const zserio_delta_traits_t zserio_delta_traits_##SUF = {                              \
+    delta_read_##SUF,                                                                  \
+    delta_write_##SUF,                                                                 \
+    delta_bitsize_##SUF,                                                               \
+    /* is_signed */ false                                                              \
+}
+
+#define DELTA_TRAITS_SIGNED(SUF, T)                                                    \
+static zserio_status_t delta_read_##SUF(zserio_bitstream_reader_t *bs, uint64_t *out)  \
+{                                                                                      \
+    T v = 0;                                                                           \
+    ZSERIO_TRY(zserio_read_##SUF(bs, &v));                                             \
+    *out = (uint64_t)(int64_t)v;                                                       \
+    return ZSERIO_OK;                                                                  \
+}                                                                                      \
+static zserio_status_t delta_write_##SUF(zserio_bitstream_writer_t *bs, uint64_t v)    \
+{                                                                                      \
+    return zserio_write_##SUF(bs, (T)(int64_t)v);                                      \
+}                                                                                      \
+static size_t delta_bitsize_##SUF(uint64_t v)                                          \
+{                                                                                      \
+    return zserio_bitsize_##SUF((T)(int64_t)v);                                        \
+}                                                                                      \
+const zserio_delta_traits_t zserio_delta_traits_##SUF = {                              \
+    delta_read_##SUF,                                                                  \
+    delta_write_##SUF,                                                                 \
+    delta_bitsize_##SUF,                                                               \
+    /* is_signed */ true                                                               \
+}
+
+DELTA_TRAITS_UNSIGNED(varuint16, uint16_t);
+DELTA_TRAITS_UNSIGNED(varuint32, uint32_t);
+DELTA_TRAITS_UNSIGNED(varuint64, uint64_t);
+DELTA_TRAITS_UNSIGNED(varuint,   uint64_t);
+DELTA_TRAITS_UNSIGNED(varsize,   uint32_t);
+DELTA_TRAITS_SIGNED  (varint16,  int16_t);
+DELTA_TRAITS_SIGNED  (varint32,  int32_t);
+DELTA_TRAITS_SIGNED  (varint64,  int64_t);
+DELTA_TRAITS_SIGNED  (varint,    int64_t);
+
+#undef DELTA_TRAITS_UNSIGNED
+#undef DELTA_TRAITS_SIGNED

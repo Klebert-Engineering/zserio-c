@@ -31,28 +31,57 @@
  * same order). One context cannot be reused for both write and read
  * over the same data; instantiate a fresh one.
  *
- * v1 covers fixed-width integer types: callers pass element bit
- * patterns as `uint64_t` and tell the context the bit width and
- * signedness at init time. Packed varint-encoded element types are
- * not supported by this module yet — the integer-type encoding is
- * the only path that benefits the most from delta packing in
- * practice.
- *
  * Element values: callers always pass the bit pattern as `uint64_t`.
  * Signed interpretation is controlled by `is_signed` at init time.
  * For an `int8` value of -5, the caller passes
  * `(uint64_t)(int64_t)-5` (= `0xFFFFFFFFFFFFFFFBULL`).
+ *
+ * Two element-shape modes:
+ *  - Fixed-width: caller passes `num_bits` at init; reads/writes use
+ *    the matching fixed-width bitstream calls.
+ *  - Trait-driven: caller passes a `zserio_delta_traits_t` of
+ *    callbacks that drive the unpacked element read / write /
+ *    bit-size. Used for varint-encoded elements (varuintN, varintN,
+ *    varuint, varint, varsize) where the per-element wire size is
+ *    value-dependent. The packed delta encoding (descriptor + signed
+ *    bit-bag) is identical to the fixed-width path.
  */
+
+/**
+ * Element-shape traits for the trait-driven mode of
+ * {@link zserio_delta_context_t}.
+ *
+ * `read_unpacked` / `write_unpacked` are the per-element codec used
+ * when the context's packing decision lands on "unpacked" (and for
+ * the very first element on the packed path). `bit_size_unpacked`
+ * returns the wire size of one element under the unpacked codec —
+ * this drives the packed-vs-unpacked cost comparison in
+ * {@code delta_finalise}. Returning the actual per-value bit size
+ * (e.g. {@code 8 * varuint32_byte_count(value)}) keeps the decision
+ * consistent with upstream zserio's encoder, which is required for
+ * byte-exact write-side round-trip.
+ */
+typedef struct zserio_delta_traits {
+    zserio_status_t (*read_unpacked)(zserio_bitstream_reader_t *bs, uint64_t *out);
+    zserio_status_t (*write_unpacked)(zserio_bitstream_writer_t *bs, uint64_t value);
+    size_t          (*bit_size_unpacked)(uint64_t value);
+    bool             is_signed;
+} zserio_delta_traits_t;
 
 typedef struct zserio_delta_context {
     /* All fields are an implementation detail. Do not access directly. */
     uint64_t previous;
+    uint64_t first_value;     /* first observed element — used to size the leading
+                                 unpacked element in trait-driven mode */
     uint64_t total_unpacked_bits;
     uint32_t num_elements;
     uint8_t  max_bit_number;
     uint8_t  flags;
-    uint8_t  num_bits;       /* element bit width [1, 64] */
+    uint8_t  num_bits;       /* element bit width [1, 64] for fixed-width mode; 0 for traits mode */
     bool     is_signed;
+    /* NULL → fixed-width mode (use num_bits / is_signed); non-NULL →
+     * traits-driven mode (use callbacks for the unpacked codec). */
+    const zserio_delta_traits_t *traits;
 } zserio_delta_context_t;
 
 /**
@@ -64,6 +93,15 @@ typedef struct zserio_delta_context {
 zserio_status_t zserio_delta_init(zserio_delta_context_t *ctx,
                                   uint8_t num_bits,
                                   bool is_signed);
+
+/**
+ * Initialise a context in trait-driven mode. {@code traits} MUST
+ * point at a non-NULL struct with all callbacks populated; the
+ * struct must remain valid for the lifetime of the context (typically
+ * a static const instance per varint flavour).
+ */
+zserio_status_t zserio_delta_init_traits(zserio_delta_context_t *ctx,
+                                         const zserio_delta_traits_t *traits);
 
 /**
  * Observe one element during the init pass. Call once per array

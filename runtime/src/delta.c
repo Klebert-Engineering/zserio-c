@@ -54,6 +54,11 @@ static uint64_t abs_delta(uint64_t a, uint64_t b, bool is_signed)
     return a_greater ? (a - b) : (b - a);
 }
 
+static bool delta_is_signed(const zserio_delta_context_t *ctx)
+{
+    return (ctx->traits != NULL) ? ctx->traits->is_signed : ctx->is_signed;
+}
+
 static void delta_finalise(zserio_delta_context_t *ctx)
 {
     if ((ctx->flags & DELTA_FLAG_FINALISED) != 0U) {
@@ -70,10 +75,17 @@ static void delta_finalise(zserio_delta_context_t *ctx)
         return;
     }
     /* Compare packed vs. unpacked total bit costs (excluding the
-     * 1-bit isPacked flag, which is paid in either case). */
+     * 1-bit isPacked flag, which is paid in either case). The first
+     * element is always full-encoded; in fixed-width mode that's
+     * `num_bits`, in traits mode it's the bit-size of the actually-
+     * observed first element (whose value is in `previous` after
+     * init). */
+    const uint64_t first_unpacked_bits = (ctx->traits != NULL)
+        ? (uint64_t)ctx->traits->bit_size_unpacked(ctx->first_value)
+        : (uint64_t)ctx->num_bits;
     const uint64_t packed_payload =
         (uint64_t)DELTA_MAX_BIT_NUMBER_BITS
-        + (uint64_t)ctx->num_bits
+        + first_unpacked_bits
         + (uint64_t)(ctx->num_elements - 1U) * ((uint64_t)ctx->max_bit_number + 1U);
     if (packed_payload >= ctx->total_unpacked_bits) {
         ctx->flags &= (uint8_t)~DELTA_FLAG_IS_PACKED;
@@ -84,6 +96,9 @@ static zserio_status_t write_full_element(const zserio_delta_context_t *ctx,
                                           zserio_bitstream_writer_t *bs,
                                           uint64_t element)
 {
+    if (ctx->traits != NULL) {
+        return ctx->traits->write_unpacked(bs, element);
+    }
     if (ctx->is_signed) {
         return zserio_bitstream_write_signed(bs, ctx->num_bits, (int64_t)element);
     }
@@ -94,6 +109,9 @@ static zserio_status_t read_full_element(const zserio_delta_context_t *ctx,
                                          zserio_bitstream_reader_t *bs,
                                          uint64_t *out)
 {
+    if (ctx->traits != NULL) {
+        return ctx->traits->read_unpacked(bs, out);
+    }
     if (ctx->is_signed) {
         int64_t v = 0;
         ZSERIO_TRY(zserio_bitstream_read_signed(bs, ctx->num_bits, &v));
@@ -116,6 +134,22 @@ zserio_status_t zserio_delta_init(zserio_delta_context_t *ctx,
     (void)memset(ctx, 0, sizeof(*ctx));
     ctx->num_bits = num_bits;
     ctx->is_signed = is_signed;
+    ctx->traits = NULL;
+    return ZSERIO_OK;
+}
+
+zserio_status_t zserio_delta_init_traits(zserio_delta_context_t *ctx,
+                                         const zserio_delta_traits_t *traits)
+{
+    if ((ctx == NULL) || (traits == NULL)
+            || (traits->read_unpacked == NULL)
+            || (traits->write_unpacked == NULL)
+            || (traits->bit_size_unpacked == NULL)) {
+        return ZSERIO_ERR_INVALID_ARGUMENT;
+    }
+    (void)memset(ctx, 0, sizeof(*ctx));
+    ctx->traits = traits;
+    ctx->is_signed = traits->is_signed;
     return ZSERIO_OK;
 }
 
@@ -131,17 +165,24 @@ zserio_status_t zserio_delta_observe(zserio_delta_context_t *ctx,
     }
 
     ctx->num_elements++;
-    ctx->total_unpacked_bits += ctx->num_bits;
+    /* Per-element unpacked cost: fixed `num_bits` for fixed-width
+     * mode; per-value bit-size from the traits callback otherwise. */
+    if (ctx->traits != NULL) {
+        ctx->total_unpacked_bits += (uint64_t)ctx->traits->bit_size_unpacked(element);
+    } else {
+        ctx->total_unpacked_bits += ctx->num_bits;
+    }
 
     if ((ctx->flags & DELTA_FLAG_INIT_STARTED) == 0U) {
         ctx->flags |= DELTA_FLAG_INIT_STARTED;
         ctx->flags |= DELTA_FLAG_IS_PACKED; /* tentative; finalise may revoke */
         ctx->previous = element;
+        ctx->first_value = element;
         return ZSERIO_OK;
     }
 
     if (ctx->max_bit_number <= DELTA_MAX_BIT_NUMBER_LIMIT) {
-        const uint64_t ad = abs_delta(element, ctx->previous, ctx->is_signed);
+        const uint64_t ad = abs_delta(element, ctx->previous, delta_is_signed(ctx));
         const uint8_t bits = abs_delta_bit_length(ad);
         if (bits > ctx->max_bit_number) {
             ctx->max_bit_number = bits;
