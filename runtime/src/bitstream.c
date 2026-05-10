@@ -5,7 +5,51 @@
 
 #include "zserio/bitstream.h"
 
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+
+/*
+ * Per-primitive-read trace facility. Enabled via env var
+ *   ZSERIO_TRACE=<path>
+ * Each call to zserio_bitstream_read_bits / read_signed emits one line:
+ *   <pos_after> <op> <nbits> <value>
+ * Same format as the cpp oracle (conformance/ndslive/cpp). The two
+ * traces are intended to be diffed to localise wire-format divergence
+ * field-by-field rather than guessing from end-state error codes.
+ *
+ * The trace is OFF by default. Set ZSERIO_TRACE to a writable path,
+ * then call zsc_trace_set_enabled(true) at the point where you want
+ * tracing to start (typically: after the SmartLayerTile is decoded
+ * and we're about to decode a specific layer payload). Setting
+ * ZSERIO_TRACE alone is not sufficient — the C reader doesn't trace
+ * unconditionally to avoid swamping output and to match the cpp
+ * oracle's per-layer-scope contract.
+ */
+static FILE *s_zsc_trace_fp = NULL;
+static bool s_zsc_trace_inited = false;
+static bool s_zsc_trace_enabled = false;
+static void zsc_trace_init(void)
+{
+    if (s_zsc_trace_inited) return;
+    s_zsc_trace_inited = true;
+    const char *path = getenv("ZSERIO_TRACE");
+    if (path != NULL && *path != '\0') {
+        s_zsc_trace_fp = fopen(path, "w");
+    }
+}
+void zsc_trace_set_enabled(bool enabled)
+{
+    zsc_trace_init();
+    s_zsc_trace_enabled = enabled;
+}
+static void zsc_trace(const char *op, unsigned nbits, size_t pos_after, unsigned long long value)
+{
+    if (!s_zsc_trace_inited) zsc_trace_init();
+    if (s_zsc_trace_fp != NULL && s_zsc_trace_enabled) {
+        fprintf(s_zsc_trace_fp, "%zu %s %u %llu\n", pos_after, op, nbits, value);
+    }
+}
 
 /*
  * Phase 1 implementation: byte-walk algorithm. Correctness-first.
@@ -88,6 +132,7 @@ zserio_status_t zserio_bitstream_read_bits(zserio_bitstream_reader_t *bs,
 
     bs->bit_index = bit_pos;
     *out = value;
+    zsc_trace("read", num_bits, bs->bit_index, (unsigned long long)value);
     return ZSERIO_OK;
 }
 

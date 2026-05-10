@@ -152,12 +152,22 @@ int main(int argc, char **argv)
      * varuint, materialising the descriptor bits as part of the
      * value. Listing the dispatch + status here keeps the demo
      * honest about the gap. */
+    /* Per-layer trace gating: ZSERIO_TRACE_LAYER=N enables the
+     * primitive-read trace exactly during layer N's decode, so the
+     * trace file can be diff'd against the cpp oracle's matching
+     * trace. The trace itself is written to ZSERIO_TRACE=<path>
+     * (handled in runtime/src/bitstream.c). */
+    const char *trace_layer_env = getenv("ZSERIO_TRACE_LAYER");
+    const long trace_layer = (trace_layer_env != NULL) ? atol(trace_layer_env) : -1L;
+
     for (size_t i = 0; i < tile.layers_count; ++i) {
         const smart_types_data_layer_t *dl = &tile.layers[i];
         const zserio_string_t *target = &dl->layer.extern_descriptor.target;
         const zserio_extern_t *blob = &dl->layer.data;
         const char *t = target->bytes ? target->bytes : "";
         const size_t tlen = target->length;
+
+        zsc_trace_set_enabled(trace_layer == (long)i);
 
         zserio_bitstream_reader_t lbs;
         st = zserio_bitstream_reader_init(&lbs, blob->bytes, blob->bit_length);
@@ -233,6 +243,7 @@ int main(int argc, char **argv)
         {
             printf("ndslive: layer[%zu] unrecognized target — skipping\n", i);
         }
+        zsc_trace_set_enabled(false);
     }
 
     /* Round-trip: write the in-memory tile back through the generated

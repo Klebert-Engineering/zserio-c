@@ -140,6 +140,44 @@ public final class PackingFieldFormatter
             String holderExpr, CompoundType owner, String ctxHolder)
             throws ZserioExtensionException
     {
+        // Apply any `align(N):` directive uniformly across every code
+        // path in formatRaw. The unpacked field lowering does the same
+        // via FieldFormatter.wrapAlignment — the packed body has the
+        // same alignment obligations relative to the bitstream.
+        final PackedField inner = formatRaw(field, plainData, holderExpr, owner, ctxHolder);
+        return wrapAlignment(field, inner, holderExpr, owner);
+    }
+
+    private static PackedField wrapAlignment(Field field, PackedField inner,
+            String holderExpr, CompoundType owner) throws ZserioExtensionException
+    {
+        if (field.getAlignmentExpr() == null)
+        {
+            return inner;
+        }
+        final String formatted = CExpressionFormatter.format(
+                field.getAlignmentExpr(), holderExpr, owner);
+        final String alignR = "ZSERIO_TRY(zserio_bitstream_reader_align(bs, "
+                + "(size_t)(" + formatted + ")));\n    ";
+        final String alignW = "ZSERIO_TRY(zserio_bitstream_writer_align(bs, "
+                + "(size_t)(" + formatted + ")));\n    ";
+        // observe runs on already-populated data without touching the
+        // bitstream, so alignment doesn't apply there. init likewise
+        // operates on the context, not the stream.
+        return new PackedField(inner.getUsesContext(),
+                inner.getName(),
+                inner.getCtxMember(),
+                inner.getInitStmt(),
+                inner.getObserveStmt(),
+                alignR + inner.getReadStmt(),
+                alignW + inner.getWriteStmt());
+    }
+
+    private static PackedField formatRaw(Field field,
+            FieldFormatter.FieldData plainData,
+            String holderExpr, CompoundType owner, String ctxHolder)
+            throws ZserioExtensionException
+    {
         // Array field whose element type has packable leaves: in a
         // packed-parent body, upstream uses packed-array encoding for
         // the field even when the schema doesn't say `packed`. Route
@@ -168,27 +206,8 @@ public final class PackingFieldFormatter
                 final FieldFormatter.FieldData packedData =
                         FieldFormatter.packedCompoundArrayField(
                                 plainData.getName(), ai, holderExpr, owner);
-                // The plain-path read / write include any align(N):
-                // wrap that FieldFormatter.format applied to the
-                // FieldData. The packed substitution loses that wrap
-                // — so re-format the alignment expression here and
-                // prepend the same align call to the packed read /
-                // write. (Without this, an `align(8): T[];` field's
-                // padding bits get consumed as element data and the
-                // bitstream slips.)
                 String packedRead = packedData.getReadStmt();
                 String packedWrite = packedData.getWriteStmt();
-                if (field.getAlignmentExpr() != null)
-                {
-                    final String formattedAlign = CExpressionFormatter.format(
-                            field.getAlignmentExpr(), holderExpr, owner);
-                    packedRead = "ZSERIO_TRY(zserio_bitstream_reader_align(bs, "
-                            + "(size_t)(" + formattedAlign + ")));\n    "
-                            + packedRead;
-                    packedWrite = "ZSERIO_TRY(zserio_bitstream_writer_align(bs, "
-                            + "(size_t)(" + formattedAlign + ")));\n    "
-                            + packedWrite;
-                }
                 if (field.isOptional())
                 {
                     final String name = plainData.getName();
