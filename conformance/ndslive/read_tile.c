@@ -28,6 +28,15 @@
 #include "system/types/extern_descriptor.h"
 #include "core/types/version_id.h"
 
+/* Per-layer decoders. The externDescriptor.target string identifies
+ * which of these to dispatch into; one decoder per target the fixture
+ * carries. */
+#include "road/layer/road_layer.h"
+#include "road/layer/road_geometry_layer.h"
+#include "characteristics/layer/road_characteristics_layer.h"
+#include "rules/layer/road_rules_layer.h"
+#include "road/road/road_list.h"
+
 static int slurp_file(const char *path, uint8_t **buf, size_t *len)
 {
     FILE *f = fopen(path, "rb");
@@ -119,6 +128,96 @@ int main(int argc, char **argv)
                (int)ed->name.length, ed->name.bytes ? ed->name.bytes : "",
                (int)ed->version.length, ed->version.bytes ? ed->version.bytes : "",
                (int)ed->target.length, ed->target.bytes ? ed->target.bytes : "");
+    }
+
+    /* Dispatch on externDescriptor.target — parse each layer's extern
+     * payload into its real typed struct. The extern blob is stored
+     * starting at byte 0 / bit 0 of the owned `bytes` buffer
+     * (zserio_extern_t materialises bits there), so a bitstream
+     * reader over those bytes decodes the layer like any normal
+     * compound.
+     *
+     * KNOWN LIMITATION (Phase 4 follow-up): NDS Live's RoadList /
+     * RoadGeometryLayer / RoadCharacteristicsLayer / RoadRulesLayer
+     * are `packed Road[]` (or analogues) whose elements are
+     * compounds containing varint-typed fields. Upstream encodes
+     * each leaf integer with a per-field zserio::DeltaContext, with
+     * the delta bit-width observed at init time, plus nested
+     * ZserioPackingContext for compound sub-fields. Our generator
+     * currently flat-packs only fixed-width integer / bit-field
+     * fields. The wire bits still round-trip byte-for-byte (the
+     * earlier round-trip assertion proves this), but semantic
+     * decoding here hits ZSERIO_ERR_CONSTRAINT_VIOLATED on the
+     * Var4ByteId.id varuint32 because we read it as an unpacked
+     * varuint, materialising the descriptor bits as part of the
+     * value. Listing the dispatch + status here keeps the demo
+     * honest about the gap. */
+    for (size_t i = 0; i < tile.layers_count; ++i) {
+        const smart_types_data_layer_t *dl = &tile.layers[i];
+        const zserio_string_t *target = &dl->layer.extern_descriptor.target;
+        const zserio_extern_t *blob = &dl->layer.data;
+        const char *t = target->bytes ? target->bytes : "";
+        const size_t tlen = target->length;
+
+        zserio_bitstream_reader_t lbs;
+        st = zserio_bitstream_reader_init(&lbs, blob->bytes, blob->bit_length);
+        if (st != ZSERIO_OK) {
+            fprintf(stderr,
+                    "ndslive: layer[%zu] sub-stream init failed: %d\n",
+                    i, (int)st);
+            continue;
+        }
+
+        if (tlen == strlen("road.layer.RoadLayer")
+                && memcmp(t, "road.layer.RoadLayer", tlen) == 0)
+        {
+            road_layer_road_layer_t rl;
+            road_layer_road_layer_init(&rl);
+            st = road_layer_road_layer_read(&rl, &lbs, &alloc);
+            printf("ndslive: layer[%zu] RoadLayer dispatch: status=%d%s\n",
+                   i, (int)st,
+                   st == ZSERIO_OK ? " (decoded)" : " (gap: nested packed varint)");
+            road_layer_road_layer_free(&rl, &alloc);
+        }
+        else if (tlen == strlen("road.layer.RoadGeometryLayer")
+                && memcmp(t, "road.layer.RoadGeometryLayer", tlen) == 0)
+        {
+            road_layer_road_geometry_layer_t gl;
+            road_layer_road_geometry_layer_init(&gl);
+            st = road_layer_road_geometry_layer_read(&gl, &lbs, &alloc);
+            printf("ndslive: layer[%zu] RoadGeometryLayer dispatch: status=%d%s\n",
+                   i, (int)st,
+                   st == ZSERIO_OK ? " (decoded)" : " (gap: nested packed varint)");
+            road_layer_road_geometry_layer_free(&gl, &alloc);
+        }
+        else if (tlen == strlen("characteristics.layer.RoadCharacteristicsLayer")
+                && memcmp(t, "characteristics.layer.RoadCharacteristicsLayer", tlen) == 0)
+        {
+            characteristics_layer_road_characteristics_layer_t cl;
+            characteristics_layer_road_characteristics_layer_init(&cl);
+            st = characteristics_layer_road_characteristics_layer_read(
+                    &cl, &lbs, &alloc);
+            printf("ndslive: layer[%zu] RoadCharacteristicsLayer dispatch: "
+                   "status=%d%s\n",
+                   i, (int)st,
+                   st == ZSERIO_OK ? " (decoded)" : " (gap: nested packed varint)");
+            characteristics_layer_road_characteristics_layer_free(&cl, &alloc);
+        }
+        else if (tlen == strlen("rules.layer.RoadRulesLayer")
+                && memcmp(t, "rules.layer.RoadRulesLayer", tlen) == 0)
+        {
+            rules_layer_road_rules_layer_t rl;
+            rules_layer_road_rules_layer_init(&rl);
+            st = rules_layer_road_rules_layer_read(&rl, &lbs, &alloc);
+            printf("ndslive: layer[%zu] RoadRulesLayer dispatch: status=%d%s\n",
+                   i, (int)st,
+                   st == ZSERIO_OK ? " (decoded)" : " (gap: nested packed varint)");
+            rules_layer_road_rules_layer_free(&rl, &alloc);
+        }
+        else
+        {
+            printf("ndslive: layer[%zu] unrecognized target — skipping\n", i);
+        }
     }
 
     /* Round-trip: write the in-memory tile back through the generated
