@@ -213,11 +213,13 @@ public final class PackingFieldFormatter
         // optional condition is true (auto-optional: 1-bit prefix
         // gates presence; if-optional: clause expression gates) — the
         // presence prefix on the wire is unchanged from the unpacked
-        // path, only the value-side encoding flips to delta.
+        // path, only the value-side encoding flips to delta. A
+        // constraint on the optional field is kept: it runs after the
+        // packed read and before the packed write (same shape as the
+        // non-optional simple-packable path's wrapConstraint).
         if (field.isOptional()
                 && !(field.getTypeInstantiation()
-                        instanceof zserio.ast.ArrayInstantiation)
-                && field.getConstraintExpr() == null)
+                        instanceof zserio.ast.ArrayInstantiation))
         {
             final ZserioType direct =
                     field.getTypeInstantiation().getTypeReference().getType();
@@ -396,7 +398,7 @@ public final class PackingFieldFormatter
             {
                 return true;
             }
-            if (f.isOptional() && f.getConstraintExpr() == null
+            if (f.isOptional()
                     && !(f.getTypeInstantiation() instanceof zserio.ast.ArrayInstantiation))
             {
                 final ZserioType direct =
@@ -584,14 +586,32 @@ public final class PackingFieldFormatter
         final String observeStmtBare = "ZSERIO_TRY(zserio_delta_observe(&" + ctxField
                 + ", " + uintCast + access + "));";
         final String cType = plainData.getNativeType();
+        // Constraint enforcement on the optional packed path: same
+        // post-decode / pre-encode placement as the non-optional
+        // simple-packable path.
+        final String constraintCheck;
+        if (field.getConstraintExpr() != null)
+        {
+            final String formatted = CExpressionFormatter.format(
+                    field.getConstraintExpr(), holderExpr, owner);
+            constraintCheck = "if (!(" + formatted + ")) {\n"
+                    + "                return ZSERIO_ERR_CONSTRAINT_VIOLATED;\n"
+                    + "            }";
+        }
+        else
+        {
+            constraintCheck = "";
+        }
         final String readInner =
                 "{\n"
                 + "            uint64_t " + name + "_raw;\n"
                 + "            ZSERIO_TRY(zserio_delta_read(&" + ctxField + ", bs, &"
                 + name + "_raw));\n"
                 + "            " + access + " = (" + cType + ")" + name + "_raw;\n"
+                + (constraintCheck.isEmpty() ? "" : "            " + constraintCheck + "\n")
                 + "        }";
-        final String writeInner = "ZSERIO_TRY(zserio_delta_write(&" + ctxField
+        final String writeInner = (constraintCheck.isEmpty() ? "" : constraintCheck + "\n        ")
+                + "ZSERIO_TRY(zserio_delta_write(&" + ctxField
                 + ", bs, " + uintCast + access + "));";
 
         // Apply the optional gating. The shape matches what
