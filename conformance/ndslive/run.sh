@@ -82,6 +82,7 @@ expect "layer[0] descriptor"  "name=ROAD version=2024.03 target=road.layer.RoadL
 expect "layer[1] descriptor"  "name=ROAD version=2024.03 target=road.layer.RoadGeometryLayer"
 expect "layer[2] descriptor"  "name=CHARACTERISTICS version=2024.03 target=characteristics.layer.RoadCharacteristicsLayer"
 expect "layer[3] descriptor"  "name=RULES version=2024.03 target=rules.layer.RoadRulesLayer"
+expect "round-trip byte-equal" "ndslive: round-trip byte-equal OK (REQ-FN-001)"
 
 if (( fail )); then
     echo "ndslive: conformance MISMATCH" >&2

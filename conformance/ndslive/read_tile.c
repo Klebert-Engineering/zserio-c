@@ -121,6 +121,72 @@ int main(int argc, char **argv)
                (int)ed->target.length, ed->target.bytes ? ed->target.bytes : "");
     }
 
+    /* Round-trip: write the in-memory tile back through the generated
+     * encoder and assert the resulting bytes are byte-identical to the
+     * input. This catches write-side gaps that the read-only path
+     * cannot — alignment-write padding, packed-array delta writes,
+     * varint write boundaries, choice / union dispatch on the write
+     * path. (Verifies REQ-FN-001 in both directions for this fixture.) */
+    {
+        const size_t capacity_bits = len * 8u;
+        uint8_t *out_buf = (uint8_t *)calloc(len, 1u);
+        if (out_buf == NULL) {
+            fprintf(stderr, "ndslive: round-trip alloc failed\n");
+            smart_tile_smart_layer_tile_free(&tile, &alloc);
+            free(bytes);
+            return 1;
+        }
+        zserio_bitstream_writer_t bw;
+        st = zserio_bitstream_writer_init(&bw, out_buf, capacity_bits);
+        if (st != ZSERIO_OK) {
+            fprintf(stderr, "ndslive: writer init failed: %d\n", (int)st);
+            free(out_buf);
+            smart_tile_smart_layer_tile_free(&tile, &alloc);
+            free(bytes);
+            return 1;
+        }
+        st = smart_tile_smart_layer_tile_write(&tile, &bw);
+        if (st != ZSERIO_OK) {
+            fprintf(stderr, "ndslive: SmartLayerTile write failed: %d\n",
+                    (int)st);
+            free(out_buf);
+            smart_tile_smart_layer_tile_free(&tile, &alloc);
+            free(bytes);
+            return 1;
+        }
+        const size_t written_bits = bw.bit_index;
+        const size_t written_bytes = (written_bits + 7u) / 8u;
+        printf("ndslive: round-trip wrote %zu bits (%zu bytes)\n",
+               written_bits, written_bytes);
+        if (written_bytes != len) {
+            fprintf(stderr,
+                    "ndslive: round-trip size mismatch: in=%zu out=%zu\n",
+                    len, written_bytes);
+            free(out_buf);
+            smart_tile_smart_layer_tile_free(&tile, &alloc);
+            free(bytes);
+            return 1;
+        }
+        if (memcmp(out_buf, bytes, len) != 0) {
+            size_t diff_at = 0;
+            while (diff_at < len && out_buf[diff_at] == bytes[diff_at]) {
+                ++diff_at;
+            }
+            fprintf(stderr,
+                    "ndslive: round-trip MISMATCH at byte %zu "
+                    "(in=0x%02x, out=0x%02x)\n",
+                    diff_at,
+                    (unsigned)bytes[diff_at],
+                    (unsigned)out_buf[diff_at]);
+            free(out_buf);
+            smart_tile_smart_layer_tile_free(&tile, &alloc);
+            free(bytes);
+            return 1;
+        }
+        printf("ndslive: round-trip byte-equal OK (REQ-FN-001)\n");
+        free(out_buf);
+    }
+
     smart_tile_smart_layer_tile_free(&tile, &alloc);
     free(bytes);
     printf("ndslive: read OK\n");
