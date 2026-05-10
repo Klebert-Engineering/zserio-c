@@ -29,7 +29,9 @@ public final class ChoiceEmitterTemplateData
     private final String selectorExpr;
     private final List<CaseData> cases;
     private final FieldFormatter.FieldData defaultField; // null if no default
+    private final PackingFieldFormatter.PackedField defaultPacked; // null if no default field
     private final boolean hasDefault;
+    private final boolean hasPackingContext;
     private final List<FunctionData> functions;
     private final List<String> extraIncludes;
     private final boolean hasOwnedCases;
@@ -76,6 +78,7 @@ public final class ChoiceEmitterTemplateData
             }
         }
         boolean owned = false;
+        boolean usesContext = false;
         for (final ChoiceCase c : choiceType.getChoiceCases())
         {
             final List<String> labels = new ArrayList<>();
@@ -84,6 +87,7 @@ public final class ChoiceEmitterTemplateData
                 labels.add(CExpressionFormatter.formatCaseLabel(e.getExpression()));
             }
             FieldFormatter.FieldData fd = null;
+            PackingFieldFormatter.PackedField pf = null;
             if (c.getField() != null)
             {
                 final Field caseField = c.getField();
@@ -99,8 +103,15 @@ public final class ChoiceEmitterTemplateData
                     includes.add(fd.getExtraInclude());
                 }
                 owned = owned || fd.getOwned();
+                // Per-case packed lowering: each active case feeds its
+                // field through the same packing machinery used by
+                // structures. The case's PackedField is dispatched by
+                // selector at init / observe / read / write time; only
+                // the active arm runs.
+                pf = PackingFieldFormatter.format(caseField, fd, "self->u.", choiceType, "ctx->");
+                usesContext = usesContext || pf.getUsesContext();
             }
-            built.add(new CaseData(labels, fd));
+            built.add(new CaseData(labels, fd, pf));
         }
         this.cases = built;
 
@@ -127,17 +138,23 @@ public final class ChoiceEmitterTemplateData
                     includes.add(this.defaultField.getExtraInclude());
                 }
                 owned = owned || this.defaultField.getOwned();
+                this.defaultPacked = PackingFieldFormatter.format(
+                        def.getField(), this.defaultField, "self->u.", choiceType, "ctx->");
+                usesContext = usesContext || this.defaultPacked.getUsesContext();
             }
             else
             {
                 this.defaultField = null;
+                this.defaultPacked = null;
             }
         }
         else
         {
             this.hasDefault = false;
             this.defaultField = null;
+            this.defaultPacked = null;
         }
+        this.hasPackingContext = usesContext;
 
         this.functions = FunctionData.from(choiceType);
         for (final FunctionData fn : this.functions)
@@ -161,8 +178,10 @@ public final class ChoiceEmitterTemplateData
     public String  getSelectorExpr()         { return selectorExpr; }
     public List<CaseData> getCases()         { return cases; }
     public FieldFormatter.FieldData getDefaultField() { return defaultField; }
+    public PackingFieldFormatter.PackedField getDefaultPacked() { return defaultPacked; }
     public boolean getHasDefault()           { return hasDefault; }
     public boolean getHasDefaultField()      { return defaultField != null; }
+    public boolean getHasPackingContext()    { return hasPackingContext; }
     public List<FunctionData> getFunctions() { return functions; }
     public boolean getHasFunctions()         { return !functions.isEmpty(); }
     public List<String>   getExtraIncludes() { return extraIncludes; }
@@ -173,15 +192,19 @@ public final class ChoiceEmitterTemplateData
     {
         private final List<String> labels;
         private final FieldFormatter.FieldData field;
+        private final PackingFieldFormatter.PackedField packed;
 
-        CaseData(List<String> labels, FieldFormatter.FieldData field)
+        CaseData(List<String> labels, FieldFormatter.FieldData field,
+                PackingFieldFormatter.PackedField packed)
         {
             this.labels = labels;
             this.field = field;
+            this.packed = packed;
         }
 
         public List<String> getLabels() { return labels; }
         public FieldFormatter.FieldData getField() { return field; }
+        public PackingFieldFormatter.PackedField getPacked() { return packed; }
         public boolean getHasField() { return field != null; }
     }
 }

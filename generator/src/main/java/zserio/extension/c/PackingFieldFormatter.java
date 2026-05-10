@@ -360,10 +360,33 @@ public final class PackingFieldFormatter
      * packable, optional packable, and array fields.
      */
     /**
-     * Whether {@code ct} has at least one field that this generator
-     * delta-encodes — used to decide whether to emit packing-context
-     * helpers (and to decide whether a packed array of the compound
-     * dispatches through the packed or the regular compound path).
+     * Whether {@code ct} has at least one field for which this
+     * generator would create a context-using packed lowering — i.e.
+     * something this {@code PackingFieldFormatter} actually emits a
+     * {@code zserio_delta_context_t} member or recursive packing-
+     * context member for. Parents use the result to decide whether to
+     * (a) emit their own packing-context typedef + helpers and (b)
+     * reference the child's packing-context typedef.
+     *
+     * Stays in lock-step with {@code format(...)}: a field
+     * contributes if it's a non-optional simple scalar / varint, a
+     * non-optional compound subfield with packable leaves, or an
+     * optional packable scalar / varint (auto- or if-clause). Array
+     * fields don't add a parent-level context member (the packed-
+     * array codegen scopes its own local context per array), so they
+     * don't count here even when their elements pack — that matches
+     * the {@code format(...)} branch which returns
+     * {@code usesContext = false} for the array-packing path.
+     *
+     * Going broader (e.g. defaulting to upstream's
+     * {@link Field#isPackable()} recursive predicate) would dangle
+     * references to {@code <child>_packing_ctx_t} typedefs we don't
+     * yet emit when a child's packable leaves live under shapes we
+     * haven't extended packing through (primitive arrays, unions,
+     * implicit arrays, etc.). The narrower predicate keeps the
+     * parent / child views consistent at the cost of leaving the
+     * child unpacked in those rare cases — bit-skew there is
+     * surfaced by the conformance tests when it matters.
      */
     public static boolean hasPackableField(CompoundType ct)
     {
@@ -372,6 +395,20 @@ public final class PackingFieldFormatter
             if (isSimplePackable(f) || compoundPackableUnderlying(f) != null)
             {
                 return true;
+            }
+            if (f.isOptional() && f.getConstraintExpr() == null
+                    && !(f.getTypeInstantiation() instanceof zserio.ast.ArrayInstantiation))
+            {
+                final ZserioType direct =
+                        f.getTypeInstantiation().getTypeReference().getType();
+                final ZserioType under = scalarUnderlying(direct);
+                if (under instanceof StdIntegerType
+                        || under instanceof FixedBitFieldType
+                        || under instanceof DynamicBitFieldType
+                        || under instanceof VarIntegerType)
+                {
+                    return true;
+                }
             }
         }
         return false;
@@ -435,12 +472,14 @@ public final class PackingFieldFormatter
                         .getBaseTypeReference().getType();
             }
         }
-        // Only structures (not choices / unions) emit packing-context
-        // helpers — their templates are the ones we extended for the
-        // recursive packed-context machinery. Treating a Choice/Union
-        // child as compound-packable would dangle a reference to a
-        // non-existent <prefix>_packing_ctx_t typedef.
-        if (!(t instanceof zserio.ast.StructureType))
+        // Structures and Choices emit packing-context helpers. Unions
+        // are excluded for now: they need an extra DeltaContext for
+        // the choice tag (upstream's readChoiceTag pattern), which is
+        // a follow-up batch. Treating a Union child as compound-
+        // packable here would dangle a reference to a non-existent
+        // <prefix>_packing_ctx_t typedef in the parent compound.
+        if (!(t instanceof zserio.ast.StructureType)
+                && !(t instanceof zserio.ast.ChoiceType))
         {
             return null;
         }

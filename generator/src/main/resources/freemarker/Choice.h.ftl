@@ -9,6 +9,7 @@
 
 #include <zserio/allocator.h>
 #include <zserio/bitstream.h>
+#include <zserio/delta.h>
 #include <zserio/status.h>
 <#list extraIncludes as inc>
 <#if inc?starts_with("zserio/")>
@@ -51,6 +52,30 @@ zserio_status_t ${funcPrefix}_write(${typeName} *self,
         zserio_bitstream_writer_t *bs);
 void            ${funcPrefix}_free(${typeName} *self, const zserio_allocator_t *alloc);
 
+<#if hasPackingContext>
+typedef struct ${funcPrefix}_packing_ctx {
+<#list cases as case>
+<#if case.hasField && case.packed.usesContext>
+    ${case.packed.ctxMember}
+</#if>
+</#list>
+<#if hasDefaultField && defaultPacked.usesContext>
+    ${defaultPacked.ctxMember}
+</#if>
+} ${funcPrefix}_packing_ctx_t;
+
+zserio_status_t ${funcPrefix}_init_packing_context(${typeName} *self,
+        ${funcPrefix}_packing_ctx_t *ctx);
+zserio_status_t ${funcPrefix}_observe_packing_context(${typeName} *self,
+        ${funcPrefix}_packing_ctx_t *ctx);
+zserio_status_t ${funcPrefix}_read_packed(${typeName} *self,
+        zserio_bitstream_reader_t *bs, const zserio_allocator_t *alloc,
+        ${funcPrefix}_packing_ctx_t *ctx);
+zserio_status_t ${funcPrefix}_write_packed(${typeName} *self,
+        zserio_bitstream_writer_t *bs,
+        ${funcPrefix}_packing_ctx_t *ctx);
+
+</#if>
 <#list functions as fn>
 static inline ${fn.returnType} ${fn.fullName}(const ${typeName} *self)
 {

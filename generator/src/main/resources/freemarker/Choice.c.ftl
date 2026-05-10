@@ -121,3 +121,151 @@ void ${funcPrefix}_free(${typeName} *self, const zserio_allocator_t *alloc)
     }
     }
 }
+
+<#if hasPackingContext>
+zserio_status_t ${funcPrefix}_init_packing_context(${typeName} *self,
+        ${funcPrefix}_packing_ctx_t *ctx)
+{
+    if (self == NULL || ctx == NULL) {
+        return ZSERIO_ERR_INVALID_ARGUMENT;
+    }
+    /* Choice packing context: dispatch the active arm's init by
+     * the selector. Inactive arms leave their corresponding context
+     * member zero — never used because read/write/observe dispatches
+     * the same way. */
+    switch (${selectorExpr}) {
+<#list cases as case>
+<#list case.labels as lbl>
+    case ${lbl}:
+</#list>
+    {
+<#if case.hasField && case.packed.usesContext>
+        ${case.packed.initStmt}
+</#if>
+        break;
+    }
+</#list>
+    default: {
+<#if hasDefaultField && defaultPacked.usesContext>
+        ${defaultPacked.initStmt}
+</#if>
+        break;
+    }
+    }
+    return ZSERIO_OK;
+}
+
+zserio_status_t ${funcPrefix}_observe_packing_context(${typeName} *self,
+        ${funcPrefix}_packing_ctx_t *ctx)
+{
+    if (self == NULL || ctx == NULL) {
+        return ZSERIO_ERR_INVALID_ARGUMENT;
+    }
+    switch (${selectorExpr}) {
+<#list cases as case>
+<#list case.labels as lbl>
+    case ${lbl}:
+</#list>
+    {
+<#if case.hasField && case.packed.usesContext>
+        ${case.packed.observeStmt}
+</#if>
+        break;
+    }
+</#list>
+    default: {
+<#if hasDefaultField && defaultPacked.usesContext>
+        ${defaultPacked.observeStmt}
+</#if>
+        break;
+    }
+    }
+    return ZSERIO_OK;
+}
+
+zserio_status_t ${funcPrefix}_read_packed(${typeName} *self,
+        zserio_bitstream_reader_t *bs, const zserio_allocator_t *alloc,
+        ${funcPrefix}_packing_ctx_t *ctx)
+{
+    if (self == NULL || bs == NULL || ctx == NULL) {
+        return ZSERIO_ERR_INVALID_ARGUMENT;
+    }
+<#if !hasOwnedCases>
+    (void)alloc;
+</#if>
+    switch (${selectorExpr}) {
+<#list cases as case>
+<#list case.labels as lbl>
+    case ${lbl}:
+</#list>
+    {
+<#if case.hasField>
+<#if case.packed.usesContext>
+        ${case.packed.readStmt}
+<#else>
+        ${case.field.readStmt}
+</#if>
+</#if>
+        break;
+    }
+</#list>
+    default: {
+<#if hasDefault>
+<#if hasDefaultField>
+<#if defaultPacked.usesContext>
+        ${defaultPacked.readStmt}
+<#else>
+        ${defaultField.readStmt}
+</#if>
+</#if>
+        break;
+<#else>
+        return ZSERIO_ERR_INVALID_TAG;
+</#if>
+    }
+    }
+    return ZSERIO_OK;
+}
+
+zserio_status_t ${funcPrefix}_write_packed(${typeName} *self,
+        zserio_bitstream_writer_t *bs,
+        ${funcPrefix}_packing_ctx_t *ctx)
+{
+    if (self == NULL || bs == NULL || ctx == NULL) {
+        return ZSERIO_ERR_INVALID_ARGUMENT;
+    }
+    switch (${selectorExpr}) {
+<#list cases as case>
+<#list case.labels as lbl>
+    case ${lbl}:
+</#list>
+    {
+<#if case.hasField>
+<#if case.packed.usesContext>
+        ${case.packed.writeStmt}
+<#else>
+        ${case.field.writeStmt}
+</#if>
+</#if>
+        break;
+    }
+</#list>
+    default: {
+<#if hasDefault>
+<#if hasDefaultField>
+<#if defaultPacked.usesContext>
+        ${defaultPacked.writeStmt}
+<#else>
+        ${defaultField.writeStmt}
+</#if>
+</#if>
+        break;
+<#else>
+        return ZSERIO_ERR_INVALID_TAG;
+</#if>
+    }
+    }
+    return ZSERIO_OK;
+}
+</#if>
+
