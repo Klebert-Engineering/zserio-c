@@ -67,7 +67,7 @@ public final class FieldFormatter
      * one generator without threading a second holder through every
      * helper.
      */
-    private static String parentHolder(String holderExpr)
+    static String parentHolder(String holderExpr)
     {
         if (holderExpr.endsWith("u."))
         {

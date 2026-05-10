@@ -48,10 +48,34 @@ import zserio.extension.common.ZserioExtensionException;
  *   <li>{@code writeStmt} — same idea for {@code _write_packed}.</li>
  * </ul>
  *
- * Phase 3 batch 26 scope: scalar packable fields only. Non-scalar
- * "packable" categories (nested compound packable, varint packable)
- * are currently routed through the plain read/write — wire-format
- * matches require a follow-up batch.
+ * Field shapes covered (a packed-parent body uses these for any
+ * field whose type tree has a packable leaf):
+ *
+ * <ul>
+ *   <li>fixed-width scalar (int/uint, bit&lt;N&gt;, dyn bit&lt;N&gt;,
+ *       enum or bitmask wrapping such);</li>
+ *   <li>variable-length integer (var(u)int*, varsize) via the
+ *       trait-driven delta mode;</li>
+ *   <li>nested compound subfield with its own packing context —
+ *       parent carries a child packing-context member and recurses
+ *       into the child's _init / _observe / _read_packed / _write_packed;
+ *       parameterised children get a {@code _set_parameters} prefix;</li>
+ *   <li>array field whose element type has packable leaves — routed
+ *       through {@link FieldFormatter#packedCompoundArrayField} so
+ *       the parent's packed body uses packed-array encoding;</li>
+ *   <li>optional packable scalar / varint (auto-optional or
+ *       {@code if-clause}) — inner packed read/write/observe is
+ *       gated by the optional condition; init still runs
+ *       unconditionally to set up the per-array DeltaContext (its
+ *       config is fixed, gating it would risk a still-zeroed context
+ *       on a later present element).</li>
+ * </ul>
+ *
+ * Constrained packable scalars are accepted; the constraint check
+ * runs after the packed read and before the packed write, matching
+ * upstream's {@code compound_check_constraint_field} placement.
+ * Constrained <i>optional</i> packable fields fall through to the
+ * unpacked read/write — uncommon enough to defer.
  */
 public final class PackingFieldFormatter
 {
@@ -182,6 +206,30 @@ public final class PackingFieldFormatter
         {
             return formatCompoundPacked(field, plainData,
                     compoundChild, holderExpr, owner, ctxHolder);
+        }
+
+        // Optional packable scalar / varint inside a packed-parent
+        // body. Upstream packs the value via DeltaContext when the
+        // optional condition is true (auto-optional: 1-bit prefix
+        // gates presence; if-optional: clause expression gates) — the
+        // presence prefix on the wire is unchanged from the unpacked
+        // path, only the value-side encoding flips to delta.
+        if (field.isOptional()
+                && !(field.getTypeInstantiation()
+                        instanceof zserio.ast.ArrayInstantiation)
+                && field.getConstraintExpr() == null)
+        {
+            final ZserioType direct =
+                    field.getTypeInstantiation().getTypeReference().getType();
+            final ZserioType under = scalarUnderlying(direct);
+            if (under instanceof StdIntegerType
+                    || under instanceof FixedBitFieldType
+                    || under instanceof DynamicBitFieldType
+                    || under instanceof VarIntegerType)
+            {
+                return formatOptionalScalarPacked(field, plainData,
+                        holderExpr, owner, ctxHolder);
+            }
         }
 
         if (!isSimplePackable(field))
@@ -443,6 +491,125 @@ public final class PackingFieldFormatter
 
         return new PackedField(/* usesContext */ true,
                 name, ctxMember, initStmt, observeStmt, readStmt, writeStmt);
+    }
+
+    /**
+     * Optional packable scalar / varint inside a packed-parent body.
+     *
+     * Mirrors upstream's pattern (cpp CompoundField.inc.ftl
+     * compound_read_field optional path): the presence prefix on the
+     * wire is unchanged (auto-optional: 1-bit bool; if-optional: no
+     * prefix, clause governs), but the value side is delta-encoded
+     * via the parent's per-field DeltaContext when the field is
+     * present. Init runs unconditionally — it just sets static
+     * config (num_bits / is_signed / traits pointer), and gating it
+     * could leave the context zeroed for a later present-element on
+     * an "absent, absent, present" sequence. Observe and read/write
+     * are gated by the optional condition, so absent elements don't
+     * corrupt max-bit-number tracking or the wire stream.
+     */
+    private static PackedField formatOptionalScalarPacked(Field field,
+            FieldFormatter.FieldData plainData,
+            String holderExpr, CompoundType owner, String ctxHolder)
+            throws ZserioExtensionException
+    {
+        final String name = plainData.getName();
+        final String access = holderExpr + name;
+        final String present = FieldFormatter.parentHolder(holderExpr) + name + "_present";
+        final String ctxField = ctxHolder + name;
+
+        final TypeInstantiation typeInst = field.getTypeInstantiation();
+        final ZserioType direct = typeInst.getTypeReference().getType();
+        final ZserioType under = scalarUnderlying(direct);
+
+        // Inner read / write / init / observe — same shape as the
+        // non-optional simple-packable path emits.
+        final String ctxMember = "zserio_delta_context_t " + name + ";";
+        final String initStmtBare;
+        final String uintCast;
+        if (under instanceof VarIntegerType)
+        {
+            final String traitsSym = traitsSymbol((VarIntegerType)under);
+            initStmtBare = "ZSERIO_TRY(zserio_delta_init_traits(&" + ctxField
+                    + ", &" + traitsSym + "));";
+            uintCast = uintCastFor(((VarIntegerType)under).isSigned());
+        }
+        else
+        {
+            final PackedScalar scalar = packedScalar(direct, typeInst, holderExpr, owner);
+            initStmtBare = "ZSERIO_TRY(zserio_delta_init(&" + ctxField + ", "
+                    + scalar.bitsExpr + ", "
+                    + (scalar.signed ? "true" : "false") + "));";
+            uintCast = scalar.uintCast;
+        }
+        final String observeStmtBare = "ZSERIO_TRY(zserio_delta_observe(&" + ctxField
+                + ", " + uintCast + access + "));";
+        final String cType = plainData.getNativeType();
+        final String readInner =
+                "{\n"
+                + "            uint64_t " + name + "_raw;\n"
+                + "            ZSERIO_TRY(zserio_delta_read(&" + ctxField + ", bs, &"
+                + name + "_raw));\n"
+                + "            " + access + " = (" + cType + ")" + name + "_raw;\n"
+                + "        }";
+        final String writeInner = "ZSERIO_TRY(zserio_delta_write(&" + ctxField
+                + ", bs, " + uintCast + access + "));";
+
+        // Apply the optional gating. The shape matches what
+        // FieldFormatter.wrapIfOptional / wrapAutoOptional would have
+        // produced for the unpacked path — same _present management,
+        // same auto-optional 1-bit wire prefix — but with the inner
+        // value codec switched to the delta-context calls.
+        final boolean autoOptional = (field.getOptionalClauseExpr() == null);
+        final String observeCond;
+        final String readStmt;
+        final String writeStmt;
+        if (autoOptional)
+        {
+            observeCond = present;
+            readStmt =
+                    "{\n"
+                    + "        uint64_t " + name + "_presence = 0u;\n"
+                    + "        ZSERIO_TRY(zserio_bitstream_read_bits(bs, 1, &"
+                    + name + "_presence));\n"
+                    + "        " + present + " = (" + name + "_presence != 0u);\n"
+                    + "        if (" + present + ") "
+                    + readInner + "\n"
+                    + "    }";
+            writeStmt =
+                    "if (" + present + ") {\n"
+                    + "        ZSERIO_TRY(zserio_bitstream_write_bits(bs, 1, 1u));\n"
+                    + "        " + writeInner + "\n"
+                    + "    } else {\n"
+                    + "        ZSERIO_TRY(zserio_bitstream_write_bits(bs, 1, 0u));\n"
+                    + "    }";
+        }
+        else
+        {
+            final String clause = CExpressionFormatter.format(
+                    field.getOptionalClauseExpr(), holderExpr, owner);
+            observeCond = clause;
+            readStmt =
+                    "if (" + clause + ") {\n"
+                    + "        " + present + " = true;\n"
+                    + "        " + readInner.replace("\n            ", "\n        ")
+                            .replace("        }", "    }") + "\n"
+                    + "    } else {\n"
+                    + "        " + present + " = false;\n"
+                    + "    }";
+            writeStmt =
+                    "if (" + clause + ") {\n"
+                    + "        " + writeInner + "\n"
+                    + "    }";
+        }
+
+        // observe is gated; init is unconditional (see method doc).
+        final String observeStmt = "if (" + observeCond + ") {\n"
+                + "        " + observeStmtBare + "\n"
+                + "    }";
+
+        return new PackedField(/* usesContext */ true,
+                name, ctxMember, initStmtBare, observeStmt, readStmt, writeStmt);
     }
 
     /**
