@@ -5,6 +5,9 @@
 
 package zserio.extension.c;
 
+import java.util.HashSet;
+import java.util.Set;
+
 import zserio.ast.BitmaskType;
 import zserio.ast.BooleanType;
 import zserio.ast.CompoundType;
@@ -279,6 +282,19 @@ public final class PackingFieldFormatter
                 return formatOptionalScalarPacked(field, plainData,
                         holderExpr, owner, ctxHolder);
             }
+            // Optional compound subfield with a packing context: same
+            // recursion as the non-optional formatCompoundPacked path,
+            // but with the read / write / observe gated by the optional
+            // condition. The child's _set_parameters + init runs
+            // unconditionally so a later present-element finds a fully
+            // initialised child context (same rationale as the scalar
+            // path's unconditional init).
+            final CompoundType optionalChild = optionalCompoundPackableUnderlying(field);
+            if (optionalChild != null)
+            {
+                return formatOptionalCompoundPacked(field, plainData,
+                        optionalChild, holderExpr, owner, ctxHolder);
+            }
         }
 
         if (!isSimplePackable(field))
@@ -439,29 +455,59 @@ public final class PackingFieldFormatter
      */
     public static boolean hasPackableField(CompoundType ct)
     {
-        for (final Field f : ct.getFields())
+        // Cycle guard: recursive schemas (a struct optionally
+        // referencing itself, mutual recursion through optional
+        // compound subfields, etc.) would otherwise spin forever when
+        // we drill into a compound subfield via
+        // compoundPackableUnderlying / optionalCompoundPackableUnderlying.
+        // Treat any node we're already mid-evaluation of as
+        // "contributes nothing through this path" — the original
+        // outer call still considers every other field and returns
+        // true if any direct scalar / non-cyclic compound subfield is
+        // packable.
+        final Set<CompoundType> v = VISITING.get();
+        if (!v.add(ct))
         {
-            if (isSimplePackable(f) || compoundPackableUnderlying(f) != null)
+            return false;
+        }
+        try
+        {
+            for (final Field f : ct.getFields())
             {
-                return true;
-            }
-            if (f.isOptional()
-                    && !(f.getTypeInstantiation() instanceof zserio.ast.ArrayInstantiation))
-            {
-                final ZserioType direct =
-                        f.getTypeInstantiation().getTypeReference().getType();
-                final ZserioType under = scalarUnderlying(direct);
-                if (under instanceof StdIntegerType
-                        || under instanceof FixedBitFieldType
-                        || under instanceof DynamicBitFieldType
-                        || under instanceof VarIntegerType)
+                if (isSimplePackable(f) || compoundPackableUnderlying(f) != null)
                 {
                     return true;
                 }
+                if (f.isOptional()
+                        && !(f.getTypeInstantiation() instanceof zserio.ast.ArrayInstantiation))
+                {
+                    final ZserioType direct =
+                            f.getTypeInstantiation().getTypeReference().getType();
+                    final ZserioType under = scalarUnderlying(direct);
+                    if (under instanceof StdIntegerType
+                            || under instanceof FixedBitFieldType
+                            || under instanceof DynamicBitFieldType
+                            || under instanceof VarIntegerType)
+                    {
+                        return true;
+                    }
+                    if (optionalCompoundPackableUnderlying(f) != null)
+                    {
+                        return true;
+                    }
+                }
             }
+            return false;
         }
-        return false;
+        finally
+        {
+            v.remove(ct);
+        }
     }
+
+    /** Thread-local in-flight set for {@link #hasPackableField}. */
+    private static final ThreadLocal<Set<CompoundType>> VISITING =
+            ThreadLocal.withInitial(HashSet::new);
 
     /**
      * Walk subtype / instantiate layers down to a {@link CompoundType},
@@ -503,7 +549,32 @@ public final class PackingFieldFormatter
         {
             return null;
         }
-        final TypeInstantiation typeInst = field.getTypeInstantiation();
+        return packableCompoundUnderlying(field.getTypeInstantiation());
+    }
+
+    /**
+     * Same as {@link #compoundPackableUnderlying(Field)} but for
+     * optional compound subfields (auto-optional or {@code if-clause}).
+     * Constraints on the optional are rejected — the post-decode
+     * constraint check for compounds happens inside the child's own
+     * {@code _read} body, not here.
+     */
+    private static CompoundType optionalCompoundPackableUnderlying(Field field)
+    {
+        if (!field.isOptional() || field.getConstraintExpr() != null)
+        {
+            return null;
+        }
+        return packableCompoundUnderlying(field.getTypeInstantiation());
+    }
+
+    /**
+     * Walk subtype / instantiate layers to a Structure or Choice with
+     * a transitively packable field. Used by both the non-optional
+     * and optional compound-subfield branches.
+     */
+    private static CompoundType packableCompoundUnderlying(TypeInstantiation typeInst)
+    {
         if (typeInst instanceof zserio.ast.ArrayInstantiation)
         {
             return null;
@@ -576,6 +647,108 @@ public final class PackingFieldFormatter
         final String writeStmt = setParams
                 + "ZSERIO_TRY(" + childPrefix
                 + "_write_packed(&" + access + ", bs, &" + ctxField + "));";
+
+        return new PackedField(/* usesContext */ true,
+                name, ctxMember, initStmt, observeStmt, readStmt, writeStmt);
+    }
+
+    /**
+     * Optional compound subfield with a packing context inside a
+     * packed-parent body. Same shape as
+     * {@link #formatCompoundPacked} but with observe/read/write
+     * wrapped in the optional gating
+     * {@link FieldFormatter#wrapIfOptional} /
+     * {@link FieldFormatter#wrapAutoOptional} produces on the unpacked
+     * path — i.e. auto-optional gets the 1-bit wire prefix, if-clause
+     * uses the clause expression. Init runs unconditionally so a
+     * later present-element finds a properly initialised child
+     * context (same rationale as the scalar path).
+     */
+    private static PackedField formatOptionalCompoundPacked(Field field,
+            FieldFormatter.FieldData plainData,
+            CompoundType child,
+            String holderExpr, CompoundType owner, String ctxHolder)
+            throws ZserioExtensionException
+    {
+        final String name = plainData.getName();
+        final String access = holderExpr + name;
+        final String present = FieldFormatter.parentHolder(holderExpr) + name + "_present";
+        final String ctxField = ctxHolder + name;
+        final String childPrefix = CIdentifierFormatter.funcPrefix(
+                child.getPackage().getPackageName(), child.getName());
+
+        final String setParams = childSetParametersLine(
+                field, child, access, holderExpr, owner);
+
+        final String ctxMember = childPrefix + "_packing_ctx_t " + name + ";";
+        // Init: always run set_parameters + _init_packing_context on
+        // the child. Parameter args are evaluated against the parent's
+        // own state (already set up before init runs); the child slot
+        // itself is zero-initialised but that's fine because init just
+        // sets static context state (num_bits / traits / nested
+        // sub-context configs) — it doesn't touch user data.
+        final String initStmt = setParams
+                + "ZSERIO_TRY(" + childPrefix
+                + "_init_packing_context(&" + access + ", &" + ctxField + "));";
+
+        // Observe / read / write: gated by the optional condition so
+        // absent elements don't poison the running max-bit-number or
+        // mis-align the wire.
+        final String innerObserve = setParams
+                + "ZSERIO_TRY(" + childPrefix
+                + "_observe_packing_context(&" + access + ", &" + ctxField + "));";
+        final String innerRead = setParams
+                + "ZSERIO_TRY(" + childPrefix
+                + "_read_packed(&" + access + ", bs, alloc, &" + ctxField + "));";
+        final String innerWrite = setParams
+                + "ZSERIO_TRY(" + childPrefix
+                + "_write_packed(&" + access + ", bs, &" + ctxField + "));";
+
+        final boolean autoOptional = (field.getOptionalClauseExpr() == null);
+        final String gateCond;
+        final String readStmt;
+        final String writeStmt;
+        if (autoOptional)
+        {
+            gateCond = present;
+            readStmt =
+                    "{\n"
+                    + "        uint64_t " + name + "_presence = 0u;\n"
+                    + "        ZSERIO_TRY(zserio_bitstream_read_bits(bs, 1, &"
+                    + name + "_presence));\n"
+                    + "        " + present + " = (" + name + "_presence != 0u);\n"
+                    + "        if (" + present + ") {\n"
+                    + "            " + innerRead + "\n"
+                    + "        }\n"
+                    + "    }";
+            writeStmt =
+                    "if (" + present + ") {\n"
+                    + "        ZSERIO_TRY(zserio_bitstream_write_bits(bs, 1, 1u));\n"
+                    + "        " + innerWrite + "\n"
+                    + "    } else {\n"
+                    + "        ZSERIO_TRY(zserio_bitstream_write_bits(bs, 1, 0u));\n"
+                    + "    }";
+        }
+        else
+        {
+            final String clause = CExpressionFormatter.format(
+                    field.getOptionalClauseExpr(), holderExpr, owner);
+            gateCond = clause;
+            readStmt =
+                    "if (" + clause + ") {\n"
+                    + "        " + present + " = true;\n"
+                    + "        " + innerRead + "\n"
+                    + "    } else {\n"
+                    + "        " + present + " = false;\n"
+                    + "    }";
+            writeStmt =
+                    "if (" + clause + ") {\n"
+                    + "        " + innerWrite + "\n"
+                    + "    }";
+        }
+        final String observeStmt = "if (" + gateCond + ") {\n"
+                + "        " + innerObserve + "\n"
+                + "    }";
 
         return new PackedField(/* usesContext */ true,
                 name, ctxMember, initStmt, observeStmt, readStmt, writeStmt);
