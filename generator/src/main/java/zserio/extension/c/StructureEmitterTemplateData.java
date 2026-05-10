@@ -48,6 +48,16 @@ public final class StructureEmitterTemplateData
         // LinkedHashSet so the include order matches the schema's field
         // order — readable, and stable across re-runs.
         final LinkedHashSet<String> includes = new LinkedHashSet<>();
+        // Parameter types may live in other packages; without these
+        // includes the generated header would reference an undeclared
+        // typedef on every parameter member.
+        for (final ParameterData p : this.parameters)
+        {
+            if (p.getExtraInclude() != null)
+            {
+                includes.add(p.getExtraInclude());
+            }
+        }
         boolean owned = false;
         for (final Field f : structType.getFields())
         {
@@ -67,6 +77,19 @@ public final class StructureEmitterTemplateData
         this.packedFields = packedBuilt;
         this.hasPackingContext = usesContext;
         this.functions = FunctionData.from(structType);
+        for (final FunctionData fn : this.functions)
+        {
+            if (fn.getExtraInclude() != null)
+            {
+                includes.add(fn.getExtraInclude());
+            }
+        }
+        // Pull in every const referenced from this compound's
+        // expressions (constraints, optional clauses, parameterised-
+        // type args, array lengths, function bodies). Each const lives
+        // in its own header and lowers to a `<pkg>_<NAME>` macro that
+        // must be in scope wherever it is used.
+        includes.addAll(ReferencedConstants.headerIncludePathsFor(structType));
         this.extraIncludes = new ArrayList<>(includes);
         this.hasOwnedFields = owned;
     }

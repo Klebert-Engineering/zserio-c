@@ -44,6 +44,15 @@ public final class UnionEmitterTemplateData
 
         final List<CaseData> built = new ArrayList<>();
         final LinkedHashSet<String> includes = new LinkedHashSet<>();
+        // Pick up parameter-type headers (parameter members + the
+        // _set_parameters helper signature reference these).
+        for (final ParameterData p : this.parameters)
+        {
+            if (p.getExtraInclude() != null)
+            {
+                includes.add(p.getExtraInclude());
+            }
+        }
         boolean owned = false;
         int index = 0;
         for (final Field f : unionType.getFields())
@@ -68,6 +77,14 @@ public final class UnionEmitterTemplateData
         }
         this.cases = built;
         this.functions = FunctionData.from(unionType);
+        for (final FunctionData fn : this.functions)
+        {
+            if (fn.getExtraInclude() != null)
+            {
+                includes.add(fn.getExtraInclude());
+            }
+        }
+        includes.addAll(ReferencedConstants.headerIncludePathsFor(unionType));
         this.extraIncludes = new ArrayList<>(includes);
         this.hasOwnedCases = owned;
     }

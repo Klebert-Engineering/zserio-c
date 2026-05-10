@@ -8,8 +8,15 @@ package zserio.extension.c;
 import java.util.ArrayList;
 import java.util.List;
 
+import zserio.ast.BitmaskType;
+import zserio.ast.CompoundType;
+import zserio.ast.EnumType;
+import zserio.ast.InstantiateType;
+import zserio.ast.PackageName;
 import zserio.ast.Parameter;
+import zserio.ast.Subtype;
 import zserio.ast.TypeReference;
+import zserio.ast.ZserioType;
 import zserio.extension.common.ZserioExtensionException;
 
 /**
@@ -28,15 +35,25 @@ public final class ParameterData
 {
     private final String name;
     private final String nativeType;
+    private final String extraInclude;
 
-    public ParameterData(String name, String nativeType)
+    public ParameterData(String name, String nativeType, String extraInclude)
     {
         this.name = name;
         this.nativeType = nativeType;
+        this.extraInclude = extraInclude;
     }
 
     public String getName()       { return name; }
     public String getNativeType() { return nativeType; }
+
+    /**
+     * Header that defines {@link #getNativeType()}, or {@code null}
+     * if the type is a built-in / stdint name. The owning compound's
+     * template data folds this into its include set so the generated
+     * header forward-declares all parameter types.
+     */
+    public String getExtraInclude() { return extraInclude; }
 
     /** Build a {@code List<ParameterData>} from one compound's parameter list. */
     public static List<ParameterData> from(List<Parameter> params) throws ZserioExtensionException
@@ -46,8 +63,67 @@ public final class ParameterData
         {
             final TypeReference ref = p.getTypeReference();
             final String cType = CNativeTypeMapper.nativeType(ref);
-            out.add(new ParameterData(CIdentifierFormatter.toLowerSnake(p.getName()), cType));
+            out.add(new ParameterData(
+                    CIdentifierFormatter.toLowerSnake(p.getName()),
+                    cType,
+                    extraIncludeFor(ref)));
         }
         return out;
+    }
+
+    /**
+     * Header to {@code #include} when a parameter of the given type
+     * is declared, or {@code null} for stdint / runtime built-ins.
+     *
+     * Walks {@code subtype} / {@code instantiate} layers to find the
+     * underlying user-defined type. The C parameter is declared with
+     * the underlying type's typedef name (see
+     * {@link CNativeTypeMapper#nativeType(TypeReference)}), so the
+     * include must point at the underlying type's header.
+     */
+    private static String extraIncludeFor(TypeReference ref)
+    {
+        ZserioType resolved = ref.getBaseTypeReference().getType();
+        while (resolved instanceof Subtype || resolved instanceof InstantiateType)
+        {
+            if (resolved instanceof Subtype)
+            {
+                resolved = ((Subtype)resolved).getTypeReference()
+                        .getBaseTypeReference().getType();
+            }
+            else
+            {
+                resolved = ((InstantiateType)resolved).getTypeReference()
+                        .getBaseTypeReference().getType();
+            }
+        }
+        final PackageName pkg;
+        final String name;
+        if (resolved instanceof CompoundType)
+        {
+            final CompoundType ct = (CompoundType)resolved;
+            pkg = ct.getPackage().getPackageName();
+            name = ct.getName();
+        }
+        else if (resolved instanceof EnumType)
+        {
+            final EnumType et = (EnumType)resolved;
+            pkg = et.getPackage().getPackageName();
+            name = et.getName();
+        }
+        else if (resolved instanceof BitmaskType)
+        {
+            final BitmaskType bt = (BitmaskType)resolved;
+            pkg = bt.getPackage().getPackageName();
+            name = bt.getName();
+        }
+        else
+        {
+            // Built-in scalar / string / bytes / extern: the C type
+            // name comes from the runtime headers already pulled in by
+            // every generated unit; no extra include needed.
+            return null;
+        }
+        return CIdentifierFormatter.headerIncludePath(pkg, name);
     }
 }

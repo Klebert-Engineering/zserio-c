@@ -8,9 +8,15 @@ package zserio.extension.c;
 import java.util.ArrayList;
 import java.util.List;
 
+import zserio.ast.BitmaskType;
 import zserio.ast.CompoundType;
+import zserio.ast.EnumType;
 import zserio.ast.Function;
+import zserio.ast.InstantiateType;
 import zserio.ast.PackageName;
+import zserio.ast.Subtype;
+import zserio.ast.TypeReference;
+import zserio.ast.ZserioType;
 import zserio.extension.common.ZserioExtensionException;
 
 /**
@@ -35,19 +41,31 @@ public final class FunctionData
     private final String fullName;      // <prefix>_<name>
     private final String returnType;
     private final String body;          // formatted result expression
+    private final String extraInclude;  // header of the return type, or null
 
-    public FunctionData(String name, String fullName, String returnType, String body)
+    public FunctionData(String name, String fullName, String returnType, String body,
+            String extraInclude)
     {
         this.name = name;
         this.fullName = fullName;
         this.returnType = returnType;
         this.body = body;
+        this.extraInclude = extraInclude;
     }
 
-    public String getName()       { return name; }
-    public String getFullName()   { return fullName; }
-    public String getReturnType() { return returnType; }
-    public String getBody()       { return body; }
+    public String getName()         { return name; }
+    public String getFullName()     { return fullName; }
+    public String getReturnType()   { return returnType; }
+    public String getBody()         { return body; }
+
+    /**
+     * Header that defines {@link #getReturnType()}, or {@code null}
+     * for built-in / runtime-supplied types. Functions that return a
+     * cross-package enum / bitmask / compound need this added to the
+     * owner's include set so the generated header references the
+     * declared typedef.
+     */
+    public String getExtraInclude() { return extraInclude; }
 
     /**
      * Build {@link FunctionData} entries for every function defined
@@ -73,8 +91,58 @@ public final class FunctionData
             // currentOwner fallback.
             final String body = CExpressionFormatter.format(
                     f.getResultExpression(), "self->", owner);
-            out.add(new FunctionData(localName, fullName, returnType, body));
+            final String inc = returnTypeInclude(f.getReturnTypeReference());
+            out.add(new FunctionData(localName, fullName, returnType, body, inc));
         }
         return out;
+    }
+
+    /**
+     * Header of the underlying user-defined type referenced by
+     * {@code ref}, or {@code null} for built-ins (the same logic as
+     * {@code ParameterData.extraIncludeFor} — kept local to avoid
+     * coupling the two value classes).
+     */
+    private static String returnTypeInclude(TypeReference ref)
+    {
+        ZserioType resolved = ref.getBaseTypeReference().getType();
+        while (resolved instanceof Subtype || resolved instanceof InstantiateType)
+        {
+            if (resolved instanceof Subtype)
+            {
+                resolved = ((Subtype)resolved).getTypeReference()
+                        .getBaseTypeReference().getType();
+            }
+            else
+            {
+                resolved = ((InstantiateType)resolved).getTypeReference()
+                        .getBaseTypeReference().getType();
+            }
+        }
+        final PackageName pkg;
+        final String name;
+        if (resolved instanceof CompoundType)
+        {
+            final CompoundType ct = (CompoundType)resolved;
+            pkg = ct.getPackage().getPackageName();
+            name = ct.getName();
+        }
+        else if (resolved instanceof EnumType)
+        {
+            final EnumType et = (EnumType)resolved;
+            pkg = et.getPackage().getPackageName();
+            name = et.getName();
+        }
+        else if (resolved instanceof BitmaskType)
+        {
+            final BitmaskType bt = (BitmaskType)resolved;
+            pkg = bt.getPackage().getPackageName();
+            name = bt.getName();
+        }
+        else
+        {
+            return null;
+        }
+        return CIdentifierFormatter.headerIncludePath(pkg, name);
     }
 }

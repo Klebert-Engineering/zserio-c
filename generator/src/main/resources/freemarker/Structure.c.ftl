@@ -71,11 +71,16 @@ void ${funcPrefix}_free(${typeName} *self, const zserio_allocator_t *alloc)
 }
 
 <#if hasPackingContext>
-zserio_status_t ${funcPrefix}_init_packing_context(${funcPrefix}_packing_ctx_t *ctx)
+zserio_status_t ${funcPrefix}_init_packing_context(const ${typeName} *self,
+        ${funcPrefix}_packing_ctx_t *ctx)
 {
-    if (ctx == NULL) {
+    if (self == NULL || ctx == NULL) {
         return ZSERIO_ERR_INVALID_ARGUMENT;
     }
+    /* The bit-width expressions baked into init may or may not reference
+     * `self->...` (parameters / dynamic-width bit fields do; plain
+     * fixed-width fields don't). Silence the warning either way. */
+    (void)self;
 <#list packedFields as pf>
 <#if pf.usesContext>
     ${pf.initStmt}

@@ -23,6 +23,11 @@ typedef struct ${typeName} {
     ${p.nativeType} ${p.name};
 </#list>
     uint32_t tag;
+<#list cases as case>
+<#if case.field.extraMember?has_content>
+    ${case.field.extraMember}
+</#if>
+</#list>
     union {
 <#list cases as case>
         ${case.field.declaration};
@@ -48,6 +53,7 @@ void            ${funcPrefix}_free(${typeName} *self, const zserio_allocator_t *
 <#list functions as fn>
 static inline ${fn.returnType} ${fn.fullName}(const ${typeName} *self)
 {
+    (void)self;
     return (${fn.returnType})(${fn.body});
 }
 

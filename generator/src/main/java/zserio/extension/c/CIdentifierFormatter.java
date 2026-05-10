@@ -23,9 +23,17 @@ import zserio.ast.PackageName;
  * </ul>
  *
  * The CamelCase-to-snake conversion inserts an underscore before any
- * uppercase letter that follows a lowercase letter, then case-folds.
- * Existing underscores are preserved. Leading uppercase doesn't
- * generate a leading underscore.
+ * uppercase letter that:
+ * <ul>
+ *   <li>follows a lowercase letter ({@code aB} → {@code a_b}), or</li>
+ *   <li>follows a digit ({@code a1B} → {@code a1_b}), or</li>
+ *   <li>follows another uppercase letter and is followed by a
+ *       lowercase letter — the acronym rule
+ *       ({@code XMLParser} → {@code xml_parser},
+ *        {@code Mesh3DType} → {@code mesh3d_type}).</li>
+ * </ul>
+ * Then case-folds. Existing underscores are preserved. Leading
+ * uppercase doesn't generate a leading underscore.
  */
 public final class CIdentifierFormatter
 {
@@ -133,9 +141,19 @@ public final class CIdentifierFormatter
         for (int i = 0; i < name.length(); i++)
         {
             final char c = name.charAt(i);
-            if (i > 0 && Character.isUpperCase(c) && Character.isLowerCase(name.charAt(i - 1)))
+            if (i > 0 && Character.isUpperCase(c))
             {
-                sb.append('_');
+                final char prev = name.charAt(i - 1);
+                final boolean prevLowerOrDigit =
+                        Character.isLowerCase(prev) || Character.isDigit(prev);
+                final boolean acronymBoundary =
+                        Character.isUpperCase(prev)
+                                && i + 1 < name.length()
+                                && Character.isLowerCase(name.charAt(i + 1));
+                if (prevLowerOrDigit || acronymBoundary)
+                {
+                    sb.append('_');
+                }
             }
             sb.append(upper ? Character.toUpperCase(c) : Character.toLowerCase(c));
         }

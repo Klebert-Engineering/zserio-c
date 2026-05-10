@@ -48,3 +48,13 @@ generator/out/
 # Local convenience
 .env
 .env.local
+
+# Conformance corpus is staged from external assets (extract.sh).
+# We don't ship the multi-MB zserio-generated C++ reference or the
+# fixture binaries in-tree.
+conformance/.staging/
+conformance/ndslive/zs/
+conformance/ndslive/cpp/
+conformance/ndslive/tile.bin
+conformance/ndslive/tile.yaml
+

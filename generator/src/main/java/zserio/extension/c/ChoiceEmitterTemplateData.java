@@ -66,6 +66,15 @@ public final class ChoiceEmitterTemplateData
 
         final List<CaseData> built = new ArrayList<>();
         final LinkedHashSet<String> includes = new LinkedHashSet<>();
+        // Pick up parameter-type headers (the parameter members + the
+        // _set_parameters helper signature reference these).
+        for (final ParameterData p : this.parameters)
+        {
+            if (p.getExtraInclude() != null)
+            {
+                includes.add(p.getExtraInclude());
+            }
+        }
         boolean owned = false;
         for (final ChoiceCase c : choiceType.getChoiceCases())
         {
@@ -131,6 +140,14 @@ public final class ChoiceEmitterTemplateData
         }
 
         this.functions = FunctionData.from(choiceType);
+        for (final FunctionData fn : this.functions)
+        {
+            if (fn.getExtraInclude() != null)
+            {
+                includes.add(fn.getExtraInclude());
+            }
+        }
+        includes.addAll(ReferencedConstants.headerIncludePathsFor(choiceType));
         this.extraIncludes = new ArrayList<>(includes);
         this.hasOwnedCases = owned;
     }

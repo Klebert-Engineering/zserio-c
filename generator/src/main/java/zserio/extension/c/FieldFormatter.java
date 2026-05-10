@@ -58,6 +58,25 @@ public final class FieldFormatter
     }
 
     /**
+     * Holder where parent state — parameters, count members, and
+     * presence flags — lives, given a field-data {@code holderExpr}.
+     * Inside a Choice or Union case the field's data sits in an
+     * anonymous member union ({@code "self->u."}) but counts and
+     * presence flags hang off the parent compound at {@code "self->"};
+     * this strip-{@code "u."} convention keeps both layouts inside
+     * one generator without threading a second holder through every
+     * helper.
+     */
+    private static String parentHolder(String holderExpr)
+    {
+        if (holderExpr.endsWith("u."))
+        {
+            return holderExpr.substring(0, holderExpr.length() - 2);
+        }
+        return holderExpr;
+    }
+
+    /**
      * Lower one field. {@code holderExpr} is the C expression that
      * yields the struct holding the field — typically {@code "self->"}
      * for top-level structs or {@code "self->u."} for the cases of
@@ -80,6 +99,18 @@ public final class FieldFormatter
             throws ZserioExtensionException
     {
         FieldData data = formatBase(field, holderExpr, owner);
+
+        // `align(N):` (and the per-field `align(N) T x;` shape) tells
+        // the bitstream cursor to skip forward to the next N-bit
+        // boundary before reading or writing this field. NDS Live's
+        // ExternData / DataLayer / DataLayerDefinition rely on
+        // align(8) to byte-align embedded extern blobs.
+        if (field.getAlignmentExpr() != null)
+        {
+            final String formattedAlign = CExpressionFormatter.format(
+                    field.getAlignmentExpr(), holderExpr, owner);
+            data = wrapAlignment(data, formattedAlign);
+        }
 
         // Constraint check sits between the value lowering and the
         // optional wrapper so an absent field doesn't fail validation.
@@ -105,6 +136,27 @@ public final class FieldFormatter
             }
         }
         return data;
+    }
+
+    /**
+     * Wrap a {@link FieldData} with a bitstream alignment call. The
+     * runtime advances the cursor to the next N-bit boundary; a
+     * power-of-two N is required (the runtime checks). For align(8)
+     * (the common case in NDS Live's ExternData blobs) this byte-
+     * aligns the cursor before the inner field's read / write.
+     */
+    private static FieldData wrapAlignment(FieldData inner, String formattedAlign)
+    {
+        final String read =
+                "ZSERIO_TRY(zserio_bitstream_reader_align(bs, (size_t)("
+                + formattedAlign + ")));\n    " + inner.readStmt;
+        final String write =
+                "ZSERIO_TRY(zserio_bitstream_writer_align(bs, (size_t)("
+                + formattedAlign + ")));\n    " + inner.writeStmt;
+        return new FieldData(
+                inner.name, inner.nativeType, inner.declaration,
+                read, write, inner.freeStmt,
+                inner.owned, inner.extraInclude, inner.extraMember);
     }
 
     /**
@@ -141,7 +193,7 @@ public final class FieldFormatter
      */
     private static FieldData wrapIfOptional(FieldData inner, String formattedClause, String h)
     {
-        final String present = h + inner.name + "_present";
+        final String present = parentHolder(h) + inner.name + "_present";
         final String read =
                 "if (" + formattedClause + ") {\n"
                 + "        " + present + " = true;\n"
@@ -262,7 +314,7 @@ public final class FieldFormatter
      */
     private static FieldData wrapAutoOptional(FieldData inner, String h)
     {
-        final String present = h + inner.name + "_present";
+        final String present = parentHolder(h) + inner.name + "_present";
         final String read =
                 "{\n"
                 + "        uint64_t " + inner.name + "_presence = 0u;\n"
@@ -533,7 +585,7 @@ public final class FieldFormatter
     private static FieldData packedVarintHeapArray(String name, TypeBinding b,
             String runtimeSuffix, String h, String formattedLen)
     {
-        final String countExpr = h + name + "_count";
+        final String countExpr = parentHolder(h) + name + "_count";
         final String ptrExpr   = h + name;
         final String iVar      = name + "_i";
         final String declaration = b.cType + " *" + name;
@@ -731,7 +783,7 @@ public final class FieldFormatter
     private static FieldData packedHeapArray(String name, PackedElementSpec p, String h,
             String formattedLen)
     {
-        final String countExpr = h + name + "_count";
+        final String countExpr = parentHolder(h) + name + "_count";
         final String ptrExpr   = h + name;
         final String iVar      = name + "_i";
         final String declaration = p.cType + " *" + name;
@@ -895,7 +947,7 @@ public final class FieldFormatter
     private static FieldData packedCompoundHeapArray(String name, TypeBinding b,
             String prefix, String h, String formattedLen, String paramSetupLine)
     {
-        final String countExpr = h + name + "_count";
+        final String countExpr = parentHolder(h) + name + "_count";
         final String ptrExpr   = h + name;
         final String iVar      = name + "_i";
         final String ctxVar    = name + "_ctx";
@@ -924,6 +976,14 @@ public final class FieldFormatter
                 : paramSetupLine.replace("$SLOT$", slotExpr);
         final String paramSetupWrite = paramSetupRead;
 
+        // The first-element paramSetup primes element 0's parameters
+        // so init_packing_context can derive any parameter-driven bit
+        // widths (e.g. dynamic-bit fields like `bit<numBits>`) from a
+        // fully-set-up element.
+        final String firstSlotExpr = ptrExpr + "[0]";
+        final String firstParamSetup = paramSetupLine.isEmpty() ? ""
+                : paramSetupLine.replace("$SLOT$", firstSlotExpr);
+
         final String read =
                 "{\n"
                 + readCountSetup
@@ -939,7 +999,9 @@ public final class FieldFormatter
                 + "            (void)memset(" + ptrExpr + ", 0, "
                 + countExpr + " * sizeof(*(" + ptrExpr + ")));\n"
                 + "            " + prefix + "_packing_ctx_t " + ctxVar + ";\n"
-                + "            ZSERIO_TRY(" + prefix + "_init_packing_context(&" + ctxVar + "));\n"
+                + "            " + firstParamSetup
+                + "ZSERIO_TRY(" + prefix + "_init_packing_context(&"
+                + firstSlotExpr + ", &" + ctxVar + "));\n"
                 + "            for (size_t " + iVar + " = 0u; " + iVar + " < "
                 + countExpr + "; ++" + iVar + ") {\n"
                 + "                " + paramSetupRead
@@ -957,7 +1019,9 @@ public final class FieldFormatter
                 + writeCountPrefix
                 + "        if (" + countExpr + " > 0u) {\n"
                 + "            " + prefix + "_packing_ctx_t " + ctxVar + ";\n"
-                + "            ZSERIO_TRY(" + prefix + "_init_packing_context(&" + ctxVar + "));\n"
+                + "            " + firstParamSetup
+                + "ZSERIO_TRY(" + prefix + "_init_packing_context(&"
+                + firstSlotExpr + ", &" + ctxVar + "));\n"
                 + "            for (size_t " + iVar + " = 0u; " + iVar + " < "
                 + countExpr + "; ++" + iVar + ") {\n"
                 + "                " + paramSetupWrite
@@ -1008,11 +1072,19 @@ public final class FieldFormatter
         // so we re-indent the paramSetupLine.
         final String paramSetup = paramSetupLine.isEmpty() ? ""
                 : paramSetupLine.replace("$SLOT$", slotExpr).replace("\n                ", "\n            ");
+        // First-element paramSetup primes element 0 so init_packing_context
+        // can derive parameter-driven bit widths from a fully-initialised
+        // element. Indent matches the inline 8-space level here.
+        final String firstSlotExpr = access + "[0]";
+        final String firstParamSetup = paramSetupLine.isEmpty() ? ""
+                : paramSetupLine.replace("$SLOT$", firstSlotExpr).replace("\n                ", "\n        ");
 
         final String read =
                 "{\n"
                 + "        " + prefix + "_packing_ctx_t " + ctxVar + ";\n"
-                + "        ZSERIO_TRY(" + prefix + "_init_packing_context(&" + ctxVar + "));\n"
+                + "        " + firstParamSetup
+                + "ZSERIO_TRY(" + prefix + "_init_packing_context(&"
+                + firstSlotExpr + ", &" + ctxVar + "));\n"
                 + "        for (size_t " + iVar + " = 0u; " + iVar + " < "
                 + lengthLiteral + "u; ++" + iVar + ") {\n"
                 + "            " + paramSetup
@@ -1023,7 +1095,9 @@ public final class FieldFormatter
         final String write =
                 "{\n"
                 + "        " + prefix + "_packing_ctx_t " + ctxVar + ";\n"
-                + "        ZSERIO_TRY(" + prefix + "_init_packing_context(&" + ctxVar + "));\n"
+                + "        " + firstParamSetup
+                + "ZSERIO_TRY(" + prefix + "_init_packing_context(&"
+                + firstSlotExpr + ", &" + ctxVar + "));\n"
                 + "        for (size_t " + iVar + " = 0u; " + iVar + " < "
                 + lengthLiteral + "u; ++" + iVar + ") {\n"
                 + "            " + paramSetup
@@ -1295,7 +1369,7 @@ public final class FieldFormatter
     {
         // Storage: count + heap pointer. The count member sits before
         // the value member so structs read in the order schemas read.
-        final String countExpr = h + name + "_count";
+        final String countExpr = parentHolder(h) + name + "_count";
         final String ptrExpr   = h + name;
         final String iVar      = name + "_i";
         final String slotExpr  = ptrExpr + "[" + iVar + "]";
@@ -1390,7 +1464,7 @@ public final class FieldFormatter
     private static FieldData expressionLengthArray(String name, ElementOps ops,
             String formattedLen, String h)
     {
-        final String countExpr = h + name + "_count";
+        final String countExpr = parentHolder(h) + name + "_count";
         final String ptrExpr   = h + name;
         final String iVar      = name + "_i";
         final String slotExpr  = ptrExpr + "[" + iVar + "]";

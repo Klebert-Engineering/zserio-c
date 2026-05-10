@@ -22,6 +22,14 @@ typedef struct ${typeName} {
 <#list parameters as p>
     ${p.nativeType} ${p.name};
 </#list>
+<#list cases as case>
+<#if case.hasField && case.field.extraMember?has_content>
+    ${case.field.extraMember}
+</#if>
+</#list>
+<#if hasDefaultField && defaultField.extraMember?has_content>
+    ${defaultField.extraMember}
+</#if>
     union {
 <#list cases as case>
 <#if case.hasField>
@@ -46,6 +54,7 @@ void            ${funcPrefix}_free(${typeName} *self, const zserio_allocator_t *
 <#list functions as fn>
 static inline ${fn.returnType} ${fn.fullName}(const ${typeName} *self)
 {
+    (void)self;
     return (${fn.returnType})(${fn.body});
 }
 

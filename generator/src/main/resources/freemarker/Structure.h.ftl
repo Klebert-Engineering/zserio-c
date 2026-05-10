@@ -29,6 +29,12 @@ typedef struct ${typeName} {
 </#if>
     ${field.declaration};
 </#list>
+<#if !hasParameters && fields?size == 0>
+    /* Empty zserio struct: zero data, zero wire bits. The placeholder
+     * member keeps {@code -Wpedantic} happy (C99 forbids the empty
+     * struct shape) while consuming nothing on the wire. */
+    char _zserio_empty;
+</#if>
 } ${typeName};
 
 void            ${funcPrefix}_init(${typeName} *self);
@@ -51,7 +57,8 @@ typedef struct ${funcPrefix}_packing_ctx {
 </#list>
 } ${funcPrefix}_packing_ctx_t;
 
-zserio_status_t ${funcPrefix}_init_packing_context(${funcPrefix}_packing_ctx_t *ctx);
+zserio_status_t ${funcPrefix}_init_packing_context(const ${typeName} *self,
+        ${funcPrefix}_packing_ctx_t *ctx);
 zserio_status_t ${funcPrefix}_observe_packing_context(const ${typeName} *self,
         ${funcPrefix}_packing_ctx_t *ctx);
 zserio_status_t ${funcPrefix}_read_packed(${typeName} *self,
@@ -65,6 +72,10 @@ zserio_status_t ${funcPrefix}_write_packed(${typeName} *self,
 <#list functions as fn>
 static inline ${fn.returnType} ${fn.fullName}(const ${typeName} *self)
 {
+    /* The body may be a constant expression that doesn't touch
+     * `self` (e.g. functions that return a fixed enum value); silence
+     * the compiler's unused-parameter warning either way. */
+    (void)self;
     return (${fn.returnType})(${fn.body});
 }
 

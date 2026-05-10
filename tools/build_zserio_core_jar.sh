@@ -38,7 +38,32 @@ if [[ -f "${CACHE_JAR}" ]] && [[ -f "${STAMP}" ]]; then
 fi
 
 if ! command -v ant >/dev/null 2>&1; then
-    echo "ant not installed (apt-get install -y ant)" >&2
+    # Fallback path: hosts that lack Ant (e.g. CI runners with locked
+    # apt) can drop a pre-built upstream-released zserio.jar at one of
+    # the locations below. The released jar is the *fat* compiler-core
+    # bundle (zserio.tools.ZserioTool entry point + all 3rdparty deps),
+    # built by upstream from the same v2.18.1 source we pin against, so
+    # it is link-compatible with our generator.
+    FALLBACK_CANDIDATES=(
+        "${ZSERIO_CORE_JAR:-}"
+        "${REPO_ROOT}/build-jars/zserio.jar"
+        "${HOME}/assets/zserio.jar"
+    )
+    for cand in "${FALLBACK_CANDIDATES[@]}"; do
+        if [[ -n "${cand}" && -f "${cand}" ]]; then
+            cp "${cand}" "${CACHE_JAR}"
+            touch "${STAMP}"
+            echo "${CACHE_JAR}"
+            exit 0
+        fi
+    done
+    echo "ant not installed and no pre-built fallback jar found." >&2
+    echo "Either:" >&2
+    echo "  - apt-get install -y ant" >&2
+    echo "  - or place a v2.18.1-compatible zserio.jar at one of:" >&2
+    for cand in "${FALLBACK_CANDIDATES[@]}"; do
+        [[ -n "${cand}" ]] && echo "      ${cand}" >&2
+    done
     exit 2
 fi
 

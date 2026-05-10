@@ -96,6 +96,22 @@ public final class CExpressionFormattingPolicy extends DefaultExpressionFormatti
         this.indexVar = indexVar;
     }
 
+    /**
+     * Holder for parameter / sibling-state references — the {@code
+     * holderExpr} stripped of a trailing {@code "u."}. Inside a
+     * choice/union case, the field's data lives at {@code self->u.X}
+     * but parameters and parent state live one level up at
+     * {@code self->X}.
+     */
+    private String parentHolder()
+    {
+        if (holderExpr.endsWith("u."))
+        {
+            return holderExpr.substring(0, holderExpr.length() - 2);
+        }
+        return holderExpr;
+    }
+
     /* -------- atoms -------- */
 
     @Override
@@ -173,9 +189,19 @@ public final class CExpressionFormattingPolicy extends DefaultExpressionFormatti
             // Leftmost in a dot chain (or a single isolated ID) gets
             // the holder prefix; subsequent ID nodes are bare member
             // names and the default DOT formatting (".") joins them.
+            //
+            // In a Choice / Union the formatter is called with
+            // holderExpr ending in "u." because each case's data lives
+            // inside an anonymous member union. Parameters live one
+            // level up at the parent compound (so a parameter ref
+            // strips the "u."), but case-field self-references stay
+            // inside the union — a constraint like
+            // `case CONFIDENCE: AttributeConfidence x : x <= 100;`
+            // must lower to `self->u.x`, not `self->x`.
             if (expr.isMostLeftId())
             {
-                return holderExpr + CIdentifierFormatter.toLowerSnake(zserioName);
+                final String holder = (sym instanceof Parameter) ? parentHolder() : holderExpr;
+                return holder + CIdentifierFormatter.toLowerSnake(zserioName);
             }
             return CIdentifierFormatter.toLowerSnake(zserioName);
         }
@@ -352,17 +378,30 @@ public final class CExpressionFormattingPolicy extends DefaultExpressionFormatti
             if (rightSym instanceof Function)
             {
                 final Function func = (Function)rightSym;
-                CompoundType owner = resolveFunctionOwner(rightSide);
                 // For `recv.func()` the receiver's type IS the owning
-                // compound — fall back to that if the ExprOwner /
-                // current-owner lookup didn't pin it.
-                if (owner == null && expr.op1() != null)
+                // compound. Prefer that over the AST-set ExprOwner /
+                // policy currentOwner — the latter would point at the
+                // *enclosing* compound (where the expression lives,
+                // e.g. LineRange2D) rather than the *callee's* compound
+                // (Line2D), generating `lineRange2D_func` for what is
+                // actually `line2D_func`.
+                CompoundType owner = null;
+                if (expr.op1() != null)
                 {
-                    final ZserioType recvType = expr.op1().getExprZserioType();
+                    ZserioType recvType = expr.op1().getExprZserioType();
+                    while (recvType instanceof zserio.ast.Subtype)
+                    {
+                        recvType = ((zserio.ast.Subtype)recvType).getTypeReference()
+                                .getBaseTypeReference().getType();
+                    }
                     if (recvType instanceof CompoundType)
                     {
                         owner = (CompoundType)recvType;
                     }
+                }
+                if (owner == null)
+                {
+                    owner = resolveFunctionOwner(rightSide);
                 }
                 if (owner == null)
                 {
