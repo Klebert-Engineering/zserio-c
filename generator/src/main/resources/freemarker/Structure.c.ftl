@@ -71,7 +71,7 @@ void ${funcPrefix}_free(${typeName} *self, const zserio_allocator_t *alloc)
 }
 
 <#if hasPackingContext>
-zserio_status_t ${funcPrefix}_init_packing_context(const ${typeName} *self,
+zserio_status_t ${funcPrefix}_init_packing_context(${typeName} *self,
         ${funcPrefix}_packing_ctx_t *ctx)
 {
     if (self == NULL || ctx == NULL) {
@@ -89,7 +89,7 @@ zserio_status_t ${funcPrefix}_init_packing_context(const ${typeName} *self,
     return ZSERIO_OK;
 }
 
-zserio_status_t ${funcPrefix}_observe_packing_context(const ${typeName} *self,
+zserio_status_t ${funcPrefix}_observe_packing_context(${typeName} *self,
         ${funcPrefix}_packing_ctx_t *ctx)
 {
     if (self == NULL || ctx == NULL) {

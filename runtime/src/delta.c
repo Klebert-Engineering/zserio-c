@@ -220,11 +220,15 @@ zserio_status_t zserio_delta_write(zserio_delta_context_t *ctx,
     }
 
     if ((ctx->flags & DELTA_FLAG_IS_PACKED) != 0U) {
-        /* Wrap-arithmetic delta. Width is max_bit_number + 1 (one extra
-         * for the sign bit). */
-        const uint64_t delta_bits = element - ctx->previous;
-        ZSERIO_TRY(zserio_bitstream_write_signed(bs,
-            (uint8_t)(ctx->max_bit_number + 1U), (int64_t)delta_bits));
+        if (ctx->max_bit_number > 0U) {
+            /* Wrap-arithmetic delta. Width is max_bit_number + 1
+             * (one extra for the sign bit). */
+            const uint64_t delta_bits = element - ctx->previous;
+            ZSERIO_TRY(zserio_bitstream_write_signed(bs,
+                (uint8_t)(ctx->max_bit_number + 1U), (int64_t)delta_bits));
+        }
+        /* max_bit_number == 0: all observed deltas were zero, so the
+         * encoder writes no bits per element — matches upstream. */
     } else {
         ZSERIO_TRY(write_full_element(ctx, bs, element));
     }
@@ -256,14 +260,31 @@ zserio_status_t zserio_delta_read(zserio_delta_context_t *ctx,
         ZSERIO_TRY(read_full_element(ctx, bs, &first));
         ctx->previous = first;
         *out = first;
+        {
+            extern int diag_count;
+            (void)diag_count;
+            #include <stdio.h>
+            static int dbg_first = 0;
+            if (dbg_first++ < 30) {
+                fprintf(stderr, "[delta] first ctx@%p packed=%llu max_bit_number=%u num_bits=%u traits=%p first=%llu\n",
+                        (void*)ctx, (unsigned long long)is_packed,
+                        (unsigned)ctx->max_bit_number, (unsigned)ctx->num_bits,
+                        (void*)ctx->traits, (unsigned long long)first);
+            }
+        }
         return ZSERIO_OK;
     }
 
     if ((ctx->flags & DELTA_FLAG_IS_PACKED) != 0U) {
-        int64_t delta = 0;
-        ZSERIO_TRY(zserio_bitstream_read_signed(bs,
-            (uint8_t)(ctx->max_bit_number + 1U), &delta));
-        ctx->previous = ctx->previous + (uint64_t)delta;
+        if (ctx->max_bit_number > 0U) {
+            int64_t delta = 0;
+            ZSERIO_TRY(zserio_bitstream_read_signed(bs,
+                (uint8_t)(ctx->max_bit_number + 1U), &delta));
+            ctx->previous = ctx->previous + (uint64_t)delta;
+        }
+        /* max_bit_number == 0 means every observed delta was zero, so
+         * the encoder wrote no bits — match upstream by skipping. The
+         * value stays equal to `previous`, which is what we want. */
     } else {
         uint64_t v = 0U;
         ZSERIO_TRY(read_full_element(ctx, bs, &v));

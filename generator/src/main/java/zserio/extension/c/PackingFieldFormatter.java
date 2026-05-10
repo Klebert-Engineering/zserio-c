@@ -113,14 +113,26 @@ public final class PackingFieldFormatter
             String holderExpr, CompoundType owner, String ctxHolder)
             throws ZserioExtensionException
     {
+        // Compound subfield with its own packing context: the parent
+        // must hold a nested context member and recurse into the
+        // child's _init / _observe / _read_packed / _write_packed
+        // helpers. This matches upstream's nested
+        // ZserioPackingContext pattern.
+        final CompoundType compoundChild = compoundPackableUnderlying(field);
+        if (compoundChild != null)
+        {
+            return formatCompoundPacked(field, plainData,
+                    compoundChild, holderExpr, owner, ctxHolder);
+        }
+
         if (!isSimplePackable(field))
         {
             // Field is either not packable at all (string, bytes,
-            // extern, varint, optional, array, nested compound, …)
-            // or its packing requires machinery we don't generate
-            // yet. Fall through to the regular read / write — the
-            // wire format may not match upstream for some of these,
-            // which Phase 4 round-trip tests will surface.
+            // extern, optional, array, …) or its packing requires
+            // machinery we don't generate yet. Fall through to the
+            // regular read / write — the wire format may not match
+            // upstream for some of these, which Phase 4 round-trip
+            // tests will surface.
             return new PackedField(/* usesContext */ false,
                     plainData.getName(),
                     /* ctxMember */ "",
@@ -171,16 +183,30 @@ public final class PackingFieldFormatter
                 + uintCast + access + "));";
 
         final String cType = plainData.getNativeType();
-        final String readStmt =
+        String readStmt =
                 "{\n"
                 + "        uint64_t " + name + "_raw;\n"
                 + "        ZSERIO_TRY(zserio_delta_read(&" + ctxField + ", bs, &"
                 + name + "_raw));\n"
                 + "        " + access + " = (" + cType + ")" + name + "_raw;\n"
                 + "    }";
-
-        final String writeStmt = "ZSERIO_TRY(zserio_delta_write(&" + ctxField + ", bs, "
+        String writeStmt = "ZSERIO_TRY(zserio_delta_write(&" + ctxField + ", bs, "
                 + uintCast + access + "));";
+
+        // Constraint enforcement on the packed path — same shape as
+        // FieldFormatter.wrapConstraint produces for the plain path,
+        // so a constrained field validates its value either way.
+        if (field.getConstraintExpr() != null)
+        {
+            final String formatted = CExpressionFormatter.format(
+                    field.getConstraintExpr(), holderExpr, owner);
+            final String check =
+                    "if (!(" + formatted + ")) {\n"
+                    + "        return ZSERIO_ERR_CONSTRAINT_VIOLATED;\n"
+                    + "    }";
+            readStmt  = readStmt + "\n    " + check;
+            writeStmt = check + "\n    " + writeStmt;
+        }
 
         return new PackedField(/* usesContext */ true,
                 name, ctxMember, initStmt, observeStmt, readStmt, writeStmt);
@@ -236,12 +262,135 @@ public final class PackingFieldFormatter
     {
         for (final Field f : ct.getFields())
         {
-            if (isSimplePackable(f))
+            if (isSimplePackable(f) || compoundPackableUnderlying(f) != null)
             {
                 return true;
             }
         }
         return false;
+    }
+
+    /**
+     * If {@code field} is a non-optional, non-constraint, non-array
+     * compound whose underlying type has at least one packable field
+     * (transitively), return that compound. Otherwise null.
+     *
+     * The result drives the parent's nested-context emission: the
+     * parent's packing context carries a child packing context for
+     * this field, and the parent's init / observe / read / write
+     * recurse into the child's matching helpers.
+     */
+    private static CompoundType compoundPackableUnderlying(Field field)
+    {
+        if (field.isOptional() || field.getConstraintExpr() != null)
+        {
+            return null;
+        }
+        final TypeInstantiation typeInst = field.getTypeInstantiation();
+        if (typeInst instanceof zserio.ast.ArrayInstantiation)
+        {
+            return null;
+        }
+        ZserioType t = typeInst.getTypeReference().getType();
+        while (t instanceof Subtype || t instanceof zserio.ast.InstantiateType)
+        {
+            if (t instanceof Subtype)
+            {
+                t = ((Subtype)t).getTypeReference().getBaseTypeReference().getType();
+            }
+            else
+            {
+                t = ((zserio.ast.InstantiateType)t).getTypeReference()
+                        .getBaseTypeReference().getType();
+            }
+        }
+        // Only structures (not choices / unions) emit packing-context
+        // helpers — their templates are the ones we extended for the
+        // recursive packed-context machinery. Treating a Choice/Union
+        // child as compound-packable would dangle a reference to a
+        // non-existent <prefix>_packing_ctx_t typedef.
+        if (!(t instanceof zserio.ast.StructureType))
+        {
+            return null;
+        }
+        final CompoundType ct = (CompoundType)t;
+        return hasPackableField(ct) ? ct : null;
+    }
+
+    /**
+     * Compound subfield with a packing context: emit a nested context
+     * member + recursive init / observe / read / write into the
+     * child's _packed helpers.
+     *
+     * For parameterised children (e.g. {@code Position2D(coordShift)}
+     * inside an Intersection), the parameter must be propagated to
+     * the child instance before any init / observe / read / write —
+     * the child's init computes parameter-driven delta widths from
+     * its own {@code self->shift} (etc.), so an unset parameter would
+     * yield wrong widths and a stream-misalignment cascade.
+     */
+    private static PackedField formatCompoundPacked(Field field,
+            FieldFormatter.FieldData plainData,
+            CompoundType child,
+            String holderExpr, CompoundType owner, String ctxHolder)
+            throws ZserioExtensionException
+    {
+        final String name = plainData.getName();
+        final String access = holderExpr + name;
+        final String ctxField = ctxHolder + name;
+        final String childPrefix = CIdentifierFormatter.funcPrefix(
+                child.getPackage().getPackageName(), child.getName());
+
+        final String setParams = childSetParametersLine(
+                field, child, access, holderExpr, owner);
+
+        final String ctxMember = childPrefix + "_packing_ctx_t " + name + ";";
+        final String initStmt = setParams
+                + "ZSERIO_TRY(" + childPrefix
+                + "_init_packing_context(&" + access + ", &" + ctxField + "));";
+        final String observeStmt = setParams
+                + "ZSERIO_TRY(" + childPrefix
+                + "_observe_packing_context(&" + access + ", &" + ctxField + "));";
+        final String readStmt = setParams
+                + "ZSERIO_TRY(" + childPrefix
+                + "_read_packed(&" + access + ", bs, alloc, &" + ctxField + "));";
+        final String writeStmt = setParams
+                + "ZSERIO_TRY(" + childPrefix
+                + "_write_packed(&" + access + ", bs, &" + ctxField + "));";
+
+        return new PackedField(/* usesContext */ true,
+                name, ctxMember, initStmt, observeStmt, readStmt, writeStmt);
+    }
+
+    /**
+     * Build the {@code <child>_set_parameters(&slot, args...);} line
+     * for a parameterised nested compound subfield, or the empty
+     * string when the child has no parameters. The line ends with
+     * {@code \n    } so the caller can splice it directly before the
+     * recursive call.
+     */
+    private static String childSetParametersLine(Field field, CompoundType child,
+            String access, String holderExpr, CompoundType owner)
+            throws ZserioExtensionException
+    {
+        final TypeInstantiation typeInst = field.getTypeInstantiation();
+        if (!(typeInst instanceof zserio.ast.ParameterizedTypeInstantiation))
+        {
+            return "";
+        }
+        final String childPrefix = CIdentifierFormatter.funcPrefix(
+                child.getPackage().getPackageName(), child.getName());
+        final zserio.ast.ParameterizedTypeInstantiation pti =
+                (zserio.ast.ParameterizedTypeInstantiation)typeInst;
+        final StringBuilder args = new StringBuilder();
+        for (final zserio.ast.ParameterizedTypeInstantiation.InstantiatedParameter ip
+                : pti.getInstantiatedParameters())
+        {
+            args.append(", ");
+            args.append(CExpressionFormatter.format(
+                    ip.getArgumentExpression(), holderExpr, owner));
+        }
+        return childPrefix + "_set_parameters(&" + access + args + ");\n    ";
     }
 
     private static boolean isSimplePackable(Field field)
@@ -250,10 +399,11 @@ public final class PackingFieldFormatter
         {
             return false;
         }
-        if (field.getConstraintExpr() != null)
-        {
-            return false;
-        }
+        // A constraint doesn't disqualify a field from packing —
+        // upstream's encoder still delta-encodes constrained scalars
+        // and validates the constraint after decode. We do the same:
+        // the format() method below appends the constraint check to
+        // the packed readStmt.
         final TypeInstantiation typeInst = field.getTypeInstantiation();
         if (typeInst instanceof zserio.ast.ArrayInstantiation)
         {

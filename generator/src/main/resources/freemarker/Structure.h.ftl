@@ -57,9 +57,9 @@ typedef struct ${funcPrefix}_packing_ctx {
 </#list>
 } ${funcPrefix}_packing_ctx_t;
 
-zserio_status_t ${funcPrefix}_init_packing_context(const ${typeName} *self,
+zserio_status_t ${funcPrefix}_init_packing_context(${typeName} *self,
         ${funcPrefix}_packing_ctx_t *ctx);
-zserio_status_t ${funcPrefix}_observe_packing_context(const ${typeName} *self,
+zserio_status_t ${funcPrefix}_observe_packing_context(${typeName} *self,
         ${funcPrefix}_packing_ctx_t *ctx);
 zserio_status_t ${funcPrefix}_read_packed(${typeName} *self,
         zserio_bitstream_reader_t *bs, const zserio_allocator_t *alloc,
