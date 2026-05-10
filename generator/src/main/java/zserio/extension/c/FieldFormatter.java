@@ -920,6 +920,37 @@ public final class FieldFormatter
         return prefix + "_set_parameters(&$SLOT$" + args + ");\n                ";
     }
 
+    /**
+     * Produce a {@link FieldData} that lowers an array field through
+     * the packed-element encoding. Visible to {@link PackingFieldFormatter}
+     * so a parent compound's {@code _read_packed} body can route a
+     * non-{@code packed}-declared array field through packed encoding
+     * when the array's element type has packable leaves — upstream's
+     * rule
+     * (cpp/freemarker/CompoundField.inc.ftl:352-355) is "use packed
+     * encoding when (parent_is_packed || array.isPacked) and the
+     * field is packable".
+     */
+    static FieldData packedCompoundArrayField(String name, ArrayInstantiation ai,
+            String h, CompoundType owner) throws ZserioExtensionException
+    {
+        final TypeInstantiation eltInst = ai.getElementTypeInstantiation();
+        final ZserioType eltDirect = eltInst.getTypeReference().getType();
+        final TypeBinding eltBinding = bindType(eltDirect);
+        final CompoundType packedCompound = compoundUnderlying(eltDirect);
+        if (packedCompound == null
+                || !PackingFieldFormatter.hasPackableField(packedCompound))
+        {
+            throw new ZserioExtensionException(
+                    "zserio-c: packedCompoundArrayField called on non-packable element");
+        }
+        final String paramSetupLine =
+                packedCompoundParameterSetup(eltInst, packedCompound, h, owner,
+                        name + "_i");
+        return packedCompoundArray(name, eltBinding, packedCompound, ai, h, owner,
+                paramSetupLine);
+    }
+
     private static FieldData packedCompoundArray(String name, TypeBinding b,
             CompoundType ct, ArrayInstantiation ai, String h, CompoundType owner,
             String paramSetupLine)

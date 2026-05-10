@@ -171,12 +171,27 @@ int main(int argc, char **argv)
         if (tlen == strlen("road.layer.RoadLayer")
                 && memcmp(t, "road.layer.RoadLayer", tlen) == 0)
         {
+            /* Diagnostic dump: first 32 bytes of the extern blob to
+             * cross-check against upstream's wire layout when chasing
+             * decoder regressions. */
+            printf("ndslive: layer[0] extern blob (first 32 bytes):");
+            const size_t dump = (blob->bit_length / 8u) < 32u
+                    ? (blob->bit_length / 8u) : 32u;
+            for (size_t b = 0u; b < dump; ++b) {
+                printf(" %02x", (unsigned)blob->bytes[b]);
+            }
+            printf("\n");
+
             road_layer_road_layer_t rl;
             road_layer_road_layer_init(&rl);
             st = road_layer_road_layer_read(&rl, &lbs, &alloc);
             printf("ndslive: layer[%zu] RoadLayer dispatch: status=%d%s\n",
                    i, (int)st,
                    st == ZSERIO_OK ? " (decoded)" : " (gap: nested packed varint)");
+            if (st == ZSERIO_OK) {
+                printf("ndslive: layer[0] coord_shift=%u roads_count=%zu\n",
+                       (unsigned)rl.coord_shift, rl.road_list.roads_count);
+            }
             road_layer_road_layer_free(&rl, &alloc);
         }
         else if (tlen == strlen("road.layer.RoadGeometryLayer")

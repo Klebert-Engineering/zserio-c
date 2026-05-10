@@ -113,6 +113,65 @@ public final class PackingFieldFormatter
             String holderExpr, CompoundType owner, String ctxHolder)
             throws ZserioExtensionException
     {
+        // Array field whose element type has packable leaves: in a
+        // packed-parent body, upstream uses packed-array encoding for
+        // the field even when the schema doesn't say `packed`. Route
+        // through FieldFormatter's packed-array codegen so the
+        // parent's _read_packed / _write_packed call the element's
+        // _read_packed / _write_packed with a fresh per-array context.
+        // The array's storage layout (count + ptr or fixed-len buffer)
+        // is unchanged from the unpacked path; only the read/write
+        // statements differ.
+        if (field.getTypeInstantiation() instanceof zserio.ast.ArrayInstantiation
+                && !field.isOptional()
+                && field.getConstraintExpr() == null)
+        {
+            final zserio.ast.ArrayInstantiation ai =
+                    (zserio.ast.ArrayInstantiation)field.getTypeInstantiation();
+            final ZserioType eltDirect = ai.getElementTypeInstantiation()
+                    .getTypeReference().getType();
+            final CompoundType eltCompound = compoundLeaf(eltDirect);
+            if (eltCompound != null && hasPackableField(eltCompound))
+            {
+                final FieldFormatter.FieldData packedData =
+                        FieldFormatter.packedCompoundArrayField(
+                                plainData.getName(), ai, holderExpr, owner);
+                // The plain-path read / write include any align(N):
+                // wrap that FieldFormatter.format applied to the
+                // FieldData. The packed substitution loses that wrap
+                // — so re-format the alignment expression here and
+                // prepend the same align call to the packed read /
+                // write. (Without this, an `align(8): T[];` field's
+                // padding bits get consumed as element data and the
+                // bitstream slips.)
+                String packedRead = packedData.getReadStmt();
+                String packedWrite = packedData.getWriteStmt();
+                if (field.getAlignmentExpr() != null)
+                {
+                    final String formattedAlign = CExpressionFormatter.format(
+                            field.getAlignmentExpr(), holderExpr, owner);
+                    packedRead = "ZSERIO_TRY(zserio_bitstream_reader_align(bs, "
+                            + "(size_t)(" + formattedAlign + ")));\n    "
+                            + packedRead;
+                    packedWrite = "ZSERIO_TRY(zserio_bitstream_writer_align(bs, "
+                            + "(size_t)(" + formattedAlign + ")));\n    "
+                            + packedWrite;
+                }
+                // The packed-array read / write each scope a local
+                // packing context — there's nothing for the parent
+                // compound's packing-context struct to carry, so
+                // `usesContext` stays false (no init/observe at parent
+                // level for this field).
+                return new PackedField(/* usesContext */ false,
+                        plainData.getName(),
+                        /* ctxMember */ "",
+                        /* initStmt */ "",
+                        /* observeStmt */ "",
+                        packedRead,
+                        packedWrite);
+            }
+        }
+
         // Compound subfield with its own packing context: the parent
         // must hold a nested context member and recurse into the
         // child's _init / _observe / _read_packed / _write_packed
@@ -268,6 +327,30 @@ public final class PackingFieldFormatter
             }
         }
         return false;
+    }
+
+    /**
+     * Walk subtype / instantiate layers down to a {@link CompoundType},
+     * or return {@code null} if the type doesn't resolve to one.
+     * Used by the array-element classifier to decide if a packed
+     * element-array path applies.
+     */
+    private static CompoundType compoundLeaf(ZserioType direct)
+    {
+        ZserioType t = direct;
+        while (t instanceof Subtype || t instanceof zserio.ast.InstantiateType)
+        {
+            if (t instanceof Subtype)
+            {
+                t = ((Subtype)t).getTypeReference().getBaseTypeReference().getType();
+            }
+            else
+            {
+                t = ((zserio.ast.InstantiateType)t).getTypeReference()
+                        .getBaseTypeReference().getType();
+            }
+        }
+        return (t instanceof CompoundType) ? (CompoundType)t : null;
     }
 
     /**
