@@ -81,6 +81,9 @@ zserio_status_t ${funcPrefix}_init_packing_context(${typeName} *self,
      * `self->...` (parameters / dynamic-width bit fields do; plain
      * fixed-width fields don't). Silence the warning either way. */
     (void)self;
+<#if !hasPackingContextMembers>
+    (void)ctx;
+</#if>
 <#list packedFields as pf>
 <#if pf.usesContext>
     ${pf.initStmt}
@@ -95,6 +98,10 @@ zserio_status_t ${funcPrefix}_observe_packing_context(${typeName} *self,
     if (self == NULL || ctx == NULL) {
         return ZSERIO_ERR_INVALID_ARGUMENT;
     }
+<#if !hasPackingContextMembers>
+    (void)self;
+    (void)ctx;
+</#if>
 <#list packedFields as pf>
 <#if pf.usesContext>
     ${pf.observeStmt}
@@ -113,6 +120,9 @@ zserio_status_t ${funcPrefix}_read_packed(${typeName} *self,
 <#if !hasOwnedFields>
     (void)alloc;
 </#if>
+<#if !hasPackingContextMembers>
+    (void)ctx;
+</#if>
 <#list packedFields as pf>
     ${pf.readStmt}
 </#list>
@@ -126,6 +136,9 @@ zserio_status_t ${funcPrefix}_write_packed(${typeName} *self,
     if (self == NULL || bs == NULL || ctx == NULL) {
         return ZSERIO_ERR_INVALID_ARGUMENT;
     }
+<#if !hasPackingContextMembers>
+    (void)ctx;
+</#if>
 <#list packedFields as pf>
     ${pf.writeStmt}
 </#list>

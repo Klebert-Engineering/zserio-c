@@ -128,11 +128,21 @@ zserio_status_t zserio_delta_init(zserio_delta_context_t *ctx,
     if (ctx == NULL) {
         return ZSERIO_ERR_INVALID_ARGUMENT;
     }
-    if ((num_bits == 0U) || (num_bits > 64U)) {
+    if (num_bits > 64U) {
         return ZSERIO_ERR_INVALID_NUM_BITS;
     }
     /* Idempotent: skip if already configured. */
     if ((ctx->num_bits != 0U) || (ctx->traits != NULL)) {
+        return ZSERIO_OK;
+    }
+    /* num_bits == 0 is a deferred-init signal: the generator emits
+     * delta_init calls for dynamic-width fields (`bit<numBits>`) at
+     * the parent compound's _init_packing_context AND inline before
+     * each per-element packed read / write / observe. At parent-init
+     * time self is zero so num_bits == 0; the generated code re-emits
+     * delta_init at the inline call site after the dynamic width is
+     * read. Silently no-op here so the parent init still succeeds. */
+    if (num_bits == 0U) {
         return ZSERIO_OK;
     }
     (void)memset(ctx, 0, sizeof(*ctx));

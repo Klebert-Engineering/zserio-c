@@ -26,6 +26,7 @@ public final class StructureEmitterTemplateData
     private final List<FieldFormatter.FieldData> fields;
     private final List<PackingFieldFormatter.PackedField> packedFields;
     private final boolean hasPackingContext;
+    private final boolean hasPackingContextMembers;
     private final List<FunctionData> functions;
     private final List<String> extraIncludes;
     private final boolean hasOwnedFields;
@@ -75,7 +76,14 @@ public final class StructureEmitterTemplateData
         }
         this.fields = built;
         this.packedFields = packedBuilt;
-        this.hasPackingContext = usesContext;
+        // A compound emits packing helpers if it is packable per
+        // upstream (any field is packable, including arrays whose
+        // elements pack). Helpers may carry an empty packing context
+        // when no individual field needs a context member (e.g. the
+        // only packable leaves live inside arrays which scope their
+        // own local contexts).
+        this.hasPackingContext = PackingFieldFormatter.hasPackableField(structType);
+        this.hasPackingContextMembers = usesContext;
         this.functions = FunctionData.from(structType);
         for (final FunctionData fn : this.functions)
         {
@@ -104,6 +112,7 @@ public final class StructureEmitterTemplateData
     public List<FieldFormatter.FieldData> getFields() { return fields; }
     public List<PackingFieldFormatter.PackedField> getPackedFields() { return packedFields; }
     public boolean getHasPackingContext()    { return hasPackingContext; }
+    public boolean getHasPackingContextMembers() { return hasPackingContextMembers; }
     public List<FunctionData> getFunctions() { return functions; }
     public boolean getHasFunctions()         { return !functions.isEmpty(); }
     public List<String> getExtraIncludes()   { return extraIncludes; }

@@ -55,6 +55,14 @@ typedef struct ${funcPrefix}_packing_ctx {
     ${pf.ctxMember}
 </#if>
 </#list>
+<#if !hasPackingContextMembers>
+    /* Compound is packable per upstream's rule (a field's elements
+     * pack) but no field needs a context member at this level (the
+     * packable leaves live inside arrays that scope their own local
+     * contexts). The placeholder keeps the typedef well-formed
+     * under {@code -Wpedantic}. */
+    char _zserio_packing_ctx_empty;
+</#if>
 } ${funcPrefix}_packing_ctx_t;
 
 zserio_status_t ${funcPrefix}_init_packing_context(${typeName} *self,

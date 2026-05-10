@@ -324,6 +324,15 @@ public final class PackingFieldFormatter
 
         final String ctxMember = "zserio_delta_context_t " + name + ";";
 
+        // Dynamic-bit-width detection: a bit<numBits> field whose
+        // num_bits depends on a sibling field (or parameter) can't be
+        // delta-init'd at parent-init time, when self is zero. Emit
+        // the delta_init INLINE before each read / write / observe
+        // call so the runtime evaluates the bit-width expression after
+        // the sibling has been populated. The init in the parent's
+        // _init_packing_context still fires but with num_bits=0, which
+        // the runtime silently treats as a deferred-init signal.
+        final String configureLine;
         final String initStmt;
         final boolean signed;
         final String uintCast;
@@ -337,6 +346,7 @@ public final class PackingFieldFormatter
             final String traitsSym = traitsSymbol((VarIntegerType)under);
             initStmt = "ZSERIO_TRY(zserio_delta_init_traits(&" + ctxField
                     + ", &" + traitsSym + "));";
+            configureLine = "";
             signed = ((VarIntegerType)under).isSigned();
             uintCast = uintCastFor(signed);
         }
@@ -344,25 +354,34 @@ public final class PackingFieldFormatter
         {
             // Fixed-width integer / bit-field / enum / bitmask.
             final PackedScalar scalar = packedScalar(direct, typeInst, holderExpr, owner);
-            initStmt = "ZSERIO_TRY(zserio_delta_init(&" + ctxField + ", "
+            final String initCall = "ZSERIO_TRY(zserio_delta_init(&" + ctxField + ", "
                     + scalar.bitsExpr + ", "
                     + (scalar.signed ? "true" : "false") + "));";
+            initStmt = initCall;
+            // For dynamic-bit fields, re-emit the init at each
+            // per-element use site so num_bits is evaluated from the
+            // populated sibling. delta_init is idempotent so this is a
+            // no-op for already-configured contexts.
+            configureLine = scalar.isDynamic ? (initCall + "\n    ") : "";
             signed = scalar.signed;
             uintCast = scalar.uintCast;
         }
 
-        final String observeStmt = "ZSERIO_TRY(zserio_delta_observe(&" + ctxField + ", "
+        final String observeStmt = configureLine
+                + "ZSERIO_TRY(zserio_delta_observe(&" + ctxField + ", "
                 + uintCast + access + "));";
 
         final String cType = plainData.getNativeType();
         String readStmt =
                 "{\n"
+                + (configureLine.isEmpty() ? "" : "        " + configureLine.trim() + "\n")
                 + "        uint64_t " + name + "_raw;\n"
                 + "        ZSERIO_TRY(zserio_delta_read(&" + ctxField + ", bs, &"
                 + name + "_raw));\n"
                 + "        " + access + " = (" + cType + ")" + name + "_raw;\n"
                 + "    }";
-        String writeStmt = "ZSERIO_TRY(zserio_delta_write(&" + ctxField + ", bs, "
+        String writeStmt = configureLine
+                + "ZSERIO_TRY(zserio_delta_write(&" + ctxField + ", bs, "
                 + uintCast + access + "));";
 
         // Constraint enforcement on the packed path — same shape as
@@ -492,6 +511,26 @@ public final class PackingFieldFormatter
                         return true;
                     }
                     if (optionalCompoundPackableUnderlying(f) != null)
+                    {
+                        return true;
+                    }
+                }
+                // Array fields with packable elements contribute to
+                // packability: a struct whose only packable leaves
+                // live inside array fields (e.g.
+                // ConditionTypeCodeCollection's `packed
+                // ConditionTypeCode[]` field) is still packable per
+                // upstream's rule. The struct emits packing helpers
+                // that the array dispatch can call — even though the
+                // helpers carry an empty packing context (each array
+                // scopes its own local context), the function
+                // signatures exist and the body is identical to the
+                // unpacked _read / _write.
+                if (f.getTypeInstantiation() instanceof zserio.ast.ArrayInstantiation)
+                {
+                    final zserio.ast.ArrayInstantiation ai =
+                            (zserio.ast.ArrayInstantiation)f.getTypeInstantiation();
+                    if (ai.isPackable())
                     {
                         return true;
                     }
@@ -1005,13 +1044,13 @@ public final class PackingFieldFormatter
         {
             final StdIntegerType std = (StdIntegerType)under;
             return new PackedScalar(Integer.toString(std.getBitSize()),
-                    std.isSigned(), uintCastFor(std.isSigned()));
+                    std.isSigned(), uintCastFor(std.isSigned()), /* isDynamic */ false);
         }
         if (under instanceof FixedBitFieldType)
         {
             final FixedBitFieldType bf = (FixedBitFieldType)under;
             return new PackedScalar(Integer.toString(bf.getBitSize()),
-                    bf.isSigned(), uintCastFor(bf.isSigned()));
+                    bf.isSigned(), uintCastFor(bf.isSigned()), /* isDynamic */ false);
         }
         if (under instanceof DynamicBitFieldType)
         {
@@ -1031,7 +1070,8 @@ public final class PackingFieldFormatter
             final Expression lenExpr = inst.getLengthExpression();
             final String formatted = "(uint8_t)("
                     + CExpressionFormatter.format(lenExpr, holderExpr, owner) + ")";
-            return new PackedScalar(formatted, dyn.isSigned(), uintCastFor(dyn.isSigned()));
+            return new PackedScalar(formatted, dyn.isSigned(), uintCastFor(dyn.isSigned()),
+                    /* isDynamic */ true);
         }
         throw new ZserioExtensionException(
                 "zserio-c: packed scalar lowering hit unexpected underlying type "
@@ -1091,12 +1131,14 @@ public final class PackingFieldFormatter
         final String bitsExpr;     // numeric literal for fixed types, formatted expression for bit<n>
         final boolean signed;
         final String uintCast;     // cast pattern that materialises a uint64_t bit pattern
+        final boolean isDynamic;   // true for bit<n> where n is an expression (not a literal)
 
-        PackedScalar(String bitsExpr, boolean signed, String uintCast)
+        PackedScalar(String bitsExpr, boolean signed, String uintCast, boolean isDynamic)
         {
             this.bitsExpr = bitsExpr;
             this.signed = signed;
             this.uintCast = uintCast;
+            this.isDynamic = isDynamic;
         }
     }
 }
