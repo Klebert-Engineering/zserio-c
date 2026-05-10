@@ -131,6 +131,10 @@ zserio_status_t zserio_delta_init(zserio_delta_context_t *ctx,
     if ((num_bits == 0U) || (num_bits > 64U)) {
         return ZSERIO_ERR_INVALID_NUM_BITS;
     }
+    /* Idempotent: skip if already configured. */
+    if ((ctx->num_bits != 0U) || (ctx->traits != NULL)) {
+        return ZSERIO_OK;
+    }
     (void)memset(ctx, 0, sizeof(*ctx));
     ctx->num_bits = num_bits;
     ctx->is_signed = is_signed;
@@ -146,6 +150,10 @@ zserio_status_t zserio_delta_init_traits(zserio_delta_context_t *ctx,
             || (traits->write_unpacked == NULL)
             || (traits->bit_size_unpacked == NULL)) {
         return ZSERIO_ERR_INVALID_ARGUMENT;
+    }
+    /* Idempotent: skip if already configured. */
+    if ((ctx->num_bits != 0U) || (ctx->traits != NULL)) {
+        return ZSERIO_OK;
     }
     (void)memset(ctx, 0, sizeof(*ctx));
     ctx->traits = traits;
@@ -260,18 +268,6 @@ zserio_status_t zserio_delta_read(zserio_delta_context_t *ctx,
         ZSERIO_TRY(read_full_element(ctx, bs, &first));
         ctx->previous = first;
         *out = first;
-        {
-            extern int diag_count;
-            (void)diag_count;
-            #include <stdio.h>
-            static int dbg_first = 0;
-            if (dbg_first++ < 30) {
-                fprintf(stderr, "[delta] first ctx@%p packed=%llu max_bit_number=%u num_bits=%u traits=%p first=%llu\n",
-                        (void*)ctx, (unsigned long long)is_packed,
-                        (unsigned)ctx->max_bit_number, (unsigned)ctx->num_bits,
-                        (void*)ctx->traits, (unsigned long long)first);
-            }
-        }
         return ZSERIO_OK;
     }
 

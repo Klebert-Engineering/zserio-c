@@ -1015,6 +1015,12 @@ public final class FieldFormatter
         final String firstParamSetup = paramSetupLine.isEmpty() ? ""
                 : paramSetupLine.replace("$SLOT$", firstSlotExpr);
 
+        // Zero-init the packing context: a Choice's init dispatches by
+        // selector and only configures the active arm's sub-context.
+        // Per-element re-init (emitted in Choice._read_packed) relies
+        // on uninitialised sub-contexts reading as zero so the
+        // idempotent delta_init treats them as "not yet configured" and
+        // configures them on first touch.
         final String read =
                 "{\n"
                 + readCountSetup
@@ -1030,6 +1036,7 @@ public final class FieldFormatter
                 + "            (void)memset(" + ptrExpr + ", 0, "
                 + countExpr + " * sizeof(*(" + ptrExpr + ")));\n"
                 + "            " + prefix + "_packing_ctx_t " + ctxVar + ";\n"
+                + "            (void)memset(&" + ctxVar + ", 0, sizeof(" + ctxVar + "));\n"
                 + "            " + firstParamSetup
                 + "ZSERIO_TRY(" + prefix + "_init_packing_context(&"
                 + firstSlotExpr + ", &" + ctxVar + "));\n"
@@ -1050,6 +1057,7 @@ public final class FieldFormatter
                 + writeCountPrefix
                 + "        if (" + countExpr + " > 0u) {\n"
                 + "            " + prefix + "_packing_ctx_t " + ctxVar + ";\n"
+                + "            (void)memset(&" + ctxVar + ", 0, sizeof(" + ctxVar + "));\n"
                 + "            " + firstParamSetup
                 + "ZSERIO_TRY(" + prefix + "_init_packing_context(&"
                 + firstSlotExpr + ", &" + ctxVar + "));\n"
@@ -1113,6 +1121,7 @@ public final class FieldFormatter
         final String read =
                 "{\n"
                 + "        " + prefix + "_packing_ctx_t " + ctxVar + ";\n"
+                + "        (void)memset(&" + ctxVar + ", 0, sizeof(" + ctxVar + "));\n"
                 + "        " + firstParamSetup
                 + "ZSERIO_TRY(" + prefix + "_init_packing_context(&"
                 + firstSlotExpr + ", &" + ctxVar + "));\n"
@@ -1126,6 +1135,7 @@ public final class FieldFormatter
         final String write =
                 "{\n"
                 + "        " + prefix + "_packing_ctx_t " + ctxVar + ";\n"
+                + "        (void)memset(&" + ctxVar + ", 0, sizeof(" + ctxVar + "));\n"
                 + "        " + firstParamSetup
                 + "ZSERIO_TRY(" + prefix + "_init_packing_context(&"
                 + firstSlotExpr + ", &" + ctxVar + "));\n"

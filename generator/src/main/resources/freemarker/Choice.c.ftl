@@ -161,6 +161,15 @@ zserio_status_t ${funcPrefix}_observe_packing_context(${typeName} *self,
     if (self == NULL || ctx == NULL) {
         return ZSERIO_ERR_INVALID_ARGUMENT;
     }
+    /* Re-init: a Choice's active arm depends on the per-element
+     * selector. The array driver's outer init only configures the arm
+     * matching element[0]'s selector; subsequent elements with a
+     * different arm need their context configured at their own
+     * observe / read / write time. zserio_delta_init / _init_traits
+     * are idempotent, so this is a no-op for already-configured arms;
+     * the array driver zero-initialises the packing context up front
+     * so uninitialised arms read as "not yet configured". */
+    ZSERIO_TRY(${funcPrefix}_init_packing_context(self, ctx));
     switch (${selectorExpr}) {
 <#list cases as case>
 <#list case.labels as lbl>
@@ -193,6 +202,8 @@ zserio_status_t ${funcPrefix}_read_packed(${typeName} *self,
 <#if !hasOwnedCases>
     (void)alloc;
 </#if>
+    /* Re-init: see the comment in _observe_packing_context. */
+    ZSERIO_TRY(${funcPrefix}_init_packing_context(self, ctx));
     switch (${selectorExpr}) {
 <#list cases as case>
 <#list case.labels as lbl>
@@ -234,6 +245,8 @@ zserio_status_t ${funcPrefix}_write_packed(${typeName} *self,
     if (self == NULL || bs == NULL || ctx == NULL) {
         return ZSERIO_ERR_INVALID_ARGUMENT;
     }
+    /* Re-init: see the comment in _observe_packing_context. */
+    ZSERIO_TRY(${funcPrefix}_init_packing_context(self, ctx));
     switch (${selectorExpr}) {
 <#list cases as case>
 <#list case.labels as lbl>
