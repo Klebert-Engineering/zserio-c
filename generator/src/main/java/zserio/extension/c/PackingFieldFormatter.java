@@ -146,8 +146,13 @@ public final class PackingFieldFormatter
         // The array's storage layout (count + ptr or fixed-len buffer)
         // is unchanged from the unpacked path; only the read/write
         // statements differ.
+        //
+        // Optional + array (e.g. `T[] x if expr;`): wrap the packed-
+        // array body with the same optional gating wrapIfOptional /
+        // wrapAutoOptional applies on the unpacked path. The packed
+        // body runs only when the clause is true (or auto-optional
+        // bool is set); otherwise just clear _present.
         if (field.getTypeInstantiation() instanceof zserio.ast.ArrayInstantiation
-                && !field.isOptional()
                 && field.getConstraintExpr() == null)
         {
             final zserio.ast.ArrayInstantiation ai =
@@ -180,6 +185,48 @@ public final class PackingFieldFormatter
                     packedWrite = "ZSERIO_TRY(zserio_bitstream_writer_align(bs, "
                             + "(size_t)(" + formattedAlign + ")));\n    "
                             + packedWrite;
+                }
+                if (field.isOptional())
+                {
+                    final String name = plainData.getName();
+                    final String present = FieldFormatter.parentHolder(holderExpr)
+                            + name + "_present";
+                    if (field.getOptionalClauseExpr() != null)
+                    {
+                        final String clause = CExpressionFormatter.format(
+                                field.getOptionalClauseExpr(), holderExpr, owner);
+                        packedRead =
+                                "if (" + clause + ") {\n"
+                                + "        " + present + " = true;\n"
+                                + "        " + packedRead + "\n"
+                                + "    } else {\n"
+                                + "        " + present + " = false;\n"
+                                + "    }";
+                        packedWrite =
+                                "if (" + clause + ") {\n"
+                                + "        " + packedWrite + "\n"
+                                + "    }";
+                    }
+                    else
+                    {
+                        packedRead =
+                                "{\n"
+                                + "        uint64_t " + name + "_presence = 0u;\n"
+                                + "        ZSERIO_TRY(zserio_bitstream_read_bits(bs, 1, &"
+                                + name + "_presence));\n"
+                                + "        " + present + " = (" + name + "_presence != 0u);\n"
+                                + "        if (" + present + ") {\n"
+                                + "            " + packedRead + "\n"
+                                + "        }\n"
+                                + "    }";
+                        packedWrite =
+                                "if (" + present + ") {\n"
+                                + "        ZSERIO_TRY(zserio_bitstream_write_bits(bs, 1, 1u));\n"
+                                + "        " + packedWrite + "\n"
+                                + "    } else {\n"
+                                + "        ZSERIO_TRY(zserio_bitstream_write_bits(bs, 1, 0u));\n"
+                                + "    }";
+                    }
                 }
                 // The packed-array read / write each scope a local
                 // packing context — there's nothing for the parent
