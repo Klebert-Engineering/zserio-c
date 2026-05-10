@@ -820,6 +820,7 @@ public final class FieldFormatter
                 + "                return ZSERIO_ERR_OUT_OF_MEMORY;\n"
                 + "            }\n"
                 + "            zserio_delta_context_t " + name + "_ctx;\n"
+                + "            (void)memset(&" + name + "_ctx, 0, sizeof(" + name + "_ctx));\n"
                 + "            ZSERIO_TRY(zserio_delta_init(&" + name + "_ctx, "
                 + p.bits + ", " + boolStr + "));\n"
                 + "            for (size_t " + iVar + " = 0u; " + iVar + " < "
@@ -844,6 +845,7 @@ public final class FieldFormatter
                 + writeCountPrefix
                 + "        if (" + countExpr + " > 0u) {\n"
                 + "            zserio_delta_context_t " + name + "_ctx;\n"
+                + "            (void)memset(&" + name + "_ctx, 0, sizeof(" + name + "_ctx));\n"
                 + "            ZSERIO_TRY(zserio_delta_init(&" + name + "_ctx, "
                 + p.bits + ", " + boolStr + "));\n"
                 + "            for (size_t " + iVar + " = 0u; " + iVar + " < "
@@ -1180,6 +1182,7 @@ public final class FieldFormatter
         final String read =
                 "{\n"
                 + "        zserio_delta_context_t " + name + "_ctx;\n"
+                + "        (void)memset(&" + name + "_ctx, 0, sizeof(" + name + "_ctx));\n"
                 + "        ZSERIO_TRY(zserio_delta_init(&" + name + "_ctx, "
                 + p.bits + ", " + boolStr + "));\n"
                 + "        for (size_t " + iVar + " = 0u; " + iVar + " < "
@@ -1194,6 +1197,7 @@ public final class FieldFormatter
         final String write =
                 "{\n"
                 + "        zserio_delta_context_t " + name + "_ctx;\n"
+                + "        (void)memset(&" + name + "_ctx, 0, sizeof(" + name + "_ctx));\n"
                 + "        ZSERIO_TRY(zserio_delta_init(&" + name + "_ctx, "
                 + p.bits + ", " + boolStr + "));\n"
                 + "        for (size_t " + iVar + " = 0u; " + iVar + " < "
