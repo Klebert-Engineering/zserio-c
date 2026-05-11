@@ -88,6 +88,9 @@ extended_members/zs/extended_members/extended_field_in_template.zs
 expressions/zs/expressions/index_operator.zs
 functions/zs/functions/union_array.zs
 functions/zs/functions/structure_optional.zs
+indexed_offsets/zs/indexed_offsets/bool_indexed_offset_array.zs
+extended_members/zs/extended_members/extended_choice_field.zs
+default_values/zs/default_values/optional_default_values.zs
 
 # DEFERRED: packed_arrays_mapping — 30-field packed kitchen sink.
 # Cpp reader hits EOF on our output for every seed, so one or more
