@@ -93,6 +93,9 @@ extended_members/zs/extended_members/extended_choice_field.zs
 default_values/zs/default_values/optional_default_values.zs
 builtin_types/zs/builtin_types/bitfield_uint64_length.zs
 builtin_types/zs/builtin_types/dynamic_bitfield_length_bounds.zs
+parameterized_types/zs/parameterized_types/dynamic_bitfield_param.zs
+parameterized_types/zs/parameterized_types/bytes_param.zs
+parameterized_types/zs/parameterized_types/extern_param.zs
 
 # DEFERRED: bitfield_function_length — `lengthof(array)` on a fixed-
 # length array lowers to `self->array_count`, but fixed-length arrays

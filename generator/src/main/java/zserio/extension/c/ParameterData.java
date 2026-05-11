@@ -9,11 +9,14 @@ import java.util.ArrayList;
 import java.util.List;
 
 import zserio.ast.BitmaskType;
+import zserio.ast.BytesType;
 import zserio.ast.CompoundType;
 import zserio.ast.EnumType;
+import zserio.ast.ExternType;
 import zserio.ast.InstantiateType;
 import zserio.ast.PackageName;
 import zserio.ast.Parameter;
+import zserio.ast.StringType;
 import zserio.ast.Subtype;
 import zserio.ast.TypeReference;
 import zserio.ast.ZserioType;
@@ -117,11 +120,23 @@ public final class ParameterData
             pkg = bt.getPackage().getPackageName();
             name = bt.getName();
         }
+        else if (resolved instanceof StringType)
+        {
+            return "zserio/string.h";
+        }
+        else if (resolved instanceof BytesType)
+        {
+            return "zserio/bytes.h";
+        }
+        else if (resolved instanceof ExternType)
+        {
+            return "zserio/extern.h";
+        }
         else
         {
-            // Built-in scalar / string / bytes / extern: the C type
-            // name comes from the runtime headers already pulled in by
-            // every generated unit; no extra include needed.
+            // Built-in scalar / float: the C type name comes from the
+            // runtime headers already pulled in by every generated
+            // unit; no extra include needed.
             return null;
         }
         return CIdentifierFormatter.headerIncludePath(pkg, name);
