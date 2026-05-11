@@ -13,3 +13,4 @@ array_types/zs/array_types/packed_auto_array_uint8.zs
 array_types/zs/array_types/packed_auto_array_struct_with_unpacked_field.zs
 structure_types/zs/structure_types/simple_structure.zs
 optional_members/zs/optional_members/auto_optional.zs
+choice_types/zs/choice_types/bool_param_choice.zs

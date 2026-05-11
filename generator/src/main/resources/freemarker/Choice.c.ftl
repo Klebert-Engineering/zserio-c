@@ -35,7 +35,7 @@ zserio_status_t ${funcPrefix}_read(${typeName} *self,
 <#if !hasOwnedCases>
     (void)alloc;
 </#if>
-    switch (${selectorExpr}) {
+    switch ((int)(${selectorExpr})) {
 <#list cases as case>
 <#list case.labels as lbl>
     case ${lbl}:
@@ -67,7 +67,7 @@ zserio_status_t ${funcPrefix}_write(${typeName} *self,
     if (self == NULL || bs == NULL) {
         return ZSERIO_ERR_INVALID_ARGUMENT;
     }
-    switch (${selectorExpr}) {
+    switch ((int)(${selectorExpr})) {
 <#list cases as case>
 <#list case.labels as lbl>
     case ${lbl}:
@@ -101,7 +101,7 @@ void ${funcPrefix}_free(${typeName} *self, const zserio_allocator_t *alloc)
 <#if !hasOwnedCases>
     (void)alloc;
 </#if>
-    switch (${selectorExpr}) {
+    switch ((int)(${selectorExpr})) {
 <#list cases as case>
 <#if case.hasField && case.field.freeStmt?has_content>
 <#list case.labels as lbl>
@@ -133,7 +133,7 @@ zserio_status_t ${funcPrefix}_init_packing_context(${typeName} *self,
      * the selector. Inactive arms leave their corresponding context
      * member zero — never used because read/write/observe dispatches
      * the same way. */
-    switch (${selectorExpr}) {
+    switch ((int)(${selectorExpr})) {
 <#list cases as case>
 <#list case.labels as lbl>
     case ${lbl}:
@@ -170,7 +170,7 @@ zserio_status_t ${funcPrefix}_observe_packing_context(${typeName} *self,
      * the array driver zero-initialises the packing context up front
      * so uninitialised arms read as "not yet configured". */
     ZSERIO_TRY(${funcPrefix}_init_packing_context(self, ctx));
-    switch (${selectorExpr}) {
+    switch ((int)(${selectorExpr})) {
 <#list cases as case>
 <#list case.labels as lbl>
     case ${lbl}:
@@ -204,7 +204,7 @@ zserio_status_t ${funcPrefix}_read_packed(${typeName} *self,
 </#if>
     /* Re-init: see the comment in _observe_packing_context. */
     ZSERIO_TRY(${funcPrefix}_init_packing_context(self, ctx));
-    switch (${selectorExpr}) {
+    switch ((int)(${selectorExpr})) {
 <#list cases as case>
 <#list case.labels as lbl>
     case ${lbl}:
@@ -247,7 +247,7 @@ zserio_status_t ${funcPrefix}_write_packed(${typeName} *self,
     }
     /* Re-init: see the comment in _observe_packing_context. */
     ZSERIO_TRY(${funcPrefix}_init_packing_context(self, ctx));
-    switch (${selectorExpr}) {
+    switch ((int)(${selectorExpr})) {
 <#list cases as case>
 <#list case.labels as lbl>
     case ${lbl}:

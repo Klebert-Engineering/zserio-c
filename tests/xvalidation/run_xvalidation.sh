@@ -199,7 +199,7 @@ while IFS= read -r schema_rel; do
             schema_failures=$((schema_failures + 1))
             continue
         }
-        "${work}/cpp_driver" "${bytes_c}" "${bytes_cpp}" 1>/dev/null || {
+        "${work}/cpp_driver" "${bytes_c}" "${bytes_cpp}" "${seed}" 1>/dev/null || {
             echo "xval: ${name} seed=${seed}: cpp_driver failed"
             schema_failures=$((schema_failures + 1))
             continue
