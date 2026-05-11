@@ -127,6 +127,8 @@ expressions/zs/expressions/const_type.zs
 expressions/zs/expressions/full_const_type.zs
 expressions/zs/expressions/full_enumeration_type.zs
 structure_types/zs/structure_types/one_string_structure.zs
+subtypes/zs/subtypes/structure_subtype.zs
+subtypes/zs/subtypes/param_structure_subtype.zs
 
 # DEFERRED: packed_arrays_mapping — 30-field packed kitchen sink.
 # Cpp reader hits EOF on our output for every seed, so one or more
