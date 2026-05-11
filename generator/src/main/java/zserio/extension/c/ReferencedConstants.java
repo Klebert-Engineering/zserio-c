@@ -9,6 +9,7 @@ import java.util.LinkedHashSet;
 import java.util.Set;
 
 import zserio.ast.ArrayInstantiation;
+import zserio.ast.BitmaskType;
 import zserio.ast.ChoiceCase;
 import zserio.ast.ChoiceCaseExpression;
 import zserio.ast.ChoiceDefault;
@@ -16,6 +17,7 @@ import zserio.ast.ChoiceType;
 import zserio.ast.CompoundType;
 import zserio.ast.Constant;
 import zserio.ast.DynamicBitFieldInstantiation;
+import zserio.ast.EnumType;
 import zserio.ast.Expression;
 import zserio.ast.Field;
 import zserio.ast.Function;
@@ -126,6 +128,22 @@ final class ReferencedConstants
         {
             out.add(CIdentifierFormatter.headerIncludePath(
                     c.getPackage().getPackageName(), c.getName()));
+        }
+        // Enum literals like `E.BLACK` lower to a `<pkg>_<ENUM>_<ITEM>`
+        // static const in the enum's own header. The compound's
+        // translation unit needs the header in scope for any expression
+        // that mentions the enum value. After template substitution the
+        // referenced EnumType may live in any package, so collect every
+        // referenced enum/bitmask explicitly.
+        for (final EnumType e : expr.getReferencedSymbolObjects(EnumType.class))
+        {
+            out.add(CIdentifierFormatter.headerIncludePath(
+                    e.getPackage().getPackageName(), e.getName()));
+        }
+        for (final BitmaskType b : expr.getReferencedSymbolObjects(BitmaskType.class))
+        {
+            out.add(CIdentifierFormatter.headerIncludePath(
+                    b.getPackage().getPackageName(), b.getName()));
         }
     }
 }

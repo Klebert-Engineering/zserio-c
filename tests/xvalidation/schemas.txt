@@ -145,6 +145,10 @@ default_values/zs/default_values/default_values_in_templates.zs
 templates/zs/templates/instantiate_type_as_choice_field.zs
 templates/zs/templates/instantiate_type_as_parameter.zs
 templates/zs/templates/instantiate_clash_other_template.zs
+templates/zs/templates/expression_enum_template_argument.zs
+templates/zs/templates/expression_bitmask_template_argument.zs
+templates/zs/templates/choice_templated_enum_selector.zs
+templates/zs/templates/choice_templated_selector.zs
 
 # DEFERRED: packed_arrays_mapping — 30-field packed kitchen sink.
 # Cpp reader hits EOF on our output for every seed, so one or more
