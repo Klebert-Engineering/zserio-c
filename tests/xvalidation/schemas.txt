@@ -137,6 +137,8 @@ choice_types/zs/choice_types/function_selector_choice.zs
 offsets/zs/offsets/packed_auto_array_offset.zs
 indexed_offsets/zs/indexed_offsets/packed_auto_indexed_offset_array.zs
 structure_types/zs/structure_types/empty_structure_with_parameter.zs
+extended_members/zs/extended_members/extended_empty_structure.zs
+choice_types/zs/choice_types/function_returning_literal_selector_choice.zs
 
 # DEFERRED: packed_arrays_mapping — 30-field packed kitchen sink.
 # Cpp reader hits EOF on our output for every seed, so one or more
