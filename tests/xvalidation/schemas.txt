@@ -122,6 +122,11 @@ offsets/zs/offsets/uint64_offset.zs
 offsets/zs/offsets/optional_member_offset.zs
 parameterized_types/zs/parameterized_types/parameterized_param.zs
 parameterized_types/zs/parameterized_types/subtyped_bitfield_param.zs
+expressions/zs/expressions/field_type.zs
+expressions/zs/expressions/const_type.zs
+expressions/zs/expressions/full_const_type.zs
+expressions/zs/expressions/full_enumeration_type.zs
+structure_types/zs/structure_types/one_string_structure.zs
 
 # DEFERRED: packed_arrays_mapping — 30-field packed kitchen sink.
 # Cpp reader hits EOF on our output for every seed, so one or more
