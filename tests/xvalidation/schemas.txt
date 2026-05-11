@@ -52,3 +52,7 @@ constraints/zs/constraints/array_lengthof_constraint.zs
 constraints/zs/constraints/choice_constraints.zs
 union_types/zs/union_types/union_with_parameter.zs
 parameterized_types/zs/parameterized_types/param_with_optional.zs
+array_types/zs/array_types/packed_auto_array_struct_with_bytes.zs
+array_types/zs/array_types/packed_auto_array_struct_recursion.zs
+array_types/zs/array_types/auto_array_subtyped_uint8.zs
+optional_members/zs/optional_members/optional_complex_expression.zs
