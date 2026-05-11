@@ -475,9 +475,11 @@ public final class FieldFormatter
         final int forIdx = w.indexOf(forAnchor);
         if (forIdx < 0)
         {
-            throw new IllegalStateException(
-                    "indexed offset: cannot locate for-loop in source array writeStmt for '"
-                            + zserioName + "' — writeStmt shape changed?");
+            // Zero-length fixed source array: no for-loop emitted.
+            // Skip the marker entirely — the anchored array's loop is
+            // also empty so the back-patch never fires either, and an
+            // unused size_t local trips `-Werror=unused-variable`.
+            return inner;
         }
         final int lineStart = w.lastIndexOf('\n', forIdx) + 1;
         final String indent = w.substring(lineStart, forIdx);
@@ -573,9 +575,12 @@ public final class FieldFormatter
         final int forIdx = stmt.indexOf(forAnchor);
         if (forIdx < 0)
         {
-            throw new IllegalStateException(
-                    "indexed offset: cannot locate for-loop in anchored array stmt for '"
-                            + snakeName + "' — array stmt shape changed?");
+            // Zero-length fixed array: no for-loop emitted at all
+            // (see `fixedArray`'s zero-length special case). The
+            // indexed-offset wrap has nothing to inject into; the
+            // anchored array contributes zero bits on the wire, so
+            // skipping the wrap is correct.
+            return stmt;
         }
         final int braceIdx = stmt.indexOf('{', forIdx);
         if (braceIdx < 0)
@@ -2074,6 +2079,23 @@ public final class FieldFormatter
     private static FieldData fixedArray(String name, ElementOps ops,
             String lengthLiteral, String h)
     {
+        // ISO C forbids zero-size arrays. Special-case `T name[0]`:
+        // emit a one-byte placeholder member so the struct stays well-
+        // formed under {@code -Wpedantic}, and skip the per-element
+        // loops entirely (they'd be `for (i = 0; i < 0; …)`, which
+        // also trips {@code -Wtype-limits}). On the wire a zero-length
+        // fixed array contributes zero bits, so the read and write
+        // are no-ops.
+        if ("0".equals(lengthLiteral))
+        {
+            final String declaration = "char _zserio_empty_" + name;
+            return new FieldData(
+                    name, ops.cType, declaration,
+                    /* read */ "/* fixed array " + name + "[0]: no bits on the wire */",
+                    /* write */ "/* fixed array " + name + "[0]: no bits on the wire */",
+                    /* free */ "",
+                    /* owned */ false, ops.extraInclude, /* extraMember */ "");
+        }
         final String declaration = ops.cType + " " + name + "[" + lengthLiteral + "]";
         final String iVar     = name + "_i";
         final String slotExpr = h + name + "[" + iVar + "]";
