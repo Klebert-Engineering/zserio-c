@@ -98,6 +98,8 @@ parameterized_types/zs/parameterized_types/bytes_param.zs
 parameterized_types/zs/parameterized_types/extern_param.zs
 indexed_offsets/zs/indexed_offsets/empty_indexed_offset_array.zs
 builtin_types/zs/builtin_types/bitfield_function_length.zs
+structure_types/zs/structure_types/structure_with_removed_enum_item_field.zs
+choice_types/zs/choice_types/full_bitmask_param_choice.zs
 
 # DEFERRED: packed_arrays_mapping — 30-field packed kitchen sink.
 # Cpp reader hits EOF on our output for every seed, so one or more
@@ -116,3 +118,10 @@ builtin_types/zs/builtin_types/bitfield_function_length.zs
 # next_data;`) which is an incomplete type. Needs heap indirection
 # in the generator for any optional/conditional self-referential field.
 #   optional_members/zs/optional_members/optional_recursion.zs
+# DEFERRED: structure_string — schema function returning a string
+# (literal or struct field) needs the body wrapped as a
+# `zserio_string_t` compound literal. Current generator emits
+# `return ("POOL_CONST");` which is char* — incompatible with the
+# zserio_string_t return type. Same issue as task #82 family
+# (string-handling in expression formatter).
+#   functions/zs/functions/structure_string.zs
