@@ -559,8 +559,16 @@ public final class FieldFormatter
 
         return new FieldData(
                 inner.name, inner.nativeType, inner.declaration,
-                injectAfterLoopOpen(inner.readStmt, anchoredSnake, readWrap),
-                injectAfterLoopOpen(inner.writeStmt, anchoredSnake, writeWrap),
+                injectAfterLoopOpen(inner.readStmt, anchoredSnake, readWrap, false),
+                // Packed-array writers emit two for-loops with the same
+                // iterator name: an observe pass (no bit writes) and a
+                // write pass (delta_write that advances the stream).
+                // The per-element align + offset back-patch must run in
+                // the WRITE pass so each iteration sees the cursor
+                // advance; injecting into the observe pass makes every
+                // offset land on the same starting byte. Reads have a
+                // single loop, so first==last there.
+                injectAfterLoopOpen(inner.writeStmt, anchoredSnake, writeWrap, true),
                 inner.freeStmt,
                 inner.owned, inner.extraInclude, inner.extraMember);
     }
@@ -568,11 +576,13 @@ public final class FieldFormatter
     /** Inject {@code wrap} immediately after the {@code for (size_t
      *  <name>_i …) &#123;} opening brace, before the inner element
      *  body. Used by {@link #wrapIndexedOffsetAnchored} to slot
-     *  per-element offset semantics into an array's emitted loop. */
-    private static String injectAfterLoopOpen(String stmt, String snakeName, String wrap)
+     *  per-element offset semantics into an array's emitted loop.
+     *  When {@code useLast} is true, the LAST matching for-loop in
+     *  {@code stmt} is targeted instead of the first. */
+    private static String injectAfterLoopOpen(String stmt, String snakeName, String wrap, boolean useLast)
     {
         final String forAnchor = "for (size_t " + snakeName + "_i ";
-        final int forIdx = stmt.indexOf(forAnchor);
+        final int forIdx = useLast ? stmt.lastIndexOf(forAnchor) : stmt.indexOf(forAnchor);
         if (forIdx < 0)
         {
             // Zero-length fixed array: no for-loop emitted at all
