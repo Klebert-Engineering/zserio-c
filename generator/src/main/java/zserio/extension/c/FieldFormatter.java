@@ -278,6 +278,24 @@ public final class FieldFormatter
             }
         }
 
+        // `extend T x;` (backward-compatibility field added in a later
+        // schema version) — upstream cpp byte-aligns the cursor BEFORE
+        // any optional presence check so the bits land at a known byte
+        // boundary that older readers can detect via end-of-stream.
+        // Apply OUTSIDE the optional wrap so the byte align happens
+        // before the optional 1-bit prefix, mirroring upstream's
+        // {@code alignTo(8); if (hasValue()) writeBool(true) … else
+        // writeBool(false);} order.
+        //
+        // Caveat: the "could be missing" semantics (extend field
+        // entirely absent because the wire ends earlier) is not
+        // implemented; we always write the field. Round-trips work as
+        // long as both ends speak the same schema version.
+        if (field.isExtended())
+        {
+            data = wrapAlignment(data, "8");
+        }
+
         // If this field is an atomic offset source for some other field
         // in the same compound, record the writer's bit position before
         // writing it so the anchored field's back-patch can seek back

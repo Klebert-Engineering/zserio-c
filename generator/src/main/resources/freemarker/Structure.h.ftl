@@ -10,6 +10,7 @@
 #include <zserio/allocator.h>
 #include <zserio/bitstream.h>
 #include <zserio/delta.h>
+#include <zserio/expressions.h>
 #include <zserio/status.h>
 <#list extraIncludes as inc>
 <#if inc?starts_with("zserio/")>
