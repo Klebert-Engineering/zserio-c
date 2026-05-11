@@ -131,6 +131,9 @@ subtypes/zs/subtypes/structure_subtype.zs
 subtypes/zs/subtypes/param_structure_subtype.zs
 templates/zs/templates/choice_templated_field.zs
 templates/zs/templates/function_templated_return_type.zs
+choice_types/zs/choice_types/uint16_param_choice.zs
+choice_types/zs/choice_types/full_enum_param_choice.zs
+choice_types/zs/choice_types/function_selector_choice.zs
 
 # DEFERRED: packed_arrays_mapping — 30-field packed kitchen sink.
 # Cpp reader hits EOF on our output for every seed, so one or more
