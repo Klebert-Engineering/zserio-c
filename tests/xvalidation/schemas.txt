@@ -118,12 +118,26 @@ expressions/zs/expressions/question_mark.zs
 expressions/zs/expressions/array_type.zs
 indexed_offsets/zs/indexed_offsets/int14_indexed_offset_array.zs
 indexed_offsets/zs/indexed_offsets/varint32_indexed_offset_array.zs
+offsets/zs/offsets/uint64_offset.zs
+offsets/zs/offsets/optional_member_offset.zs
+parameterized_types/zs/parameterized_types/parameterized_param.zs
+parameterized_types/zs/parameterized_types/subtyped_bitfield_param.zs
 
 # DEFERRED: packed_arrays_mapping — 30-field packed kitchen sink.
 # Cpp reader hits EOF on our output for every seed, so one or more
 # of the packed array encoders produces fewer bits than cpp
 # expects. Localising via cpp oracle hasn't been done yet.
 #   array_types/zs/array_types/packed_arrays_mapping.zs
+
+# DEFERRED: parameter_offset — offset SOURCE field lives in a
+# struct that is passed by parameter to the offset's owning struct
+# (offsetHolder.roomOffset where offsetHolder is the parameter).
+# Our wrapOffsetSource only handles sibling fields; emitting a
+# back-patch through the parameter requires passing the parameter
+# by pointer or threading the source position through a side
+# channel. Cpp expects `Wrong offset for field Room.roomId` because
+# our encoder leaves the parameter's roomOffset = 0.
+#   offsets/zs/offsets/parameter_offset.zs
 
 # DEFERRED: optional_recursion — an optional self-referential struct
 # member is emitted by value (`optional_members_optional_recursion_block_t
