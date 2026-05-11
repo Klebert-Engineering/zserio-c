@@ -97,12 +97,7 @@ parameterized_types/zs/parameterized_types/dynamic_bitfield_param.zs
 parameterized_types/zs/parameterized_types/bytes_param.zs
 parameterized_types/zs/parameterized_types/extern_param.zs
 indexed_offsets/zs/indexed_offsets/empty_indexed_offset_array.zs
-
-# DEFERRED: bitfield_function_length — `lengthof(array)` on a fixed-
-# length array lowers to `self->array_count`, but fixed-length arrays
-# don't have a `_count` field. Should emit the literal length.
-# Related to task #82 (lengthof emitter).
-#   builtin_types/zs/builtin_types/bitfield_function_length.zs
+builtin_types/zs/builtin_types/bitfield_function_length.zs
 
 # DEFERRED: packed_arrays_mapping — 30-field packed kitchen sink.
 # Cpp reader hits EOF on our output for every seed, so one or more

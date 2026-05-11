@@ -7,6 +7,7 @@ package zserio.extension.c;
 
 import java.math.BigInteger;
 
+import zserio.ast.ArrayInstantiation;
 import zserio.ast.AstNode;
 import zserio.ast.BitmaskType;
 import zserio.ast.BitmaskValue;
@@ -16,6 +17,7 @@ import zserio.ast.EnumItem;
 import zserio.ast.EnumType;
 import zserio.ast.Expression;
 import zserio.ast.Field;
+import zserio.ast.TypeInstantiation;
 import zserio.ast.Function;
 import zserio.ast.Package;
 import zserio.ast.Parameter;
@@ -479,6 +481,33 @@ public final class CExpressionFormattingPolicy extends DefaultExpressionFormatti
         // operand emits as `<holder><arr>` (or a dot-chain ending in
         // `<arr>`), so suffixing `_count` produces the right access
         // path.
+        //
+        // Fixed-length arrays don't have a `_count` field — their
+        // length is a compile-time constant baked into the storage
+        // declaration. Detect that case via the operand's Field /
+        // ArrayInstantiation and emit the literal length, commenting
+        // out the operand text (no way to suppress it via
+        // UnaryExpressionFormatting).
+        final Expression operand = expr.op1();
+        if (operand != null && operand.getExprSymbolObject() instanceof Field)
+        {
+            final Field f = (Field)operand.getExprSymbolObject();
+            final TypeInstantiation inst = f.getTypeInstantiation();
+            if (inst instanceof ArrayInstantiation)
+            {
+                final ArrayInstantiation ai = (ArrayInstantiation)inst;
+                final Expression lenExpr = ai.getLengthExpression();
+                if (lenExpr != null)
+                {
+                    final BigInteger fixed = lenExpr.getIntegerValue();
+                    if (fixed != null)
+                    {
+                        return new UnaryExpressionFormatting(
+                                "(/* lengthof */ /*", "*/ " + fixed + "u)");
+                    }
+                }
+            }
+        }
         return new UnaryExpressionFormatting("", "_count");
     }
 
