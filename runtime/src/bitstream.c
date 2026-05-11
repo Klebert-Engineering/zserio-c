@@ -59,17 +59,21 @@ static void zsc_trace(const char *op, unsigned nbits, size_t pos_after, unsigned
  * exercises this path.
  */
 
-/* Detect whether `alignment` is a positive power of two. */
-static bool is_pow2(size_t alignment)
+/* Round `value` up to the next multiple of `alignment`. The zserio
+ * `align(N):` directive accepts any positive integer (the schema uses
+ * align(3), align(5), align(6), align(7) in alignment/bit_alignment),
+ * so the implementation cannot assume a power of two — the bitmask
+ * trick is only valid in that case. Power-of-two N falls out as a
+ * special case of the general formula. */
+static bool is_valid_alignment(size_t alignment)
 {
-    return (alignment != 0U) && ((alignment & (alignment - 1U)) == 0U);
+    return alignment != 0U;
 }
 
-/* Round `value` up to the next multiple of `alignment`. Caller must
- * ensure `is_pow2(alignment)`. */
-static size_t round_up_pow2(size_t value, size_t alignment)
+static size_t round_up_to_multiple(size_t value, size_t alignment)
 {
-    return (value + (alignment - 1U)) & ~(alignment - 1U);
+    const size_t rem = value % alignment;
+    return (rem == 0U) ? value : (value + (alignment - rem));
 }
 
 /* ------------------------------------------------------------------------ */
@@ -171,11 +175,11 @@ zserio_status_t zserio_bitstream_reader_align(zserio_bitstream_reader_t *bs,
     if (bs == NULL) {
         return ZSERIO_ERR_INVALID_ARGUMENT;
     }
-    if (!is_pow2(alignment)) {
+    if (!is_valid_alignment(alignment)) {
         return ZSERIO_ERR_INVALID_ARGUMENT;
     }
 
-    const size_t aligned = round_up_pow2(bs->bit_index, alignment);
+    const size_t aligned = round_up_to_multiple(bs->bit_index, alignment);
     if (aligned > bs->buffer_bit_size) {
         return ZSERIO_ERR_END_OF_STREAM;
     }
@@ -209,7 +213,7 @@ zserio_status_t zserio_bitstream_reader_seek(zserio_bitstream_reader_t *bs,
 bool zserio_bitstream_reader_aligned_eof(const zserio_bitstream_reader_t *bs,
                                          size_t alignment)
 {
-    if ((bs == NULL) || !is_pow2(alignment)) {
+    if ((bs == NULL) || !is_valid_alignment(alignment)) {
         return true;
     }
     /* Saturating arithmetic: if rounding up would overflow size_t,
@@ -218,7 +222,7 @@ bool zserio_bitstream_reader_aligned_eof(const zserio_bitstream_reader_t *bs,
     if (bs->bit_index > (SIZE_MAX - (alignment - 1U))) {
         return true; /* LCOV_EXCL_LINE — defensive overflow guard */
     }
-    const size_t aligned = round_up_pow2(bs->bit_index, alignment);
+    const size_t aligned = round_up_to_multiple(bs->bit_index, alignment);
     return aligned >= bs->buffer_bit_size;
 }
 
@@ -336,11 +340,11 @@ zserio_status_t zserio_bitstream_writer_align(zserio_bitstream_writer_t *bs,
     if (bs == NULL) {
         return ZSERIO_ERR_INVALID_ARGUMENT;
     }
-    if (!is_pow2(alignment)) {
+    if (!is_valid_alignment(alignment)) {
         return ZSERIO_ERR_INVALID_ARGUMENT;
     }
 
-    const size_t aligned = round_up_pow2(bs->bit_index, alignment);
+    const size_t aligned = round_up_to_multiple(bs->bit_index, alignment);
     if (aligned > bs->buffer_capacity_bits) {
         return ZSERIO_ERR_BUFFER_OVERFLOW;
     }

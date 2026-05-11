@@ -20,3 +20,7 @@ member_access/zs/member_access/access_within_type.zs
 subtypes/zs/subtypes/uint16_subtype.zs
 union_types/zs/union_types/simple_union.zs
 parameterized_types/zs/parameterized_types/simple_param.zs
+builtin_types/zs/builtin_types/all_builtin_types.zs
+alignment/zs/alignment/bit_alignment.zs
+default_values/zs/default_values/structure_default_values.zs
+functions/zs/functions/structure_value.zs
