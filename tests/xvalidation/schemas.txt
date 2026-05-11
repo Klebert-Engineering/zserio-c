@@ -141,6 +141,10 @@ extended_members/zs/extended_members/extended_empty_structure.zs
 choice_types/zs/choice_types/function_returning_literal_selector_choice.zs
 constraints/zs/constraints/union_constraints.zs
 constraints/zs/constraints/structure_bitmask_constraints.zs
+default_values/zs/default_values/default_values_in_templates.zs
+templates/zs/templates/instantiate_type_as_choice_field.zs
+templates/zs/templates/instantiate_type_as_parameter.zs
+templates/zs/templates/instantiate_clash_other_template.zs
 
 # DEFERRED: packed_arrays_mapping — 30-field packed kitchen sink.
 # Cpp reader hits EOF on our output for every seed, so one or more
