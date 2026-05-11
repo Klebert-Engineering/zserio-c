@@ -43,3 +43,8 @@ choice_types/zs/choice_types/bool_choice_with_default.zs
 structure_types/zs/structure_types/empty_structure.zs
 templates/zs/templates/instantiate_nested_template.zs
 array_types/zs/array_types/variable_array_subtyped_struct.zs
+array_types/zs/array_types/auto_array_struct_recursion.zs
+array_types/zs/array_types/variable_array_ternary_operator.zs
+constraints/zs/constraints/optional_constraints.zs
+functions/zs/functions/structure_bytes.zs
+functions/zs/functions/structure_extern.zs

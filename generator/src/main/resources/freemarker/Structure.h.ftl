@@ -19,7 +19,13 @@
 </#if>
 </#list>
 
-typedef struct ${typeName} {
+<#-- Forward typedef so a recursive field declaration (a struct with
+     a pointer to itself, e.g. AutoArrayRecursion holding an array of
+     AutoArrayRecursion) can refer to the typedef name from inside the
+     struct body. Always emit — costs one line per header and avoids
+     a generator-side recursion check. -->
+typedef struct ${typeName} ${typeName};
+struct ${typeName} {
 <#list parameters as p>
     ${p.nativeType} ${p.name};
 </#list>
@@ -35,7 +41,7 @@ typedef struct ${typeName} {
      * struct shape) while consuming nothing on the wire. */
     char _zserio_empty;
 </#if>
-} ${typeName};
+};
 
 void            ${funcPrefix}_init(${typeName} *self);
 <#if hasParameters>
@@ -84,7 +90,12 @@ static inline ${fn.returnType} ${fn.fullName}(const ${typeName} *self)
      * `self` (e.g. functions that return a fixed enum value); silence
      * the compiler's unused-parameter warning either way. */
     (void)self;
-    return (${fn.returnType})(${fn.body});
+    /* No cast: implicit return-statement conversion handles
+     * widening of integer expressions to the declared return type,
+     * and a struct return type (zserio_bytes_t / zserio_extern_t /
+     * zserio_string_t etc.) cannot be cast to itself without
+     * tripping `-Wpedantic`. */
+    return (${fn.body});
 }
 
 </#list>
