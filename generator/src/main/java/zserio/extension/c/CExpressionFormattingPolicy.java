@@ -489,6 +489,52 @@ public final class CExpressionFormattingPolicy extends DefaultExpressionFormatti
         // out the operand text (no way to suppress it via
         // UnaryExpressionFormatting).
         final Expression operand = expr.op1();
+        // String literal `"foo"` and top-level `const string` macro:
+        // operand emits as a char*-shaped expression (literal or
+        // macro expansion). Use `sizeof(<operand>) - 1u` for the
+        // byte length, both compile-time constant.
+        if (operand != null
+                && operand.getType() == zserio.antlr.ZserioParser.STRING_LITERAL)
+        {
+            return new UnaryExpressionFormatting("(sizeof(", ") - 1u)");
+        }
+        if (operand != null && operand.getExprSymbolObject() instanceof Constant)
+        {
+            final Constant c = (Constant)operand.getExprSymbolObject();
+            zserio.ast.ZserioType ct = c.getTypeInstantiation()
+                    .getTypeReference().getBaseTypeReference().getType();
+            while (ct instanceof zserio.ast.Subtype)
+            {
+                ct = ((zserio.ast.Subtype)ct).getTypeReference()
+                        .getBaseTypeReference().getType();
+            }
+            if (ct instanceof zserio.ast.StringType)
+            {
+                return new UnaryExpressionFormatting("(sizeof(", ") - 1u)");
+            }
+        }
+        // Operand resolving to a `zserio_string_t` / `zserio_bytes_t`
+        // value (a Field of string/bytes type, an array element of
+        // such, a function call returning one): the length sits in
+        // the struct's `.length` member.
+        if (operand != null)
+        {
+            zserio.ast.ZserioType u = operand.getExprZserioType();
+            while (u instanceof zserio.ast.Subtype)
+            {
+                u = ((zserio.ast.Subtype)u).getTypeReference()
+                        .getBaseTypeReference().getType();
+            }
+            if (u instanceof zserio.ast.StringType
+                    || u instanceof zserio.ast.BytesType)
+            {
+                return new UnaryExpressionFormatting("", ".length");
+            }
+        }
+        // Fixed-length array field: the count is a compile-time
+        // literal; emit it and discard the operand text with a block
+        // comment (UnaryExpressionFormatting always emits the
+        // operand text).
         if (operand != null && operand.getExprSymbolObject() instanceof Field)
         {
             final Field f = (Field)operand.getExprSymbolObject();

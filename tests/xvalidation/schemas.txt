@@ -108,18 +108,13 @@ alignment/zs/alignment/optional_member_alignment.zs
 alignment/zs/alignment/auto_optional_member_alignment.zs
 offsets/zs/offsets/nested_offset.zs
 functions/zs/functions/structure_string.zs
+expressions/zs/expressions/lengthof_operator.zs
 
 # DEFERRED: packed_arrays_mapping — 30-field packed kitchen sink.
 # Cpp reader hits EOF on our output for every seed, so one or more
 # of the packed array encoders produces fewer bits than cpp
 # expects. Localising via cpp oracle hasn't been done yet.
 #   array_types/zs/array_types/packed_arrays_mapping.zs
-
-# DEFERRED: lengthof_operator — generator emits invalid C for
-# lengthof() on string literals (`"€literal"_count`) and top-level
-# string consts (suffixes `_count` to the macro name). Tracked
-# separately.
-#   expressions/zs/expressions/lengthof_operator.zs
 
 # DEFERRED: optional_recursion — an optional self-referential struct
 # member is emitted by value (`optional_members_optional_recursion_block_t
