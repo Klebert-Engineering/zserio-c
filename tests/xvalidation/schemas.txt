@@ -85,6 +85,7 @@ templates/zs/templates/instantiate_imported.zs
 identifiers/zs/identifiers/bitmask_name_clashing_with_java.zs
 extended_members/zs/extended_members/extended_optional_with_default.zs
 extended_members/zs/extended_members/extended_field_in_template.zs
+expressions/zs/expressions/index_operator.zs
 
 # DEFERRED: packed_arrays_mapping — 30-field packed kitchen sink.
 # Cpp reader hits EOF on our output for every seed, so one or more
@@ -97,12 +98,6 @@ extended_members/zs/extended_members/extended_field_in_template.zs
 # string consts (suffixes `_count` to the macro name). Tracked
 # separately.
 #   expressions/zs/expressions/lengthof_operator.zs
-
-# DEFERRED: index_operator — @index in a packed-array first-element
-# paramSetup is substituted as `elements_i` but the for-loop hasn't
-# started yet (only element 0 is being primed). Should be a literal
-# `0` for that one use site.
-#   expressions/zs/expressions/index_operator.zs
 
 # DEFERRED: optional_recursion — an optional self-referential struct
 # member is emitted by value (`optional_members_optional_recursion_block_t

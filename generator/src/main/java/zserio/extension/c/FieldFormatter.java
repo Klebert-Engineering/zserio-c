@@ -872,8 +872,7 @@ public final class FieldFormatter
             if (packedCompound != null && PackingFieldFormatter.hasPackableField(packedCompound))
             {
                 final String paramSetupLine =
-                        packedCompoundParameterSetup(eltInst, packedCompound, h, owner,
-                                name + "_i");
+                        packedCompoundParameterSetup(eltInst, packedCompound, h, owner);
                 return packedCompoundArray(name, eltBinding, packedCompound, ai, h, owner,
                         paramSetupLine);
             }
@@ -1371,7 +1370,7 @@ public final class FieldFormatter
      * read_packed / write_packed call.
      */
     private static String packedCompoundParameterSetup(TypeInstantiation eltInst,
-            CompoundType ct, String h, CompoundType owner, String indexVar)
+            CompoundType ct, String h, CompoundType owner)
             throws ZserioExtensionException
     {
         if (!(eltInst instanceof ParameterizedTypeInstantiation))
@@ -1386,8 +1385,15 @@ public final class FieldFormatter
                 : pti.getInstantiatedParameters())
         {
             args.append(", ");
+            // Use `$INDEX$` as an @index placeholder. The caller
+            // substitutes it: with the loop variable for the per-
+            // element paramSetup, and with `0u` for the first-element
+            // priming call that runs before the for-loop opens.
+            // Without the placeholder, both sites used the loop
+            // variable and the first-element call referenced an
+            // undeclared identifier (task #84).
             args.append(CExpressionFormatter.format(
-                    ip.getArgumentExpression(), h, owner, indexVar));
+                    ip.getArgumentExpression(), h, owner, "$INDEX$"));
         }
         // The trailing newline + 16 spaces aligns with the indent
         // depth of the read/write loops in packedCompoundHeapArray
@@ -1420,8 +1426,7 @@ public final class FieldFormatter
                     "zserio-c: packedCompoundArrayField called on non-packable element");
         }
         final String paramSetupLine =
-                packedCompoundParameterSetup(eltInst, packedCompound, h, owner,
-                        name + "_i");
+                packedCompoundParameterSetup(eltInst, packedCompound, h, owner);
         return packedCompoundArray(name, eltBinding, packedCompound, ai, h, owner,
                 paramSetupLine);
     }
@@ -1479,16 +1484,17 @@ public final class FieldFormatter
         // element) produces empty inserts.
         final String slotExpr = ptrExpr + "[" + iVar + "]";
         final String paramSetupRead = paramSetupLine.isEmpty() ? ""
-                : paramSetupLine.replace("$SLOT$", slotExpr);
+                : paramSetupLine.replace("$SLOT$", slotExpr).replace("$INDEX$", iVar);
         final String paramSetupWrite = paramSetupRead;
 
         // The first-element paramSetup primes element 0's parameters
         // so init_packing_context can derive any parameter-driven bit
         // widths (e.g. dynamic-bit fields like `bit<numBits>`) from a
-        // fully-set-up element.
+        // fully-set-up element. `@index` is element 0 here, not the
+        // loop variable (which isn't in scope yet).
         final String firstSlotExpr = ptrExpr + "[0]";
         final String firstParamSetup = paramSetupLine.isEmpty() ? ""
-                : paramSetupLine.replace("$SLOT$", firstSlotExpr);
+                : paramSetupLine.replace("$SLOT$", firstSlotExpr).replace("$INDEX$", "0u");
 
         // Zero-init the packing context: a Choice's init dispatches by
         // selector and only configures the active arm's sub-context.
@@ -1585,13 +1591,16 @@ public final class FieldFormatter
         // shallower (8 spaces) than the heap-array path's (16 spaces),
         // so we re-indent the paramSetupLine.
         final String paramSetup = paramSetupLine.isEmpty() ? ""
-                : paramSetupLine.replace("$SLOT$", slotExpr).replace("\n                ", "\n            ");
+                : paramSetupLine.replace("$SLOT$", slotExpr).replace("$INDEX$", iVar)
+                        .replace("\n                ", "\n            ");
         // First-element paramSetup primes element 0 so init_packing_context
         // can derive parameter-driven bit widths from a fully-initialised
         // element. Indent matches the inline 8-space level here.
+        // `@index` is element 0 here, not the loop variable.
         final String firstSlotExpr = access + "[0]";
         final String firstParamSetup = paramSetupLine.isEmpty() ? ""
-                : paramSetupLine.replace("$SLOT$", firstSlotExpr).replace("\n                ", "\n        ");
+                : paramSetupLine.replace("$SLOT$", firstSlotExpr).replace("$INDEX$", "0u")
+                        .replace("\n                ", "\n        ");
 
         final String read =
                 "{\n"
