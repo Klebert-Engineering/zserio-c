@@ -74,6 +74,7 @@ expressions/zs/expressions/cast_uint8_to_uint64.zs
 expressions/zs/expressions/float_type.zs
 expressions/zs/expressions/function_type.zs
 array_types/zs/array_types/arrays_mapping.zs
+packages/zs/package_import/top.zs
 
 # DEFERRED: packed_arrays_mapping — 30-field packed kitchen sink.
 # Cpp reader hits EOF on our output for every seed, so one or more

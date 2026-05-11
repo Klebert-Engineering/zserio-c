@@ -111,6 +111,17 @@ while IFS= read -r schema_rel; do
     fi
     mkdir -p "${work}/staging/${pkg_dir}"
     cp "${schema_path}" "${work}/staging/${pkg_dir}/${pkg_last}.zs"
+    # If the schema imports siblings (`import <pkg>.<other>.*`), the
+    # other .zs files must accompany it. Mirror the entire source
+    # directory so any sibling imports resolve. This is harmless when
+    # the schema has no imports (we just copy a single extra file
+    # into the same place we already wrote).
+    schema_dir="$(dirname "${schema_path}")"
+    for sibling in "${schema_dir}"/*.zs; do
+        if [[ -f "${sibling}" ]]; then
+            cp "${sibling}" "${work}/staging/${pkg_dir}/$(basename "${sibling}")"
+        fi
+    done
     rel_schema="${pkg_dir:+${pkg_dir}/}${pkg_last}.zs"
 
     java -cp "${ZSERIO_CORE_JAR}:${ZSERIO_C_JAR}:${ZSERIO_JAR}" \
