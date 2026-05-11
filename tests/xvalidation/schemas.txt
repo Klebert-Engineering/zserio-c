@@ -100,6 +100,9 @@ indexed_offsets/zs/indexed_offsets/empty_indexed_offset_array.zs
 builtin_types/zs/builtin_types/bitfield_function_length.zs
 structure_types/zs/structure_types/structure_with_removed_enum_item_field.zs
 choice_types/zs/choice_types/full_bitmask_param_choice.zs
+optional_members/zs/optional_members/auto_optional_bool.zs
+templates/zs/templates/instantiate_only_nested.zs
+array_types/zs/array_types/auto_array_bitfield_param.zs
 
 # DEFERRED: packed_arrays_mapping — 30-field packed kitchen sink.
 # Cpp reader hits EOF on our output for every seed, so one or more
@@ -125,3 +128,12 @@ choice_types/zs/choice_types/full_bitmask_param_choice.zs
 # zserio_string_t return type. Same issue as task #82 family
 # (string-handling in expression formatter).
 #   functions/zs/functions/structure_string.zs
+# DEFERRED: nested_offset — outer struct's array element type
+# (NestedOffsetStructure) has its own offset directive, so we
+# suppress its packing helpers. The OUTER struct
+# (NestedOffsetArrayStructure) is still packable per upstream's
+# rule, so its _read_packed/_write_packed try to call the
+# (non-existent) _init_packing_context on the element. Needs
+# transitive "has packing helpers" propagation in the structure
+# emitter.
+#   offsets/zs/offsets/nested_offset.zs
