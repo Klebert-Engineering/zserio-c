@@ -84,6 +84,13 @@ zserio_status_t ${funcPrefix}_write_packed(${typeName} *self,
         ${funcPrefix}_packing_ctx_t *ctx);
 
 </#if>
+<#-- Forward declarations: a schema function may call a sibling
+     declared later in the compound; emitting only inline bodies in
+     declaration order would leave the caller looking at the callee's
+     implicit `int()` declaration. -->
+<#list functions as fn>
+static inline ${fn.returnType} ${fn.fullName}(const ${typeName} *self);
+</#list>
 <#list functions as fn>
 static inline ${fn.returnType} ${fn.fullName}(const ${typeName} *self)
 {
