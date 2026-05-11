@@ -48,3 +48,7 @@ array_types/zs/array_types/variable_array_ternary_operator.zs
 constraints/zs/constraints/optional_constraints.zs
 functions/zs/functions/structure_bytes.zs
 functions/zs/functions/structure_extern.zs
+constraints/zs/constraints/array_lengthof_constraint.zs
+constraints/zs/constraints/choice_constraints.zs
+union_types/zs/union_types/union_with_parameter.zs
+parameterized_types/zs/parameterized_types/param_with_optional.zs
