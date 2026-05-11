@@ -38,3 +38,8 @@ parameterized_types/zs/parameterized_types/multiple_params.zs
 choice_types/zs/choice_types/enum_param_choice.zs
 functions/zs/functions/structure_param.zs
 extended_members/zs/extended_members/extended_simple_field.zs
+choice_types/zs/choice_types/choice_with_array.zs
+choice_types/zs/choice_types/bool_choice_with_default.zs
+structure_types/zs/structure_types/empty_structure.zs
+templates/zs/templates/instantiate_nested_template.zs
+array_types/zs/array_types/variable_array_subtyped_struct.zs
