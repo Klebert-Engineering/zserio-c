@@ -154,12 +154,24 @@ structure_types/zs/structure_types/field_constructor_clashing.zs
 optional_members/zs/optional_members/optional_array_recursion.zs
 extended_members/zs/extended_members/extended_optional_parameterized_field.zs
 choice_types/zs/choice_types/multiple_param_choice.zs
+array_types/zs/array_types/packed_auto_array_struct_with_extern.zs
 
 # DEFERRED: packed_arrays_mapping — 30-field packed kitchen sink.
 # Cpp reader hits EOF on our output for every seed, so one or more
 # of the packed array encoders produces fewer bits than cpp
 # expects. Localising via cpp oracle hasn't been done yet.
 #   array_types/zs/array_types/packed_arrays_mapping.zs
+
+# DEFERRED: packed dynamic-bit (`packed bit<expr>`) arrays. The
+# generator's PackedElementSpec uses `bits = 64` for DynamicBitFieldType
+# elements ("the runtime protocol caps at 64 — so we use the
+# maximum"). That's wrong: upstream's delta_init takes the ACTUAL
+# element width (the parameter value) as maxBitNumber, not the
+# storage container's width. We need to thread the formatted bit
+# expression (`self->num_bits`) through PackedElementSpec and emit it
+# as the delta_init argument. Symptom: array writes ~8 bytes per
+# element instead of `num_bits/8 + descriptor`.
+#   array_types/zs/array_types/packed_auto_array_bitfield_param.zs
 
 # DEFERRED: cross-compound offset sources. Our wrapOffsetSource
 # only handles atomic SIBLING fields as offset source. When the
