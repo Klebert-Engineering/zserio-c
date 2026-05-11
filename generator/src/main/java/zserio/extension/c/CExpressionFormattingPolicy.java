@@ -414,24 +414,28 @@ public final class CExpressionFormattingPolicy extends DefaultExpressionFormatti
             }
         }
 
-        // C has no scoping operator for enum / bitmask members —
-        // each enumerator is a flat `pkg_TYPE_ITEM` macro. When the
-        // dot's left side is a package or zserio type reference, the
-        // right side will produce that full flat name on its own, so
-        // the separator collapses to empty.
-        final Expression leftSide = expr.op1();
-        if (leftSide != null)
+        // Struct member access — `header.tag` →
+        // `self->header.tag`, where the leftmost ID already carried
+        // the holder prefix. Only Field / Parameter on the right side
+        // require a literal `.` separator.
+        //
+        // Everything else (enum / bitmask members, package navigation,
+        // constants) flattens to a `pkg_TYPE_ITEM` macro that the right
+        // side emits in full, so the separator collapses to empty. This
+        // covers both unqualified (`Colors.BLUE`) and fully-qualified
+        // (`expressions.bitmask_type.Colors.BLUE`) reference forms — in
+        // the latter case the chained DOT subexpression on the left
+        // side evaluates to "" via the same rule, so a "." separator
+        // here would stick a stray dot in front of the flat macro name.
+        if (rightSide != null)
         {
-            final AstNode leftSym = leftSide.getExprSymbolObject();
-            if (leftSym instanceof Package || leftSym instanceof ZserioType)
+            final AstNode rightSym = rightSide.getExprSymbolObject();
+            if (rightSym instanceof Field || rightSym instanceof Parameter)
             {
-                return new BinaryExpressionFormatting("");
+                return new BinaryExpressionFormatting(".");
             }
         }
-        // Otherwise it's struct member access — `header.tag` →
-        // `self->header.tag`, where the leftmost ID already carried
-        // the holder prefix.
-        return new BinaryExpressionFormatting(".");
+        return new BinaryExpressionFormatting("");
     }
 
     private static String cFunctionName(CompoundType owner, Function func)
@@ -493,6 +497,35 @@ public final class CExpressionFormattingPolicy extends DefaultExpressionFormatti
     {
         return new BinaryExpressionFormatting(
                 "zserio_isset((uint64_t)(", "), (uint64_t)(", "))");
+    }
+
+    /* -------- C precedence fix-ups -------- */
+    //
+    // In C, `==` / `!=` bind tighter than `&` / `|` / `^`, the reverse
+    // of intuition for "bitmask-and-compare" expressions like
+    // `(colors & ~Colors.RED) != 0`. The default policy emits the
+    // operators bare, which produces `colors & ~X != 0` — parsed by C
+    // as `colors & (~X != 0)`. Wrap every bitwise binop output in
+    // parentheses so the upper expression structure stays as the
+    // schema author wrote it. This adds harmless redundant parens
+    // when the bitwise op is already at the top of a sub-expression.
+
+    @Override
+    public BinaryExpressionFormatting getAnd(Expression expr)
+    {
+        return new BinaryExpressionFormatting("(", " & ", ")");
+    }
+
+    @Override
+    public BinaryExpressionFormatting getOr(Expression expr)
+    {
+        return new BinaryExpressionFormatting("(", " | ", ")");
+    }
+
+    @Override
+    public BinaryExpressionFormatting getXor(Expression expr)
+    {
+        return new BinaryExpressionFormatting("(", " ^ ", ")");
     }
 
     /* -------- still unsupported -------- */

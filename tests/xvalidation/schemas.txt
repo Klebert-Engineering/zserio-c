@@ -14,3 +14,9 @@ array_types/zs/array_types/packed_auto_array_struct_with_unpacked_field.zs
 structure_types/zs/structure_types/simple_structure.zs
 optional_members/zs/optional_members/auto_optional.zs
 choice_types/zs/choice_types/bool_param_choice.zs
+expressions/zs/expressions/enumeration_type.zs
+expressions/zs/expressions/bitmask_type.zs
+member_access/zs/member_access/access_within_type.zs
+subtypes/zs/subtypes/uint16_subtype.zs
+union_types/zs/union_types/simple_union.zs
+parameterized_types/zs/parameterized_types/simple_param.zs
