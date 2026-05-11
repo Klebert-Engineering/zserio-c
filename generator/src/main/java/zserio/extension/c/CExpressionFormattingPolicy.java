@@ -528,6 +528,38 @@ public final class CExpressionFormattingPolicy extends DefaultExpressionFormatti
         return new BinaryExpressionFormatting("(", " ^ ", ")");
     }
 
+    // `<<` / `>>` are mixed-precedence with `+` / `-` (the additive
+    // operators bind tighter) and with comparisons (`<<` binds tighter).
+    // The compiler warns under `-Wparentheses` when an additive operator
+    // appears as an operand of a shift, even though the C grammar
+    // disambiguates. Parenthesise both sides of every shift defensively,
+    // and likewise parenthesise the additive operators so a shift's
+    // operand is always self-contained.
+
+    @Override
+    public BinaryExpressionFormatting getLeftShift(Expression expr)
+    {
+        return new BinaryExpressionFormatting("(", " << ", ")");
+    }
+
+    @Override
+    public BinaryExpressionFormatting getRightShift(Expression expr)
+    {
+        return new BinaryExpressionFormatting("(", " >> ", ")");
+    }
+
+    @Override
+    public BinaryExpressionFormatting getPlus(Expression expr)
+    {
+        return new BinaryExpressionFormatting("(", " + ", ")");
+    }
+
+    @Override
+    public BinaryExpressionFormatting getMinus(Expression expr)
+    {
+        return new BinaryExpressionFormatting("(", " - ", ")");
+    }
+
     /* -------- still unsupported -------- */
 
     @Override

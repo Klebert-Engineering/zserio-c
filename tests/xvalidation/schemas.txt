@@ -80,6 +80,7 @@ expressions/zs/expressions/negation_operator.zs
 extended_members/zs/extended_members/extended_compound_field.zs
 parameterized_types/zs/parameterized_types/grand_child_param.zs
 union_types/zs/union_types/union_with_multiple_parameters.zs
+expressions/zs/expressions/left_shift_operator.zs
 
 # DEFERRED: packed_arrays_mapping — 30-field packed kitchen sink.
 # Cpp reader hits EOF on our output for every seed, so one or more
