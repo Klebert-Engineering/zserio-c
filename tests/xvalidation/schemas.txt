@@ -151,6 +151,9 @@ templates/zs/templates/choice_templated_enum_selector.zs
 templates/zs/templates/choice_templated_selector.zs
 identifiers/zs/identifiers/structure_name_clashing_with_java.zs
 structure_types/zs/structure_types/field_constructor_clashing.zs
+optional_members/zs/optional_members/optional_array_recursion.zs
+extended_members/zs/extended_members/extended_optional_parameterized_field.zs
+choice_types/zs/choice_types/multiple_param_choice.zs
 
 # DEFERRED: packed_arrays_mapping — 30-field packed kitchen sink.
 # Cpp reader hits EOF on our output for every seed, so one or more
