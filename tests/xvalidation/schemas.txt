@@ -65,6 +65,10 @@ expressions/zs/expressions/isset_operator.zs
 expressions/zs/expressions/numbits_operator.zs
 expressions/zs/expressions/valueof_operator.zs
 extended_members/zs/extended_members/extended_packed_array.zs
+extended_members/zs/extended_members/extended_unaligned_field.zs
+extended_members/zs/extended_members/multiple_extended_fields.zs
+choice_types/zs/choice_types/constant_in_choice_case.zs
+choice_types/zs/choice_types/bitmask_param_choice.zs
 
 # DEFERRED: lengthof_operator — generator emits invalid C for
 # lengthof() on string literals (`"€literal"_count`) and top-level
