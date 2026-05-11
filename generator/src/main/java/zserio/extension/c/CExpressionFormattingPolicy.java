@@ -123,14 +123,20 @@ public final class CExpressionFormattingPolicy extends DefaultExpressionFormatti
     @Override
     public String getHexadecimalLiteral(Expression expr, boolean isNegative)
     {
-        return expr.getText();
+        // {@code Expression.getText()} returns the literal with the
+        // `0x` prefix stripped (see upstream
+        // {@code stripHexadecimalLiteral}). Restore it so the C
+        // compiler reads the number in base 16.
+        return "0x" + expr.getText();
     }
 
     @Override
     public String getOctalLiteral(Expression expr, boolean isNegative)
     {
-        // zserio octal "0NNN" is parsed the same way by C.
-        return expr.getText();
+        // Likewise, {@code Expression.getText()} returns the octal
+        // literal with the leading `0` already stripped. Restore the
+        // `0` prefix — zserio's octal syntax matches C's.
+        return "0" + expr.getText();
     }
 
     @Override

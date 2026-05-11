@@ -91,6 +91,21 @@ functions/zs/functions/structure_optional.zs
 indexed_offsets/zs/indexed_offsets/bool_indexed_offset_array.zs
 extended_members/zs/extended_members/extended_choice_field.zs
 default_values/zs/default_values/optional_default_values.zs
+builtin_types/zs/builtin_types/bitfield_uint64_length.zs
+builtin_types/zs/builtin_types/dynamic_bitfield_length_bounds.zs
+
+# DEFERRED: bitfield_function_length — `lengthof(array)` on a fixed-
+# length array lowers to `self->array_count`, but fixed-length arrays
+# don't have a `_count` field. Should emit the literal length.
+# Related to task #82 (lengthof emitter).
+#   builtin_types/zs/builtin_types/bitfield_function_length.zs
+
+# DEFERRED: empty_indexed_offset_array — schema uses `offsets[0]` /
+# `data[0]` (zero-length fixed arrays); ISO C forbids zero-size
+# arrays. Also the read loop emits `for (… i < 0u; …)` which trips
+# -Werror=type-limits. Needs a zero-length-array special case
+# (probably elide the member entirely).
+#   indexed_offsets/zs/indexed_offsets/empty_indexed_offset_array.zs
 
 # DEFERRED: packed_arrays_mapping — 30-field packed kitchen sink.
 # Cpp reader hits EOF on our output for every seed, so one or more
