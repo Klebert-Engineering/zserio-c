@@ -201,7 +201,17 @@ public final class PackingFieldFormatter
             final ZserioType eltDirect = ai.getElementTypeInstantiation()
                     .getTypeReference().getType();
             final CompoundType eltCompound = compoundLeaf(eltDirect);
-            if (eltCompound != null && hasPackableField(eltCompound))
+            // Element compound has packing helpers iff it is packable
+            // per upstream's rule AND none of its fields carry an
+            // offset directive. The latter is the suppress-packed-
+            // code-gen condition in StructureEmitterTemplateData: an
+            // offset-bearing compound emits no _init_packing_context
+            // / _read_packed / _write_packed, so a packed parent
+            // cannot route its array through them. Fall through to
+            // the unpacked compound-array path in that case.
+            if (eltCompound != null
+                    && hasPackableField(eltCompound)
+                    && !hasOffsetDirective(eltCompound))
             {
                 final FieldFormatter.FieldData packedData =
                         FieldFormatter.packedCompoundArrayField(
@@ -561,6 +571,26 @@ public final class PackingFieldFormatter
         {
             v.remove(ct);
         }
+    }
+
+    /**
+     * True iff any field of {@code ct} carries an offset directive.
+     * Such compounds suppress their packing helpers
+     * ({@link StructureEmitterTemplateData} sets
+     * {@code hasPackingContext = false}), so a parent's packed code
+     * cannot route a compound-array of this type through the
+     * packed-array helpers.
+     */
+    static boolean hasOffsetDirective(CompoundType ct)
+    {
+        for (final Field f : ct.getFields())
+        {
+            if (f.getOffsetExpr() != null)
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Thread-local in-flight set for {@link #hasPackableField}. */
