@@ -113,6 +113,11 @@ optional_members/zs/optional_members/optional_expression.zs
 extended_members/zs/extended_members/extended_indexed_offsets.zs
 templates/zs/templates/instantiate_type_as_struct_array_field.zs
 templates/zs/templates/instantiate_template_argument.zs
+expressions/zs/expressions/parenthesis.zs
+expressions/zs/expressions/question_mark.zs
+expressions/zs/expressions/array_type.zs
+indexed_offsets/zs/indexed_offsets/int14_indexed_offset_array.zs
+indexed_offsets/zs/indexed_offsets/varint32_indexed_offset_array.zs
 
 # DEFERRED: packed_arrays_mapping — 30-field packed kitchen sink.
 # Cpp reader hits EOF on our output for every seed, so one or more
