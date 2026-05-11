@@ -73,6 +73,7 @@ functions/zs/functions/structure_parent_child_value.zs
 expressions/zs/expressions/cast_uint8_to_uint64.zs
 expressions/zs/expressions/float_type.zs
 expressions/zs/expressions/function_type.zs
+array_types/zs/array_types/arrays_mapping.zs
 
 # DEFERRED: lengthof_operator — generator emits invalid C for
 # lengthof() on string literals (`"€literal"_count`) and top-level
