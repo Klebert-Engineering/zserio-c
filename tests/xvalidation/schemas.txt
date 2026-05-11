@@ -32,3 +32,9 @@ offsets/zs/offsets/auto_array_offset.zs
 indexed_offsets/zs/indexed_offsets/auto_indexed_offset_array.zs
 indexed_offsets/zs/indexed_offsets/bit5_indexed_offset_array.zs
 indexed_offsets/zs/indexed_offsets/compound_indexed_offset_array.zs
+optional_members/zs/optional_members/optional_array.zs
+union_types/zs/union_types/union_with_array.zs
+parameterized_types/zs/parameterized_types/multiple_params.zs
+choice_types/zs/choice_types/enum_param_choice.zs
+functions/zs/functions/structure_param.zs
+extended_members/zs/extended_members/extended_simple_field.zs
