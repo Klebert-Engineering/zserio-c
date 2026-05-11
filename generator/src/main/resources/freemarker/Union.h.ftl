@@ -9,6 +9,7 @@
 
 #include <zserio/allocator.h>
 #include <zserio/bitstream.h>
+#include <zserio/expressions.h>
 #include <zserio/status.h>
 <#list extraIncludes as inc>
 <#if inc?starts_with("zserio/")>
@@ -50,11 +51,19 @@ zserio_status_t ${funcPrefix}_write(${typeName} *self,
         zserio_bitstream_writer_t *bs);
 void            ${funcPrefix}_free(${typeName} *self, const zserio_allocator_t *alloc);
 
+<#-- Forward declarations so a schema function in this compound can
+     call a sibling declared later. Same rationale as Structure.h.ftl. -->
+<#list functions as fn>
+static inline ${fn.returnType} ${fn.fullName}(const ${typeName} *self);
+</#list>
 <#list functions as fn>
 static inline ${fn.returnType} ${fn.fullName}(const ${typeName} *self)
 {
     (void)self;
-    return (${fn.returnType})(${fn.body});
+    /* No cast: implicit return-statement conversion handles
+     * integer widening, and a struct return type cannot be cast to
+     * itself without tripping `-Wpedantic`. */
+    return (${fn.body});
 }
 
 </#list>

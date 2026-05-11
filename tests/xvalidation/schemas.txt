@@ -86,6 +86,8 @@ identifiers/zs/identifiers/bitmask_name_clashing_with_java.zs
 extended_members/zs/extended_members/extended_optional_with_default.zs
 extended_members/zs/extended_members/extended_field_in_template.zs
 expressions/zs/expressions/index_operator.zs
+functions/zs/functions/union_array.zs
+functions/zs/functions/structure_optional.zs
 
 # DEFERRED: packed_arrays_mapping — 30-field packed kitchen sink.
 # Cpp reader hits EOF on our output for every seed, so one or more

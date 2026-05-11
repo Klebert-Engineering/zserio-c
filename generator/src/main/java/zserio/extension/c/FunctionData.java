@@ -89,8 +89,20 @@ public final class FunctionData
             // (`area() * 2` referencing another function on the same
             // compound) resolves its owner via the policy's
             // currentOwner fallback.
+            //
+            // For a Choice / Union, case-field data lives inside an
+            // anonymous member union at `self->u.<name>`; parameters
+            // and non-case state stay at `self->`. The expression
+            // policy's `parentHolder()` strips the trailing `u.` for
+            // parameter / sibling-state references, so we pass
+            // `"self->u."` here and let the policy peel it back where
+            // needed.
+            final String holderExpr =
+                    (owner instanceof zserio.ast.ChoiceType
+                            || owner instanceof zserio.ast.UnionType)
+                            ? "self->u." : "self->";
             final String body = CExpressionFormatter.format(
-                    f.getResultExpression(), "self->", owner);
+                    f.getResultExpression(), holderExpr, owner);
             final String inc = returnTypeInclude(f.getReturnTypeReference());
             out.add(new FunctionData(localName, fullName, returnType, body, inc));
         }
