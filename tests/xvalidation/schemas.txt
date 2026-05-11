@@ -56,3 +56,8 @@ array_types/zs/array_types/packed_auto_array_struct_with_bytes.zs
 array_types/zs/array_types/packed_auto_array_struct_recursion.zs
 array_types/zs/array_types/auto_array_subtyped_uint8.zs
 optional_members/zs/optional_members/optional_complex_expression.zs
+choice_types/zs/choice_types/expression_selector_choice.zs
+union_types/zs/union_types/union_with_parameterized_field.zs
+parameterized_types/zs/parameterized_types/nested_parameterized_field.zs
+functions/zs/functions/structure_array.zs
+functions/zs/functions/structure_array_param.zs
