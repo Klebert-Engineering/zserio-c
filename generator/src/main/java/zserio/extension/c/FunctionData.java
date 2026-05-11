@@ -101,12 +101,56 @@ public final class FunctionData
                     (owner instanceof zserio.ast.ChoiceType
                             || owner instanceof zserio.ast.UnionType)
                             ? "self->u." : "self->";
-            final String body = CExpressionFormatter.format(
+            String body = CExpressionFormatter.format(
                     f.getResultExpression(), holderExpr, owner);
+            // A string-returning function whose body lowers to a
+            // `char *` value (a bare string literal or a top-level
+            // `const string` macro expansion) is incompatible with
+            // the declared `zserio_string_t` return type. Wrap as a
+            // compound literal `(zserio_string_t){<body>, sizeof(<body>) - 1u}`
+            // — both the pointer and the length come out compile-
+            // time constant because the macro expands to a string
+            // literal. Field refs and function calls of string type
+            // already have the right type and need no wrap.
+            if ("zserio_string_t".equals(returnType)
+                    && bodyEmitsCharStar(f.getResultExpression()))
+            {
+                final String lit = body;
+                body = "(zserio_string_t){(char *)" + lit
+                        + ", sizeof(" + lit + ") - 1u}";
+            }
             final String inc = returnTypeInclude(f.getReturnTypeReference());
             out.add(new FunctionData(localName, fullName, returnType, body, inc));
         }
         return out;
+    }
+
+    /**
+     * True iff the result expression lowers to a `char *` value
+     * rather than a `zserio_string_t`. Two cases: a bare string
+     * literal, and a reference to a top-level `const string` (which
+     * generates a `#define <pkg>_NAME "value"` macro). Other shapes
+     * — field references, function calls — already have the right
+     * type and do not need wrapping.
+     */
+    private static boolean bodyEmitsCharStar(zserio.ast.Expression expr)
+    {
+        if (expr.getType() == zserio.antlr.ZserioParser.STRING_LITERAL)
+        {
+            return true;
+        }
+        final Object sym = expr.getExprSymbolObject();
+        if (sym instanceof zserio.ast.Constant)
+        {
+            ZserioType ct = ((zserio.ast.Constant)sym).getTypeInstantiation()
+                    .getTypeReference().getBaseTypeReference().getType();
+            while (ct instanceof Subtype)
+            {
+                ct = ((Subtype)ct).getTypeReference().getBaseTypeReference().getType();
+            }
+            return ct instanceof zserio.ast.StringType;
+        }
+        return false;
     }
 
     /**
