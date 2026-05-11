@@ -6,12 +6,21 @@
 package zserio.extension.c;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 
+import zserio.ast.CompoundType;
+import zserio.ast.Expression;
 import zserio.ast.Field;
+import zserio.ast.FixedSizeType;
+import zserio.ast.InstantiateType;
 import zserio.ast.PackageName;
 import zserio.ast.StructureType;
+import zserio.ast.Subtype;
+import zserio.ast.TypeInstantiation;
+import zserio.ast.ZserioType;
 import zserio.extension.common.ZserioExtensionException;
 
 /** FreeMarker data for {@code Structure.h.ftl} and {@code Structure.c.ftl}. */
@@ -60,9 +69,18 @@ public final class StructureEmitterTemplateData
             }
         }
         boolean owned = false;
+        // Pre-scan: every field whose `<expr>:` offset directive names
+        // a fixed-width sibling field becomes an "offset source" — its
+        // emitter records the writer bit position before its inner
+        // write so the anchored field can later back-patch it. The
+        // map's value is the source's bit width, needed to re-emit the
+        // corrected value at the original wire position.
+        final Map<String, Integer> offsetSourceBitWidths =
+                collectOffsetSourceBitWidths(structType);
         for (final Field f : structType.getFields())
         {
-            final FieldFormatter.FieldData data = FieldFormatter.format(f, "self->", structType);
+            final FieldFormatter.FieldData data =
+                    FieldFormatter.format(f, "self->", structType, offsetSourceBitWidths);
             built.add(data);
             final PackingFieldFormatter.PackedField packed =
                     PackingFieldFormatter.format(f, data, "self->", structType, "ctx->");
@@ -82,8 +100,23 @@ public final class StructureEmitterTemplateData
         // when no individual field needs a context member (e.g. the
         // only packable leaves live inside arrays which scope their
         // own local contexts).
-        this.hasPackingContext = PackingFieldFormatter.hasPackableField(structType);
-        this.hasPackingContextMembers = usesContext;
+        //
+        // Exception: compounds with `<expr>:` offset directives suppress
+        // packed code generation entirely. Offsets demand byte
+        // boundaries and need their source field written at its
+        // declared bit width for the single-pass back-patch to take
+        // effect; delta encoding (used by the packed path) gates each
+        // packable field through a context that defeats both
+        // properties. Upstream zserio's wire format does not combine
+        // offsets with packed encoding either, so this matches
+        // semantics — an offset-bearing struct simply cannot be used
+        // as an element of a `packed S[]` array. Emitting the packed
+        // helpers anyway would compile-fail because the offset
+        // back-patch references a position local that the packed
+        // write does not declare.
+        this.hasPackingContext = offsetSourceBitWidths.isEmpty()
+                && PackingFieldFormatter.hasPackableField(structType);
+        this.hasPackingContextMembers = usesContext && offsetSourceBitWidths.isEmpty();
         this.functions = FunctionData.from(structType);
         for (final FunctionData fn : this.functions)
         {
@@ -100,6 +133,64 @@ public final class StructureEmitterTemplateData
         includes.addAll(ReferencedConstants.headerIncludePathsFor(structType));
         this.extraIncludes = new ArrayList<>(includes);
         this.hasOwnedFields = owned;
+    }
+
+    /**
+     * Walk the compound's fields, find every {@code <expr>:} offset
+     * directive whose expression resolves to a sibling {@link Field},
+     * and record that source field's bit width. Sources whose type is
+     * not a fixed-width primitive (varuint, an array, a compound) are
+     * skipped — {@link FieldFormatter#wrapOffset} will reject the
+     * directive with a clear error rather than emit broken back-patch
+     * code, so the gap is visible.
+     */
+    private static Map<String, Integer> collectOffsetSourceBitWidths(CompoundType compound)
+    {
+        final Map<String, Integer> out = new HashMap<>();
+        for (final Field f : compound.getFields())
+        {
+            final Expression off = f.getOffsetExpr();
+            if (off == null)
+            {
+                continue;
+            }
+            final Object sym = off.getExprSymbolObject();
+            if (!(sym instanceof Field))
+            {
+                continue;
+            }
+            final Field src = (Field)sym;
+            final Integer bits = fixedBitWidth(src);
+            if (bits != null)
+            {
+                out.put(src.getName(), bits);
+            }
+        }
+        return out;
+    }
+
+    /** Resolve the field's underlying type and return its bit width
+     *  if it implements {@link FixedSizeType}, else {@code null}. */
+    private static Integer fixedBitWidth(Field field)
+    {
+        final TypeInstantiation inst = field.getTypeInstantiation();
+        ZserioType t = inst.getTypeReference().getBaseTypeReference().getType();
+        while (t instanceof Subtype || t instanceof InstantiateType)
+        {
+            if (t instanceof Subtype)
+            {
+                t = ((Subtype)t).getTypeReference().getBaseTypeReference().getType();
+            }
+            else
+            {
+                t = ((InstantiateType)t).getTypeReference().getBaseTypeReference().getType();
+            }
+        }
+        if (t instanceof FixedSizeType)
+        {
+            return Integer.valueOf(((FixedSizeType)t).getBitSize());
+        }
+        return null;
     }
 
     public String  getGeneratorDescription() { return generatorDescription; }

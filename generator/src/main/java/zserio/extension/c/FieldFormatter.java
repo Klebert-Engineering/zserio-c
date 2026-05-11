@@ -86,7 +86,7 @@ public final class FieldFormatter
      */
     public static FieldData format(Field field, String holderExpr) throws ZserioExtensionException
     {
-        return format(field, holderExpr, null);
+        return format(field, holderExpr, null, java.util.Collections.emptyMap());
     }
 
     /**
@@ -96,6 +96,34 @@ public final class FieldFormatter
      * optional-clause / array-length / parameter-arg expressions.
      */
     public static FieldData format(Field field, String holderExpr, CompoundType owner)
+            throws ZserioExtensionException
+    {
+        return format(field, holderExpr, owner, java.util.Collections.emptyMap());
+    }
+
+    /**
+     * Format with offset-source metadata. The caller pre-computes a
+     * map from offset-source field name (the field referenced by some
+     * later sibling's {@code <expr>:} directive) to its bit width. When
+     * the field being formatted IS such an offset source, its write
+     * statement is prefixed with a `const size_t _<name>_offset_write_pos = …;`
+     * local that the anchored sibling reads to back-patch the offset
+     * value after deciding where the anchored field lands. When the
+     * field carries an {@code getOffsetExpr() != null} directive itself,
+     * its read / write are wrapped with byte alignment plus the
+     * back-patch / verify dance against the offset source's stored
+     * position.
+     *
+     * The single-pass back-patch sidesteps the need for a separate
+     * {@code initializeOffsets} prepass (the standard upstream
+     * approach) — at the cost of demanding that the offset source be a
+     * fixed-width sibling field. Both restrictions are checked here
+     * (the source must resolve to a {@link FixedSizeType}, and the
+     * offset expression must be a simple {@link Field} reference); any
+     * unsupported shape throws.
+     */
+    public static FieldData format(Field field, String holderExpr, CompoundType owner,
+            java.util.Map<String, Integer> offsetSourceBitWidths)
             throws ZserioExtensionException
     {
         FieldData data = formatBase(field, holderExpr, owner);
@@ -110,6 +138,29 @@ public final class FieldFormatter
             final String formattedAlign = CExpressionFormatter.format(
                     field.getAlignmentExpr(), holderExpr, owner);
             data = wrapAlignment(data, formattedAlign);
+        }
+
+        // `<expr>:` (offset directive) — byte-align the cursor before
+        // this field and back-patch the offset source with the actual
+        // byte position. Apply BEFORE constraint / optional so the
+        // alignment / back-patch only run when the field is actually
+        // present (matches upstream initializeOffsets+write semantics:
+        // an absent optional field does not anchor its offset).
+        //
+        // Only atomic sibling-field offset sources are supported today.
+        // A simple identifier expression has both operands null;
+        // anything with structure (a dot chain `header.offset`, an
+        // array-element-indexed offset `offsets[@index]`, an
+        // `a[@index].offset` shape) does not yet drive the back-patch
+        // and falls through without a wrap — discovery / compile pass,
+        // but the wire output will not honor the directive. Tracked
+        // separately so the gap stays visible.
+        final Expression offExprPeek = field.getOffsetExpr();
+        if (offExprPeek != null
+                && offExprPeek.getExprSymbolObject() instanceof Field
+                && offExprPeek.op1() == null && offExprPeek.op2() == null)
+        {
+            data = wrapOffset(field, data, holderExpr, owner, offsetSourceBitWidths);
         }
 
         // Constraint check sits between the value lowering and the
@@ -135,6 +186,17 @@ public final class FieldFormatter
                 data = wrapAutoOptional(data, holderExpr);
             }
         }
+
+        // If this field is an offset source for some other field in the
+        // same compound, record the writer's bit position before writing
+        // it so the anchored field's back-patch can seek back to it.
+        // The local is declared at function scope (above the field's
+        // existing writeStmt) and is consumed later in the same body.
+        final Integer offSrcBits = offsetSourceBitWidths.get(field.getName());
+        if (offSrcBits != null)
+        {
+            data = wrapOffsetSource(data, field.getName(), offSrcBits);
+        }
         return data;
     }
 
@@ -157,6 +219,134 @@ public final class FieldFormatter
                 inner.name, inner.nativeType, inner.declaration,
                 read, write, inner.freeStmt,
                 inner.owned, inner.extraInclude, inner.extraMember);
+    }
+
+    /**
+     * Wrap a {@link FieldData} carrying an offset directive
+     * ({@code <expr>: T x;}). The directive demands that the field
+     * start at a byte boundary whose byte position is recorded in
+     * {@code expr} (which must reference a sibling integer field).
+     *
+     * <p><b>Read side:</b> byte-align the reader and verify the
+     * resulting byte position matches the stored offset value; return
+     * {@code ZSERIO_ERR_OFFSET_MISMATCH} on disagreement.
+     *
+     * <p><b>Write side (single-pass back-patch):</b> byte-align the
+     * writer, compute the current byte position, store it back into
+     * the offset source field, then seek to the offset source's earlier
+     * write position, rewrite it with the corrected value, and seek
+     * back. The earlier write position is captured by
+     * {@link #wrapOffsetSource} on the offset source field's emission.
+     *
+     * <p>Only simple-{@link Field}-reference offset expressions are
+     * supported today (the offset source must resolve to a fixed-width
+     * sibling). Array-element-indexed offsets ({@code offsets[@index]:})
+     * and arbitrary expressions throw.
+     */
+    private static FieldData wrapOffset(Field field, FieldData inner, String holderExpr,
+            CompoundType owner, java.util.Map<String, Integer> offsetSourceBitWidths)
+            throws ZserioExtensionException
+    {
+        final Expression offExpr = field.getOffsetExpr();
+        final Object sym = offExpr.getExprSymbolObject();
+        if (!(sym instanceof Field))
+        {
+            throw new ZserioExtensionException(
+                    "zserio-c: offset directive on field '" + field.getName()
+                            + "' references " + (sym == null ? "an unresolved symbol"
+                                    : sym.getClass().getSimpleName())
+                            + " — only simple sibling-field references are supported "
+                            + "(array-element-indexed offsets are not yet implemented)");
+        }
+        final Field offSrc = (Field)sym;
+        final Integer bitsObj = offsetSourceBitWidths.get(offSrc.getName());
+        if (bitsObj == null)
+        {
+            // Two reasons this can happen: the caller did not register the
+            // source (only the no-map FieldFormatter.format overload was
+            // used — unusual for a struct that contains offsets), or the
+            // source's type isn't fixed-width and we couldn't compute a
+            // bit count. Either way, fail loudly so the gap is visible.
+            throw new ZserioExtensionException(
+                    "zserio-c: offset source field '" + offSrc.getName()
+                            + "' (referenced from '" + field.getName()
+                            + "') has no resolvable fixed-width — variable-width "
+                            + "offset sources are not yet supported");
+        }
+        final int bits = bitsObj.intValue();
+        final String offValueExpr =
+                CExpressionFormatter.format(offExpr, holderExpr, owner);
+        final String posLocal =
+                "_" + CIdentifierFormatter.toLowerSnake(offSrc.getName()) + "_offset_write_pos";
+
+        // Read: align to byte boundary, then verify the stored offset
+        // value matches the actual byte position.
+        final String read =
+                "ZSERIO_TRY(zserio_bitstream_reader_align(bs, (size_t)8));\n"
+                + "    if ((zserio_bitstream_reader_position(bs) / 8u) != (size_t)("
+                + offValueExpr + ")) {\n"
+                + "        return ZSERIO_ERR_OFFSET_MISMATCH;\n"
+                + "    }\n    "
+                + inner.readStmt;
+
+        // Write: align, capture new byte position into the offset source,
+        // back-patch its earlier wire position, seek forward, then write
+        // the anchored field. The block braces scope the temporary so
+        // back-to-back offset directives in the same compound do not
+        // alias their `_saved_pos` locals.
+        final String write =
+                "ZSERIO_TRY(zserio_bitstream_writer_align(bs, (size_t)8));\n"
+                + "    " + offValueExpr + " = ("
+                + offsetCastType(bits) + ")(zserio_bitstream_writer_position(bs) / 8u);\n"
+                + "    {\n"
+                + "        const size_t _saved_pos = zserio_bitstream_writer_position(bs);\n"
+                + "        ZSERIO_TRY(zserio_bitstream_writer_seek(bs, " + posLocal + "));\n"
+                + "        ZSERIO_TRY(zserio_bitstream_write_bits(bs, " + bits
+                + ", (uint64_t)(" + offValueExpr + ")));\n"
+                + "        ZSERIO_TRY(zserio_bitstream_writer_seek(bs, _saved_pos));\n"
+                + "    }\n    "
+                + inner.writeStmt;
+
+        return new FieldData(
+                inner.name, inner.nativeType, inner.declaration,
+                read, write, inner.freeStmt,
+                inner.owned, inner.extraInclude, inner.extraMember);
+    }
+
+    /**
+     * Record this field's writer bit position as a function-scope local
+     * named {@code _<name>_offset_write_pos}. Consumed by any sibling
+     * field whose offset directive references this one (see
+     * {@link #wrapOffset}). The local is declared before the inner
+     * write statement so the recorded position is the START of the
+     * offset source's bits, which is exactly where the back-patch needs
+     * to seek to.
+     */
+    private static FieldData wrapOffsetSource(FieldData inner, String zserioName, int bits)
+    {
+        // (bits is captured for documentation / future asserts; the
+        //  back-patch knows the width from the same map.)
+        final String posLocal =
+                "_" + CIdentifierFormatter.toLowerSnake(zserioName) + "_offset_write_pos";
+        final String write =
+                "const size_t " + posLocal
+                + " = zserio_bitstream_writer_position(bs);\n    "
+                + inner.writeStmt;
+        return new FieldData(
+                inner.name, inner.nativeType, inner.declaration,
+                inner.readStmt, write, inner.freeStmt,
+                inner.owned, inner.extraInclude, inner.extraMember);
+    }
+
+    /** Choose the C cast type for back-patching a {@code bits}-wide
+     *  offset source's stored value. Mirrors the type a {@code uintN} /
+     *  {@code bit:N} field maps to in our generated struct. */
+    private static String offsetCastType(int bits)
+    {
+        if (bits <= 8) return "uint8_t";
+        if (bits <= 16) return "uint16_t";
+        if (bits <= 32) return "uint32_t";
+        return "uint64_t";
     }
 
     /**
