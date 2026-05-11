@@ -103,6 +103,9 @@ choice_types/zs/choice_types/full_bitmask_param_choice.zs
 optional_members/zs/optional_members/auto_optional_bool.zs
 templates/zs/templates/instantiate_only_nested.zs
 array_types/zs/array_types/auto_array_bitfield_param.zs
+choice_types/zs/choice_types/default_empty_choice.zs
+alignment/zs/alignment/optional_member_alignment.zs
+alignment/zs/alignment/auto_optional_member_alignment.zs
 
 # DEFERRED: packed_arrays_mapping — 30-field packed kitchen sink.
 # Cpp reader hits EOF on our output for every seed, so one or more
