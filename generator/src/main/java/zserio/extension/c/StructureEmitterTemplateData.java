@@ -11,6 +11,8 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 
+import zserio.antlr.ZserioParser;
+import zserio.ast.ArrayInstantiation;
 import zserio.ast.CompoundType;
 import zserio.ast.Expression;
 import zserio.ast.Field;
@@ -72,15 +74,19 @@ public final class StructureEmitterTemplateData
         // Pre-scan: every field whose `<expr>:` offset directive names
         // a fixed-width sibling field becomes an "offset source" — its
         // emitter records the writer bit position before its inner
-        // write so the anchored field can later back-patch it. The
-        // map's value is the source's bit width, needed to re-emit the
-        // corrected value at the original wire position.
-        final Map<String, Integer> offsetSourceBitWidths =
-                collectOffsetSourceBitWidths(structType);
+        // write so the anchored field can later back-patch it. Two
+        // shapes are handled: an atomic identifier ({@code <name>:}
+        // → atomicSourceBits) and an array-element indexed reference
+        // ({@code <name>[@index]:} → indexedSourceBits + a per-anchor
+        // info record for the anchored array). Both maps are passed
+        // through OffsetContext to FieldFormatter so the relevant
+        // wraps fire on the right side.
+        final FieldFormatter.OffsetContext offsetContext = buildOffsetContext(structType);
+        final boolean compoundHasOffsets = !offsetContext.isEmpty();
         for (final Field f : structType.getFields())
         {
             final FieldFormatter.FieldData data =
-                    FieldFormatter.format(f, "self->", structType, offsetSourceBitWidths);
+                    FieldFormatter.format(f, "self->", structType, offsetContext);
             built.add(data);
             final PackingFieldFormatter.PackedField packed =
                     PackingFieldFormatter.format(f, data, "self->", structType, "ctx->");
@@ -114,9 +120,9 @@ public final class StructureEmitterTemplateData
         // helpers anyway would compile-fail because the offset
         // back-patch references a position local that the packed
         // write does not declare.
-        this.hasPackingContext = offsetSourceBitWidths.isEmpty()
+        this.hasPackingContext = !compoundHasOffsets
                 && PackingFieldFormatter.hasPackableField(structType);
-        this.hasPackingContextMembers = usesContext && offsetSourceBitWidths.isEmpty();
+        this.hasPackingContextMembers = usesContext && !compoundHasOffsets;
         this.functions = FunctionData.from(structType);
         for (final FunctionData fn : this.functions)
         {
@@ -137,16 +143,30 @@ public final class StructureEmitterTemplateData
 
     /**
      * Walk the compound's fields, find every {@code <expr>:} offset
-     * directive whose expression resolves to a sibling {@link Field},
-     * and record that source field's bit width. Sources whose type is
-     * not a fixed-width primitive (varuint, an array, a compound) are
-     * skipped — {@link FieldFormatter#wrapOffset} will reject the
-     * directive with a clear error rather than emit broken back-patch
-     * code, so the gap is visible.
+     * directive, and build the {@link FieldFormatter.OffsetContext}
+     * that drives all four offset wraps. Three shapes recognised:
+     *
+     * <ul>
+     *   <li>Atomic — {@code <name>:}: the offset source is a sibling
+     *       field whose underlying type is fixed-width. Recorded in
+     *       {@code atomicSourceBits}.</li>
+     *   <li>Indexed — {@code <name>[@index]:}: the offset source is
+     *       an array sibling whose element type is fixed-width.
+     *       Recorded in {@code indexedSourceBits} (under the source
+     *       array's name) and {@code indexedAnchors} (under the
+     *       anchored field's name, carrying the per-element wrap
+     *       data).</li>
+     *   <li>Anything else (dot paths, mixed expressions) is skipped;
+     *       the generator emits the field without offset semantics.
+     *       Discovery / compile still pass; the wire output won't
+     *       honor the directive.</li>
+     * </ul>
      */
-    private static Map<String, Integer> collectOffsetSourceBitWidths(CompoundType compound)
+    private static FieldFormatter.OffsetContext buildOffsetContext(CompoundType compound)
     {
-        final Map<String, Integer> out = new HashMap<>();
+        final Map<String, Integer> atomic = new HashMap<>();
+        final Map<String, Integer> indexedSrc = new HashMap<>();
+        final Map<String, FieldFormatter.IndexedAnchorInfo> indexedAnchors = new HashMap<>();
         for (final Field f : compound.getFields())
         {
             final Expression off = f.getOffsetExpr();
@@ -154,19 +174,43 @@ public final class StructureEmitterTemplateData
             {
                 continue;
             }
-            final Object sym = off.getExprSymbolObject();
-            if (!(sym instanceof Field))
+
+            // Atomic: `<name>:` — single-identifier expression
+            // resolving to a Field, both operands null.
+            if (off.getExprSymbolObject() instanceof Field
+                    && off.op1() == null && off.op2() == null)
             {
+                final Field src = (Field)off.getExprSymbolObject();
+                final Integer bits = fixedBitWidth(src);
+                if (bits != null)
+                {
+                    atomic.put(src.getName(), bits);
+                }
                 continue;
             }
-            final Field src = (Field)sym;
-            final Integer bits = fixedBitWidth(src);
-            if (bits != null)
+
+            // Indexed: `<name>[@index]:` — LBRACKET binary expression
+            // whose op1 is an atomic Field reference and op2 is an
+            // INDEX atom. The source must be an array; its element
+            // type must be fixed-width for the back-patch to derive
+            // element[i]'s position from start + i * elemBits.
+            if (off.getType() == ZserioParser.LBRACKET
+                    && off.op1() != null && off.op2() != null
+                    && off.op1().getExprSymbolObject() instanceof Field
+                    && off.op2().getType() == ZserioParser.INDEX)
             {
-                out.put(src.getName(), bits);
+                final Field src = (Field)off.op1().getExprSymbolObject();
+                final Integer elemBits = arrayElementFixedBitWidth(src);
+                if (elemBits != null)
+                {
+                    indexedSrc.put(src.getName(), elemBits);
+                    indexedAnchors.put(f.getName(),
+                            new FieldFormatter.IndexedAnchorInfo(src.getName(),
+                                    elemBits.intValue()));
+                }
             }
         }
-        return out;
+        return new FieldFormatter.OffsetContext(atomic, indexedSrc, indexedAnchors);
     }
 
     /** Resolve the field's underlying type and return its bit width
@@ -175,6 +219,35 @@ public final class StructureEmitterTemplateData
     {
         final TypeInstantiation inst = field.getTypeInstantiation();
         ZserioType t = inst.getTypeReference().getBaseTypeReference().getType();
+        while (t instanceof Subtype || t instanceof InstantiateType)
+        {
+            if (t instanceof Subtype)
+            {
+                t = ((Subtype)t).getTypeReference().getBaseTypeReference().getType();
+            }
+            else
+            {
+                t = ((InstantiateType)t).getTypeReference().getBaseTypeReference().getType();
+            }
+        }
+        if (t instanceof FixedSizeType)
+        {
+            return Integer.valueOf(((FixedSizeType)t).getBitSize());
+        }
+        return null;
+    }
+
+    /** If {@code field} is an array with fixed-width elements, return
+     *  the element bit width; otherwise return {@code null}. */
+    private static Integer arrayElementFixedBitWidth(Field field)
+    {
+        final TypeInstantiation inst = field.getTypeInstantiation();
+        if (!(inst instanceof ArrayInstantiation))
+        {
+            return null;
+        }
+        ZserioType t = ((ArrayInstantiation)inst).getElementTypeInstantiation()
+                .getTypeReference().getBaseTypeReference().getType();
         while (t instanceof Subtype || t instanceof InstantiateType)
         {
             if (t instanceof Subtype)

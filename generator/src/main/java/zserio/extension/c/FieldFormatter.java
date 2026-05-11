@@ -86,7 +86,7 @@ public final class FieldFormatter
      */
     public static FieldData format(Field field, String holderExpr) throws ZserioExtensionException
     {
-        return format(field, holderExpr, null, java.util.Collections.emptyMap());
+        return format(field, holderExpr, null, OffsetContext.empty());
     }
 
     /**
@@ -98,32 +98,116 @@ public final class FieldFormatter
     public static FieldData format(Field field, String holderExpr, CompoundType owner)
             throws ZserioExtensionException
     {
-        return format(field, holderExpr, owner, java.util.Collections.emptyMap());
+        return format(field, holderExpr, owner, OffsetContext.empty());
     }
 
     /**
-     * Format with offset-source metadata. The caller pre-computes a
-     * map from offset-source field name (the field referenced by some
-     * later sibling's {@code <expr>:} directive) to its bit width. When
-     * the field being formatted IS such an offset source, its write
-     * statement is prefixed with a `const size_t _<name>_offset_write_pos = …;`
-     * local that the anchored sibling reads to back-patch the offset
-     * value after deciding where the anchored field lands. When the
-     * field carries an {@code getOffsetExpr() != null} directive itself,
-     * its read / write are wrapped with byte alignment plus the
-     * back-patch / verify dance against the offset source's stored
-     * position.
+     * Carries every piece of offset-source metadata that
+     * {@link FieldFormatter#format} needs to wrap a field's read /
+     * write with offset semantics. Built once by the compound emitter
+     * (one OffsetContext per compound) and reused across every field
+     * in the compound.
      *
-     * The single-pass back-patch sidesteps the need for a separate
-     * {@code initializeOffsets} prepass (the standard upstream
-     * approach) — at the cost of demanding that the offset source be a
-     * fixed-width sibling field. Both restrictions are checked here
-     * (the source must resolve to a {@link FixedSizeType}, and the
-     * offset expression must be a simple {@link Field} reference); any
-     * unsupported shape throws.
+     * <p>Three pieces of information:
+     * <ul>
+     *   <li>{@code atomicSourceBits} — sibling-field names referenced
+     *       by some atomic {@code <fieldOffset>:} directive, mapped to
+     *       the source field's bit width. The source field's writer
+     *       emission records its pre-write bit position so the
+     *       anchored sibling can back-patch.</li>
+     *   <li>{@code indexedSourceBits} — sibling-array-field names
+     *       referenced by some indexed {@code <arr>[@index]:}
+     *       directive, mapped to the array element's bit width. The
+     *       source array's writer emission captures the bit position
+     *       of its first element so the anchored array's per-element
+     *       back-patch can derive element[i]'s wire position as
+     *       {@code start + i * elemBits}.</li>
+     *   <li>{@code indexedAnchors} — anchored-field names that carry
+     *       an {@code <arr>[@index]:} directive, mapped to the
+     *       per-element wrap info (source name, element bit width,
+     *       cast type) needed to emit the inside-loop back-patch.</li>
+     * </ul>
+     */
+    public static final class OffsetContext
+    {
+        private final java.util.Map<String, Integer> atomicSourceBits;
+        private final java.util.Map<String, Integer> indexedSourceBits;
+        private final java.util.Map<String, IndexedAnchorInfo> indexedAnchors;
+
+        public OffsetContext(java.util.Map<String, Integer> atomicSourceBits,
+                java.util.Map<String, Integer> indexedSourceBits,
+                java.util.Map<String, IndexedAnchorInfo> indexedAnchors)
+        {
+            this.atomicSourceBits = atomicSourceBits;
+            this.indexedSourceBits = indexedSourceBits;
+            this.indexedAnchors = indexedAnchors;
+        }
+
+        public static OffsetContext empty()
+        {
+            return new OffsetContext(java.util.Collections.<String, Integer>emptyMap(),
+                    java.util.Collections.<String, Integer>emptyMap(),
+                    java.util.Collections.<String, IndexedAnchorInfo>emptyMap());
+        }
+
+        public boolean isEmpty()
+        {
+            return atomicSourceBits.isEmpty()
+                    && indexedSourceBits.isEmpty()
+                    && indexedAnchors.isEmpty();
+        }
+    }
+
+    /**
+     * Per-element info for an array field carrying an indexed offset
+     * directive ({@code <src>[@index]:}). The source field is named by
+     * its zserio identifier; the C access expression for source[i] is
+     * derived as {@code <holder><lowerSnake(name)>[<iter>]}.
+     */
+    public static final class IndexedAnchorInfo
+    {
+        private final String sourceZserioName;
+        private final int sourceElemBits;
+
+        public IndexedAnchorInfo(String sourceZserioName, int sourceElemBits)
+        {
+            this.sourceZserioName = sourceZserioName;
+            this.sourceElemBits = sourceElemBits;
+        }
+    }
+
+    /**
+     * Format with offset-source metadata. The caller pre-computes the
+     * {@link OffsetContext} once per compound and reuses it across
+     * every field. The format method applies up to four offset wraps:
+     *
+     * <ul>
+     *   <li>If the field's name is in {@code atomicSourceBits}, its
+     *       write statement is prefixed with a
+     *       {@code const size_t _<name>_offset_write_pos = …;} local
+     *       so an anchored sibling can back-patch it.</li>
+     *   <li>If the field's name is in {@code indexedSourceBits}, the
+     *       array writer emission is post-processed to capture a
+     *       {@code size_t _<name>_offset_data_start = …;} marker that
+     *       points at the first element's bit position.</li>
+     *   <li>If the field carries an atomic offset directive
+     *       (simple sibling-field reference), read / write are wrapped
+     *       with byte alignment plus verify (read) / back-patch
+     *       (write).</li>
+     *   <li>If the field carries an indexed offset directive
+     *       ({@code <arr>[@index]:}), the array's per-element read /
+     *       write is wrapped inside the loop with the same alignment +
+     *       verify / back-patch pattern, indexing the source array by
+     *       the same iterator variable.</li>
+     * </ul>
+     *
+     * Unsupported offset shapes (dot paths, mixed expressions) fall
+     * through without a wrap so discovery / compile keep passing,
+     * matching the prior behavior. The schema's emitted wire output
+     * does not honor the directive in that case — tracked separately.
      */
     public static FieldData format(Field field, String holderExpr, CompoundType owner,
-            java.util.Map<String, Integer> offsetSourceBitWidths)
+            OffsetContext offsetContext)
             throws ZserioExtensionException
     {
         FieldData data = formatBase(field, holderExpr, owner);
@@ -147,20 +231,27 @@ public final class FieldFormatter
         // present (matches upstream initializeOffsets+write semantics:
         // an absent optional field does not anchor its offset).
         //
-        // Only atomic sibling-field offset sources are supported today.
-        // A simple identifier expression has both operands null;
-        // anything with structure (a dot chain `header.offset`, an
-        // array-element-indexed offset `offsets[@index]`, an
-        // `a[@index].offset` shape) does not yet drive the back-patch
-        // and falls through without a wrap — discovery / compile pass,
-        // but the wire output will not honor the directive. Tracked
-        // separately so the gap stays visible.
+        // Three shapes recognised here. Everything else (a dot path,
+        // `a[@index].b`, an arbitrary expression) falls through
+        // without a wrap so discovery / compile keep passing — the
+        // wire bytes won't honor the directive but the gap remains
+        // visible separately.
         final Expression offExprPeek = field.getOffsetExpr();
-        if (offExprPeek != null
-                && offExprPeek.getExprSymbolObject() instanceof Field
-                && offExprPeek.op1() == null && offExprPeek.op2() == null)
+        if (offExprPeek != null)
         {
-            data = wrapOffset(field, data, holderExpr, owner, offsetSourceBitWidths);
+            if (isAtomicFieldRef(offExprPeek))
+            {
+                data = wrapOffset(field, data, holderExpr, owner,
+                        offsetContext.atomicSourceBits);
+            }
+            else
+            {
+                final IndexedAnchorInfo info = offsetContext.indexedAnchors.get(field.getName());
+                if (info != null)
+                {
+                    data = wrapIndexedOffsetAnchored(data, field, info, holderExpr);
+                }
+            }
         }
 
         // Constraint check sits between the value lowering and the
@@ -187,17 +278,38 @@ public final class FieldFormatter
             }
         }
 
-        // If this field is an offset source for some other field in the
-        // same compound, record the writer's bit position before writing
-        // it so the anchored field's back-patch can seek back to it.
-        // The local is declared at function scope (above the field's
-        // existing writeStmt) and is consumed later in the same body.
-        final Integer offSrcBits = offsetSourceBitWidths.get(field.getName());
+        // If this field is an atomic offset source for some other field
+        // in the same compound, record the writer's bit position before
+        // writing it so the anchored field's back-patch can seek back
+        // to it. The local is declared at function scope (above the
+        // field's existing writeStmt) and is consumed later in the
+        // same body.
+        final Integer offSrcBits = offsetContext.atomicSourceBits.get(field.getName());
         if (offSrcBits != null)
         {
             data = wrapOffsetSource(data, field.getName(), offSrcBits);
         }
+
+        // If this field is the source ARRAY for an indexed offset
+        // ({@code <name>[@index]:} referenced on a later sibling),
+        // capture the bit position of element[0] in a function-scope
+        // {@code _<name>_offset_data_start} marker. The anchored
+        // sibling derives element[i]'s wire position from
+        // {@code _data_start + i * elemBits}.
+        final Integer indexedSrcBits = offsetContext.indexedSourceBits.get(field.getName());
+        if (indexedSrcBits != null)
+        {
+            data = wrapIndexedOffsetSource(data, field.getName());
+        }
         return data;
+    }
+
+    /** True iff the expression is a single, atomic identifier
+     *  resolving to a {@link Field}. */
+    private static boolean isAtomicFieldRef(Expression e)
+    {
+        return e.getExprSymbolObject() instanceof Field
+                && e.op1() == null && e.op2() == null;
     }
 
     /**
@@ -311,6 +423,159 @@ public final class FieldFormatter
                 inner.name, inner.nativeType, inner.declaration,
                 read, write, inner.freeStmt,
                 inner.owned, inner.extraInclude, inner.extraMember);
+    }
+
+    /**
+     * Wrap the source array of an indexed offset directive
+     * ({@code <name>[@index]:} on some later sibling). The array's
+     * {@code writeStmt} is post-processed in two places:
+     *
+     * <ul>
+     *   <li>A function-scope {@code size_t _<name>_offset_data_start = 0u;}
+     *       is prepended so the value is visible to the anchored
+     *       array's per-element back-patch.</li>
+     *   <li>Inside the array's outer block, immediately before the
+     *       per-element {@code for} loop, the marker is assigned to
+     *       the writer's current bit position — which is the start of
+     *       element[0]'s bits (after the count varsize prefix, if
+     *       any).</li>
+     * </ul>
+     *
+     * The read path is unchanged: the anchored array verifies offsets
+     * against the source array's already-read values rather than
+     * computing positions on the fly.
+     */
+    private static FieldData wrapIndexedOffsetSource(FieldData inner, String zserioName)
+    {
+        final String snake = CIdentifierFormatter.toLowerSnake(zserioName);
+        final String marker = "_" + snake + "_offset_data_start";
+        // Anchor on `for (size_t <name>_i ` to locate the per-element
+        // loop. variableArray and fixedArray both emit this header
+        // verbatim with the field's lower-snake name.
+        final String forAnchor = "for (size_t " + snake + "_i ";
+        final String w = inner.writeStmt;
+        final int forIdx = w.indexOf(forAnchor);
+        if (forIdx < 0)
+        {
+            throw new IllegalStateException(
+                    "indexed offset: cannot locate for-loop in source array writeStmt for '"
+                            + zserioName + "' — writeStmt shape changed?");
+        }
+        final int lineStart = w.lastIndexOf('\n', forIdx) + 1;
+        final String indent = w.substring(lineStart, forIdx);
+        final String injection =
+                marker + " = zserio_bitstream_writer_position(bs);\n" + indent;
+        final String newBody = w.substring(0, forIdx) + injection + w.substring(forIdx);
+        final String write = "size_t " + marker + " = 0u;\n    " + newBody;
+        return new FieldData(
+                inner.name, inner.nativeType, inner.declaration,
+                inner.readStmt, write, inner.freeStmt,
+                inner.owned, inner.extraInclude, inner.extraMember);
+    }
+
+    /**
+     * Wrap the anchored array of an indexed offset directive
+     * ({@code <src>[@index]:} on this field). The array's read and
+     * write statements are post-processed: a per-element wrap is
+     * injected immediately after the per-element loop's opening
+     * brace, before the inner element body.
+     *
+     * <p>Write-side wrap (single-pass back-patch using the source's
+     * recorded data-start marker):
+     * <pre>
+     * ZSERIO_TRY(zserio_bitstream_writer_align(bs, 8));
+     * &lt;src&gt;[i] = (uint32_t)(zserio_bitstream_writer_position(bs) / 8u);
+     * {
+     *     const size_t _saved_pos = …;
+     *     ZSERIO_TRY(zserio_bitstream_writer_seek(bs,
+     *             _&lt;src&gt;_offset_data_start + i * elemBits));
+     *     ZSERIO_TRY(zserio_bitstream_write_bits(bs, elemBits,
+     *             (uint64_t)(&lt;src&gt;[i])));
+     *     ZSERIO_TRY(zserio_bitstream_writer_seek(bs, _saved_pos));
+     * }
+     * </pre>
+     *
+     * <p>Read-side wrap (verify against the source array's stored
+     * value):
+     * <pre>
+     * ZSERIO_TRY(zserio_bitstream_reader_align(bs, 8));
+     * if ((zserio_bitstream_reader_position(bs) / 8u) != (size_t)(&lt;src&gt;[i]))
+     *     return ZSERIO_ERR_OFFSET_MISMATCH;
+     * </pre>
+     */
+    private static FieldData wrapIndexedOffsetAnchored(FieldData inner, Field anchored,
+            IndexedAnchorInfo info, String holderExpr)
+    {
+        final String anchoredSnake = CIdentifierFormatter.toLowerSnake(anchored.getName());
+        final String srcSnake = CIdentifierFormatter.toLowerSnake(info.sourceZserioName);
+        final String iterVar = anchoredSnake + "_i";
+        final String srcAccess = holderExpr + srcSnake + "[" + iterVar + "]";
+        final String marker = "_" + srcSnake + "_offset_data_start";
+        final int elemBits = info.sourceElemBits;
+        final String castType = offsetCastType(elemBits);
+        final String backPatchPos = marker + " + " + iterVar
+                + " * (size_t)" + elemBits + "u";
+
+        final String writeWrap = ""
+                + "ZSERIO_TRY(zserio_bitstream_writer_align(bs, (size_t)8));\n"
+                + "                " + srcAccess + " = (" + castType
+                + ")(zserio_bitstream_writer_position(bs) / 8u);\n"
+                + "                {\n"
+                + "                    const size_t _saved_pos = zserio_bitstream_writer_position(bs);\n"
+                + "                    ZSERIO_TRY(zserio_bitstream_writer_seek(bs, "
+                + backPatchPos + "));\n"
+                + "                    ZSERIO_TRY(zserio_bitstream_write_bits(bs, "
+                + elemBits + ", (uint64_t)(" + srcAccess + ")));\n"
+                + "                    ZSERIO_TRY(zserio_bitstream_writer_seek(bs, _saved_pos));\n"
+                + "                }\n"
+                + "                ";
+        final String readWrap = ""
+                + "ZSERIO_TRY(zserio_bitstream_reader_align(bs, (size_t)8));\n"
+                + "                if ((zserio_bitstream_reader_position(bs) / 8u) != (size_t)("
+                + srcAccess + ")) {\n"
+                + "                    return ZSERIO_ERR_OFFSET_MISMATCH;\n"
+                + "                }\n"
+                + "                ";
+
+        return new FieldData(
+                inner.name, inner.nativeType, inner.declaration,
+                injectAfterLoopOpen(inner.readStmt, anchoredSnake, readWrap),
+                injectAfterLoopOpen(inner.writeStmt, anchoredSnake, writeWrap),
+                inner.freeStmt,
+                inner.owned, inner.extraInclude, inner.extraMember);
+    }
+
+    /** Inject {@code wrap} immediately after the {@code for (size_t
+     *  <name>_i …) &#123;} opening brace, before the inner element
+     *  body. Used by {@link #wrapIndexedOffsetAnchored} to slot
+     *  per-element offset semantics into an array's emitted loop. */
+    private static String injectAfterLoopOpen(String stmt, String snakeName, String wrap)
+    {
+        final String forAnchor = "for (size_t " + snakeName + "_i ";
+        final int forIdx = stmt.indexOf(forAnchor);
+        if (forIdx < 0)
+        {
+            throw new IllegalStateException(
+                    "indexed offset: cannot locate for-loop in anchored array stmt for '"
+                            + snakeName + "' — array stmt shape changed?");
+        }
+        final int braceIdx = stmt.indexOf('{', forIdx);
+        if (braceIdx < 0)
+        {
+            throw new IllegalStateException(
+                    "indexed offset: cannot locate '{' after for-loop for '" + snakeName + "'");
+        }
+        final int newlineIdx = stmt.indexOf('\n', braceIdx);
+        if (newlineIdx < 0)
+        {
+            return stmt;
+        }
+        // Insert AFTER the newline that follows '{' so the wrap text
+        // appears as the next statement(s) in the loop body, before
+        // the existing element body.
+        return stmt.substring(0, newlineIdx + 1)
+                + "                " + wrap
+                + stmt.substring(newlineIdx + 1);
     }
 
     /**
