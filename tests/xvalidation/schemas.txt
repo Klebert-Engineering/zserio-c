@@ -69,6 +69,10 @@ extended_members/zs/extended_members/extended_unaligned_field.zs
 extended_members/zs/extended_members/multiple_extended_fields.zs
 choice_types/zs/choice_types/constant_in_choice_case.zs
 choice_types/zs/choice_types/bitmask_param_choice.zs
+functions/zs/functions/structure_parent_child_value.zs
+expressions/zs/expressions/cast_uint8_to_uint64.zs
+expressions/zs/expressions/float_type.zs
+expressions/zs/expressions/function_type.zs
 
 # DEFERRED: lengthof_operator — generator emits invalid C for
 # lengthof() on string literals (`"€literal"_count`) and top-level
