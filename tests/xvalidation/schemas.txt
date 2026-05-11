@@ -109,6 +109,8 @@ alignment/zs/alignment/auto_optional_member_alignment.zs
 offsets/zs/offsets/nested_offset.zs
 functions/zs/functions/structure_string.zs
 expressions/zs/expressions/lengthof_operator.zs
+optional_members/zs/optional_members/optional_expression.zs
+extended_members/zs/extended_members/extended_indexed_offsets.zs
 
 # DEFERRED: packed_arrays_mapping — 30-field packed kitchen sink.
 # Cpp reader hits EOF on our output for every seed, so one or more
