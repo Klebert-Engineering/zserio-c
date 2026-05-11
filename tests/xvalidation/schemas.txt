@@ -24,3 +24,14 @@ builtin_types/zs/builtin_types/all_builtin_types.zs
 alignment/zs/alignment/bit_alignment.zs
 default_values/zs/default_values/structure_default_values.zs
 functions/zs/functions/structure_value.zs
+templates/zs/templates/instantiate_simple.zs
+constraints/zs/constraints/structure_constraints.zs
+constraints/zs/constraints/literal_constraint.zs
+
+# DEFERRED: offset directives are not yet emitted by the generator
+# (only the offset *fields* are read/written; the read seek and
+# write back-patch are no-ops). Skipping these schemas until the
+# generator handles offsets:
+#   offsets/zs/offsets/bit_offset.zs
+#   offsets/zs/offsets/auto_array_offset.zs
+#   indexed_offsets/zs/indexed_offsets/auto_indexed_offset_array.zs
