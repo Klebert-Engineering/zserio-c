@@ -122,6 +122,19 @@ while IFS= read -r schema_rel; do
             cp "${sibling}" "${work}/staging/${pkg_dir}/$(basename "${sibling}")"
         fi
     done
+    # Some schemas pair `<name>.zs` with a `<name>/` subdirectory whose
+    # files declare `package <pkg>.<name>.<sub>` — the template-
+    # instantiation across packages pattern. Copy the subdir too so
+    # zserio can resolve `import <pkg>.<name>.<sub>.*`.
+    sub_dir="${schema_dir}/${pkg_last}"
+    if [[ -d "${sub_dir}" ]]; then
+        mkdir -p "${work}/staging/${pkg_dir:+${pkg_dir}/}${pkg_last}"
+        for sub in "${sub_dir}"/*.zs; do
+            if [[ -f "${sub}" ]]; then
+                cp "${sub}" "${work}/staging/${pkg_dir:+${pkg_dir}/}${pkg_last}/$(basename "${sub}")"
+            fi
+        done
+    fi
     rel_schema="${pkg_dir:+${pkg_dir}/}${pkg_last}.zs"
 
     java -cp "${ZSERIO_CORE_JAR}:${ZSERIO_C_JAR}:${ZSERIO_JAR}" \
