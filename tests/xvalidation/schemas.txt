@@ -184,6 +184,14 @@ packages/zs/reader.zs
 # expects. Localising via cpp oracle hasn't been done yet.
 #   array_types/zs/array_types/packed_arrays_mapping.zs
 
+# DEFERRED: packages/zs/index.zs — top-level package literally named
+# `index` collides with libc's `index()` declared via `<strings.h>`.
+# Upstream cpp uses `-setTopLevelPackage` to remap. Our cpp_driver
+# doesn't apply that and the cpp side fails with `namespace index
+# redeclared as different kind of entity`. Pure cpp toolchain issue,
+# nothing for the C generator to fix.
+#   packages/zs/index.zs
+
 # DEFERRED: union arm constraint expression accesses union-arm
 # array's `_count` companion through `self->u.<name>_count`. The
 # `_count` actually lives as a sibling of `u` (struct top level),
