@@ -182,6 +182,14 @@ optional_members/zs/optional_members/optional_expression_with_removed_enum_item.
 # expects. Localising via cpp oracle hasn't been done yet.
 #   array_types/zs/array_types/packed_arrays_mapping.zs
 
+# DEFERRED: union arm constraint expression accesses union-arm
+# array's `_count` companion through `self->u.<name>_count`. The
+# `_count` actually lives as a sibling of `u` (struct top level),
+# not inside the anonymous union, so the C compile fails. Fix is
+# in the constraint-expression lowering: for `lengthof(arr)` inside
+# a union arm, emit `self-><name>_count` (no `.u.` prefix).
+#   constraints/zs/constraints/constraints_in_templates.zs
+
 # DEFERRED: `packed Union[]` when the union has no packable scalars
 # (e.g. arms are CoordXY/string). Parent's packed-array codegen still
 # calls the union's `_init_packing_context` / `_read_packed` /
