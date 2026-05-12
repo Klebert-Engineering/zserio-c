@@ -440,6 +440,29 @@ public final class CExpressionFormattingPolicy extends DefaultExpressionFormatti
             final AstNode rightSym = rightSide.getExprSymbolObject();
             if (rightSym instanceof Field || rightSym instanceof Parameter)
             {
+                // Choice / Union case-arm access: the C layout puts
+                // every case field inside an anonymous member named
+                // `u`. A dot-path like `choiceField.offset` (the
+                // offset arm of a sibling Choice) must lower to
+                // `self->choice_field.u.offset`, not
+                // `self->choice_field.offset`. Detect by checking the
+                // left side's expression type — if it resolves to a
+                // ChoiceType or UnionType, insert the `u.` member
+                // between left and right.
+                if (rightSym instanceof Field && expr.op1() != null)
+                {
+                    zserio.ast.ZserioType leftType = expr.op1().getExprZserioType();
+                    while (leftType instanceof zserio.ast.Subtype)
+                    {
+                        leftType = ((zserio.ast.Subtype)leftType).getTypeReference()
+                                .getBaseTypeReference().getType();
+                    }
+                    if (leftType instanceof zserio.ast.ChoiceType
+                            || leftType instanceof zserio.ast.UnionType)
+                    {
+                        return new BinaryExpressionFormatting(".u.");
+                    }
+                }
                 return new BinaryExpressionFormatting(".");
             }
         }

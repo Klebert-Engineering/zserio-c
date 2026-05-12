@@ -251,6 +251,23 @@ public final class FieldFormatter
                 {
                     data = wrapIndexedOffsetAnchored(data, field, info, holderExpr);
                 }
+                else if (isDottedFieldRef(offExprPeek))
+                {
+                    // Cross-compound offset source: the directive refers
+                    // to a field reachable through a dot path (a
+                    // parameter compound, a sibling compound, a choice
+                    // arm, a union arm). Our generator can't single-pass
+                    // back-patch the source — it lives outside this
+                    // compound's wire bits — so the caller pre-sets the
+                    // value (matching upstream cpp's two-pass
+                    // initializeOffsets approach). We still need to:
+                    //  - byte-align before reading / writing the target
+                    //    so the wire layout is what cpp expects;
+                    //  - validate the read-side offset against the
+                    //    actual byte position of the target field,
+                    //    matching the atomic-sibling branch.
+                    data = wrapDottedOffset(data, offExprPeek, holderExpr, owner);
+                }
             }
         }
 
@@ -328,6 +345,49 @@ public final class FieldFormatter
     {
         return e.getExprSymbolObject() instanceof Field
                 && e.op1() == null && e.op2() == null;
+    }
+
+    /** True iff the expression is a dot path ({@code a.b}, {@code
+     *  a.b.c}, …) whose final identifier resolves to a {@link Field}.
+     *  Excludes indexed array-element references
+     *  ({@code arr[@index].x}); those go through the indexed-offset
+     *  path. */
+    private static boolean isDottedFieldRef(Expression e)
+    {
+        return e.getExprSymbolObject() instanceof Field
+                && e.getType() == zserio.antlr.ZserioParser.DOT;
+    }
+
+    /**
+     * Read-validate / write-align for an offset directive whose source
+     * is a dot-path expression rather than an atomic sibling. The
+     * source value (the byte position the target field should land at)
+     * must be set by the caller before {@code _write} is invoked —
+     * single-pass back-patch through a parameter / sibling-compound
+     * isn't supported. Upstream cpp computes these values automatically
+     * via initializeOffsets; tests using these schemas pre-compute the
+     * value in the c_driver (a fixed schema layout makes this
+     * tractable).
+     */
+    private static FieldData wrapDottedOffset(FieldData inner, Expression offExpr,
+            String holderExpr, CompoundType owner) throws ZserioExtensionException
+    {
+        final String offValueExpr =
+                CExpressionFormatter.format(offExpr, holderExpr, owner);
+        final String read =
+                "ZSERIO_TRY(zserio_bitstream_reader_align(bs, (size_t)8));\n"
+                + "    if ((zserio_bitstream_reader_position(bs) / 8u) != (size_t)("
+                + offValueExpr + ")) {\n"
+                + "        return ZSERIO_ERR_OFFSET_MISMATCH;\n"
+                + "    }\n    "
+                + inner.readStmt;
+        final String write =
+                "ZSERIO_TRY(zserio_bitstream_writer_align(bs, (size_t)8));\n    "
+                + inner.writeStmt;
+        return new FieldData(
+                inner.name, inner.nativeType, inner.declaration,
+                read, write, inner.freeStmt,
+                inner.owned, inner.extraInclude, inner.extraMember);
     }
 
     /**

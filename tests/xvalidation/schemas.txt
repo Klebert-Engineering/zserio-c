@@ -181,6 +181,9 @@ constraints/zs/constraints/constraints_in_templates.zs
 array_types/zs/array_types/packed_auto_array_bitfield_param.zs
 union_types/zs/union_types/union_compatibility_check.zs
 extended_members/zs/extended_members/multiple_extended_fields_various_types.zs
+offsets/zs/offsets/parameter_offset.zs
+offsets/zs/offsets/offset_in_choice.zs
+offsets/zs/offsets/offset_in_union.zs
 
 # DEFERRED: packed_arrays_mapping — 30-field packed kitchen sink.
 # Cpp reader hits EOF on our output for every seed, so one or more
@@ -195,15 +198,6 @@ extended_members/zs/extended_members/multiple_extended_fields_various_types.zs
 # redeclared as different kind of entity`. Pure cpp toolchain issue,
 # nothing for the C generator to fix.
 #   packages/zs/index.zs
-
-# DEFERRED: cross-compound offset sources. Our wrapOffsetSource
-# only handles atomic SIBLING fields as offset source. When the
-# source is dotted (`x.offset:` where x is a parameter compound, a
-# child struct, a choice arm, or a union arm), we leave the source
-# field at 0 and cpp reports `Wrong offset for field ...`.
-#   offsets/zs/offsets/parameter_offset.zs   — source in parameter compound
-#   offsets/zs/offsets/offset_in_choice.zs   — source in sibling choice arm
-#   offsets/zs/offsets/offset_in_union.zs    — source in sibling union arm
 
 # DEFERRED: optional_recursion — an optional self-referential struct
 # member is emitted by value (`optional_members_optional_recursion_block_t
