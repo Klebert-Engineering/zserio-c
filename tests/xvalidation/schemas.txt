@@ -158,6 +158,8 @@ array_types/zs/array_types/packed_auto_array_struct_with_extern.zs
 array_types/zs/array_types/packed_auto_array_removed_enum_item.zs
 extended_members/zs/extended_members/extended_optional_field_in_template.zs
 parameterized_types/zs/parameterized_types/array_element_param_with_optional.zs
+expressions/zs/expressions/field_type_with_clash.zs
+expressions/zs/expressions/field_type_with_parent_clash.zs
 
 # DEFERRED: packed_arrays_mapping — 30-field packed kitchen sink.
 # Cpp reader hits EOF on our output for every seed, so one or more
