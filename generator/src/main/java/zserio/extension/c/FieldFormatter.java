@@ -968,7 +968,8 @@ public final class FieldFormatter
             // elements use the delta-encoding context from the
             // runtime. Other element types (string, bytes, extern)
             // need additional encoder state we don't generate yet.
-            final PackedElementSpec packed = packedElementSpec(eltDirect, eltBinding, origName);
+            final PackedElementSpec packed = packedElementSpec(eltDirect, eltInst, eltBinding,
+                    origName, h, owner);
             final Expression lenExprP = ai.getLengthExpression();
             if (lenExprP == null)
             {
@@ -1012,12 +1013,14 @@ public final class FieldFormatter
      * signedness for the delta context, plus the C type for the
      * element slot.
      */
-    private static PackedElementSpec packedElementSpec(ZserioType eltDirect, TypeBinding b,
-            String origName) throws ZserioExtensionException
+    private static PackedElementSpec packedElementSpec(ZserioType eltDirect,
+            TypeInstantiation eltInst, TypeBinding b, String origName,
+            String holderExpr, CompoundType owner) throws ZserioExtensionException
     {
         final ZserioType under = underlyingType(eltDirect);
         final int bits;
         final boolean signed;
+        String bitsExpr = null;
         if (under instanceof BooleanType)
         {
             bits = 1;
@@ -1038,14 +1041,24 @@ public final class FieldFormatter
         else if (under instanceof DynamicBitFieldType)
         {
             // Dynamic-width packed: every element shares the same
-            // runtime-evaluated width. Storage uses the widest
-            // container; the delta context's `num_bits` argument
-            // ideally matches the per-array width but the runtime
-            // protocol caps at 64 — so we use the maximum and cast
-            // each element through it.
+            // runtime-evaluated width carried by the array's element
+            // instantiation. Upstream's delta_init takes the ACTUAL
+            // element width as maxBitNumber, not the storage
+            // container's width — so we must format the instantiation's
+            // length expression and emit that as the runtime argument.
+            // The bits field stays 64 (the storage upper bound, used
+            // only as a Java-side maximum reference); the runtime call
+            // uses bitsExpr.
             final DynamicBitFieldType dyn = (DynamicBitFieldType)under;
             bits = 64;
             signed = dyn.isSigned();
+            if (eltInst instanceof DynamicBitFieldInstantiation)
+            {
+                final DynamicBitFieldInstantiation dynInst =
+                        (DynamicBitFieldInstantiation)eltInst;
+                bitsExpr = CExpressionFormatter.format(
+                        dynInst.getLengthExpression(), holderExpr, owner);
+            }
         }
         else
         {
@@ -1054,7 +1067,7 @@ public final class FieldFormatter
                             + under.getClass().getSimpleName()
                             + " elements are not yet supported (field '" + origName + "')");
         }
-        return new PackedElementSpec(b.cType, b.extraInclude, bits, signed);
+        return new PackedElementSpec(b.cType, b.extraInclude, bits, bitsExpr, signed);
     }
 
     /**
@@ -1239,14 +1252,34 @@ public final class FieldFormatter
         final String cType;
         final String extraInclude;
         final int bits;
+        /** Non-null when the element width is computed at runtime
+         *  (dynamic bit field): a C expression of type unsigned int
+         *  evaluating to the width. Static-width cases leave this
+         *  null and the codegen uses {@link #bits} directly. */
+        final String bitsExpr;
         final boolean signed;
 
         PackedElementSpec(String cType, String extraInclude, int bits, boolean signed)
         {
+            this(cType, extraInclude, bits, null, signed);
+        }
+
+        PackedElementSpec(String cType, String extraInclude, int bits,
+                String bitsExpr, boolean signed)
+        {
             this.cType = cType;
             this.extraInclude = extraInclude;
             this.bits = bits;
+            this.bitsExpr = bitsExpr;
             this.signed = signed;
+        }
+
+        /** Argument string to emit into the runtime's `delta_init`
+         *  call: the static width when known, otherwise the formatted
+         *  dynamic-bit expression. */
+        String widthArg()
+        {
+            return bitsExpr != null ? bitsExpr : Integer.toString(bits);
         }
     }
 
@@ -1309,7 +1342,7 @@ public final class FieldFormatter
                 + "            zserio_delta_context_t " + name + "_ctx;\n"
                 + "            (void)memset(&" + name + "_ctx, 0, sizeof(" + name + "_ctx));\n"
                 + "            ZSERIO_TRY(zserio_delta_init(&" + name + "_ctx, "
-                + p.bits + ", " + boolStr + "));\n"
+                + p.widthArg() + ", " + boolStr + "));\n"
                 + "            for (size_t " + iVar + " = 0u; " + iVar + " < "
                 + countExpr + "; ++" + iVar + ") {\n"
                 + "                uint64_t " + iVar + "_raw;\n"
@@ -1334,7 +1367,7 @@ public final class FieldFormatter
                 + "            zserio_delta_context_t " + name + "_ctx;\n"
                 + "            (void)memset(&" + name + "_ctx, 0, sizeof(" + name + "_ctx));\n"
                 + "            ZSERIO_TRY(zserio_delta_init(&" + name + "_ctx, "
-                + p.bits + ", " + boolStr + "));\n"
+                + p.widthArg() + ", " + boolStr + "));\n"
                 + "            for (size_t " + iVar + " = 0u; " + iVar + " < "
                 + countExpr + "; ++" + iVar + ") {\n"
                 + "                ZSERIO_TRY(zserio_delta_observe(&" + name + "_ctx, "
@@ -1681,7 +1714,7 @@ public final class FieldFormatter
                 + "        zserio_delta_context_t " + name + "_ctx;\n"
                 + "        (void)memset(&" + name + "_ctx, 0, sizeof(" + name + "_ctx));\n"
                 + "        ZSERIO_TRY(zserio_delta_init(&" + name + "_ctx, "
-                + p.bits + ", " + boolStr + "));\n"
+                + p.widthArg() + ", " + boolStr + "));\n"
                 + "        for (size_t " + iVar + " = 0u; " + iVar + " < "
                 + lengthLiteral + "u; ++" + iVar + ") {\n"
                 + "            uint64_t " + iVar + "_raw;\n"
@@ -1696,7 +1729,7 @@ public final class FieldFormatter
                 + "        zserio_delta_context_t " + name + "_ctx;\n"
                 + "        (void)memset(&" + name + "_ctx, 0, sizeof(" + name + "_ctx));\n"
                 + "        ZSERIO_TRY(zserio_delta_init(&" + name + "_ctx, "
-                + p.bits + ", " + boolStr + "));\n"
+                + p.widthArg() + ", " + boolStr + "));\n"
                 + "        for (size_t " + iVar + " = 0u; " + iVar + " < "
                 + lengthLiteral + "u; ++" + iVar + ") {\n"
                 + "            ZSERIO_TRY(zserio_delta_observe(&" + name + "_ctx, "
