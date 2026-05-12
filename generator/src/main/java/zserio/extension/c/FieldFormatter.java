@@ -1215,21 +1215,29 @@ public final class FieldFormatter
         final String writeCountPrefix = formattedLen == null
                 ? "        ZSERIO_TRY(zserio_write_varsize(bs, (uint32_t)" + countExpr + "));\n"
                 : "";
-        // Simplified write: always emit isPacked=0 + each element as a
-        // full varint. The output is a valid encoding that any
-        // zserio-c reader (or upstream's, which also handles
-        // isPacked=0) can decode. Bit-for-bit equality with upstream's
-        // packed encoder isn't guaranteed for the same input, but the
-        // round-trip values are.
+        // Traits-driven delta context: the runtime observes max delta
+        // across all elements, decides isPacked, then writes the
+        // descriptor + first element + deltas (or per-element raw
+        // varints when packing isn't profitable). Matches upstream
+        // cpp's encoder choice byte-for-byte. The cast through int64
+        // preserves the signed bit pattern for signed varint flavours.
         final String write =
                 "{\n"
                 + writeCountPrefix
                 + "        if (" + countExpr + " > 0u) {\n"
-                + "            ZSERIO_TRY(zserio_bitstream_write_bits(bs, 1, 0u));\n"
+                + "            zserio_delta_context_t " + name + "_ctx;\n"
+                + "            (void)memset(&" + name + "_ctx, 0, sizeof(" + name + "_ctx));\n"
+                + "            ZSERIO_TRY(zserio_delta_init_traits(&" + name
+                + "_ctx, &zserio_delta_traits_" + runtimeSuffix + "));\n"
                 + "            for (size_t " + iVar + " = 0u; " + iVar + " < "
                 + countExpr + "; ++" + iVar + ") {\n"
-                + "                ZSERIO_TRY(zserio_write_" + runtimeSuffix + "(bs, "
-                + ptrExpr + "[" + iVar + "]));\n"
+                + "                ZSERIO_TRY(zserio_delta_observe(&" + name
+                + "_ctx, (uint64_t)(int64_t)" + ptrExpr + "[" + iVar + "]));\n"
+                + "            }\n"
+                + "            for (size_t " + iVar + " = 0u; " + iVar + " < "
+                + countExpr + "; ++" + iVar + ") {\n"
+                + "                ZSERIO_TRY(zserio_delta_write(&" + name
+                + "_ctx, bs, (uint64_t)(int64_t)" + ptrExpr + "[" + iVar + "]));\n"
                 + "            }\n"
                 + "        }\n"
                 + "    }";
@@ -1291,13 +1299,24 @@ public final class FieldFormatter
                 + "            }\n"
                 + "        }\n"
                 + "    }";
+        // Traits-driven delta context — see packedVarintHeapArray for
+        // the rationale. The fixed-length variant skips the count
+        // prefix but otherwise the wire format and runtime calls match.
         final String write =
                 "{\n"
-                + "        ZSERIO_TRY(zserio_bitstream_write_bits(bs, 1, 0u));\n"
+                + "        zserio_delta_context_t " + name + "_ctx;\n"
+                + "        (void)memset(&" + name + "_ctx, 0, sizeof(" + name + "_ctx));\n"
+                + "        ZSERIO_TRY(zserio_delta_init_traits(&" + name
+                + "_ctx, &zserio_delta_traits_" + runtimeSuffix + "));\n"
                 + "        for (size_t " + iVar + " = 0u; " + iVar + " < "
                 + lengthLiteral + "u; ++" + iVar + ") {\n"
-                + "            ZSERIO_TRY(zserio_write_" + runtimeSuffix + "(bs, "
-                + access + "[" + iVar + "]));\n"
+                + "            ZSERIO_TRY(zserio_delta_observe(&" + name
+                + "_ctx, (uint64_t)(int64_t)" + access + "[" + iVar + "]));\n"
+                + "        }\n"
+                + "        for (size_t " + iVar + " = 0u; " + iVar + " < "
+                + lengthLiteral + "u; ++" + iVar + ") {\n"
+                + "            ZSERIO_TRY(zserio_delta_write(&" + name
+                + "_ctx, bs, (uint64_t)(int64_t)" + access + "[" + iVar + "]));\n"
                 + "        }\n"
                 + "    }";
         return new FieldData(
