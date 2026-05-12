@@ -174,6 +174,7 @@ subtypes/zs/subtypes/subtype_imported.zs
 templates/zs/templates/expression_enum_template_argument_conflict.zs
 choice_types/zs/choice_types/uint32_param_choice.zs
 choice_types/zs/choice_types/uint64_param_choice.zs
+optional_members/zs/optional_members/optional_expression_with_removed_enum_item.zs
 
 # DEFERRED: packed_arrays_mapping — 30-field packed kitchen sink.
 # Cpp reader hits EOF on our output for every seed, so one or more
