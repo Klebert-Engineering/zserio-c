@@ -179,6 +179,8 @@ default_values/zs/default_values/extended_default_values.zs
 packages/zs/reader.zs
 constraints/zs/constraints/constraints_in_templates.zs
 array_types/zs/array_types/packed_auto_array_bitfield_param.zs
+union_types/zs/union_types/union_compatibility_check.zs
+extended_members/zs/extended_members/multiple_extended_fields_various_types.zs
 
 # DEFERRED: packed_arrays_mapping — 30-field packed kitchen sink.
 # Cpp reader hits EOF on our output for every seed, so one or more
@@ -193,15 +195,6 @@ array_types/zs/array_types/packed_auto_array_bitfield_param.zs
 # redeclared as different kind of entity`. Pure cpp toolchain issue,
 # nothing for the C generator to fix.
 #   packages/zs/index.zs
-
-# DEFERRED: `packed Union[]` when the union has no packable scalars
-# (e.g. arms are CoordXY/string). Parent's packed-array codegen still
-# calls the union's `_init_packing_context` / `_read_packed` /
-# `_write_packed` helpers, but the union codegen doesn't emit them
-# in this case. Fix: either always emit union packing helpers as
-# no-ops, or detect the absence of packable scalars in the parent's
-# packed-array path and fall through to unpacked encoding.
-#   union_types/zs/union_types/union_compatibility_check.zs
 
 # DEFERRED: cross-compound offset sources. Our wrapOffsetSource
 # only handles atomic SIBLING fields as offset source. When the

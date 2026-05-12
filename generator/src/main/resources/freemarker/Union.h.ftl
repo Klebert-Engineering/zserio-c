@@ -9,6 +9,7 @@
 
 #include <zserio/allocator.h>
 #include <zserio/bitstream.h>
+#include <zserio/delta.h>
 #include <zserio/expressions.h>
 #include <zserio/status.h>
 <#list extraIncludes as inc>
@@ -51,6 +52,32 @@ zserio_status_t ${funcPrefix}_write(${typeName} *self,
         zserio_bitstream_writer_t *bs);
 void            ${funcPrefix}_free(${typeName} *self, const zserio_allocator_t *alloc);
 
+<#if hasPackingContext>
+typedef struct ${funcPrefix}_packing_ctx {
+    /* The varsize tag is delta-encoded across `packed Union[]`
+     * elements (upstream cpp's behavior — read via
+     * VarSizeArrayTraits, written through the same delta context).
+     * Mirrors cpp's `ZserioPackingContext::choiceTag()` accessor. */
+    zserio_delta_context_t tag;
+<#list cases as case>
+<#if case.packed.usesContext>
+    ${case.packed.ctxMember}
+</#if>
+</#list>
+} ${funcPrefix}_packing_ctx_t;
+
+zserio_status_t ${funcPrefix}_init_packing_context(${typeName} *self,
+        ${funcPrefix}_packing_ctx_t *ctx);
+zserio_status_t ${funcPrefix}_observe_packing_context(${typeName} *self,
+        ${funcPrefix}_packing_ctx_t *ctx);
+zserio_status_t ${funcPrefix}_read_packed(${typeName} *self,
+        zserio_bitstream_reader_t *bs, const zserio_allocator_t *alloc,
+        ${funcPrefix}_packing_ctx_t *ctx);
+zserio_status_t ${funcPrefix}_write_packed(${typeName} *self,
+        zserio_bitstream_writer_t *bs,
+        ${funcPrefix}_packing_ctx_t *ctx);
+
+</#if>
 <#-- Forward declarations so a schema function in this compound can
      call a sibling declared later. Same rationale as Structure.h.ftl. -->
 <#list functions as fn>
