@@ -177,6 +177,7 @@ choice_types/zs/choice_types/uint64_param_choice.zs
 optional_members/zs/optional_members/optional_expression_with_removed_enum_item.zs
 default_values/zs/default_values/extended_default_values.zs
 packages/zs/reader.zs
+constraints/zs/constraints/constraints_in_templates.zs
 
 # DEFERRED: packed_arrays_mapping — 30-field packed kitchen sink.
 # Cpp reader hits EOF on our output for every seed, so one or more
@@ -191,14 +192,6 @@ packages/zs/reader.zs
 # redeclared as different kind of entity`. Pure cpp toolchain issue,
 # nothing for the C generator to fix.
 #   packages/zs/index.zs
-
-# DEFERRED: union arm constraint expression accesses union-arm
-# array's `_count` companion through `self->u.<name>_count`. The
-# `_count` actually lives as a sibling of `u` (struct top level),
-# not inside the anonymous union, so the C compile fails. Fix is
-# in the constraint-expression lowering: for `lengthof(arr)` inside
-# a union arm, emit `self-><name>_count` (no `.u.` prefix).
-#   constraints/zs/constraints/constraints_in_templates.zs
 
 # DEFERRED: `packed Union[]` when the union has no packable scalars
 # (e.g. arms are CoordXY/string). Parent's packed-array codegen still

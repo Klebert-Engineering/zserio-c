@@ -552,6 +552,25 @@ public final class CExpressionFormattingPolicy extends DefaultExpressionFormatti
                                 "(/* lengthof */ /*", "*/ " + fixed + "u)");
                     }
                 }
+                // Union-arm variable-length array: the field's data
+                // lives at `self->u.<name>` (`holderExpr` ends in
+                // `"u."`), but the `_count` companion is a sibling of
+                // the anonymous `u` member at the struct top level
+                // (see UnionEmitterTemplateData — the union's
+                // `extraMember`s float out of the union). The default
+                // `<operand>_count` would emit `self->u.<name>_count`
+                // which the C compiler rejects since `u` has no
+                // `<name>_count` member. Synthesize the correct path
+                // through `parentHolder()` and discard the original
+                // operand text.
+                if (currentOwner instanceof zserio.ast.UnionType
+                        && holderExpr.endsWith("u."))
+                {
+                    final String synth = parentHolder()
+                            + CIdentifierFormatter.toLowerSnake(f.getName()) + "_count";
+                    return new UnaryExpressionFormatting(
+                            "(/* lengthof */ /*", "*/ " + synth + ")");
+                }
             }
         }
         return new UnaryExpressionFormatting("", "_count");
