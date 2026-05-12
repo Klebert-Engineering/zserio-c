@@ -304,3 +304,108 @@ jobs:
             "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
             -F body=@/tmp/comment_body.md \
             -H 'Accept: application/vnd.github+json'
+
+  xvalidation:
+    name: Wire-format cross-validation (REQ-FN-001)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # for posting the harness summary as a commit comment
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - name: Init submodules
+        # Both upstream zserio (the cpp-extension generator + cpp
+        # runtime sources used as wire-format oracle) and the
+        # zserio-test-data corpus.
+        run: |
+          git submodule update --init third_party/zserio
+          git submodule update --init third_party/zserio-test-data
+      - name: Install build tools
+        # ant builds the upstream bundle jar; gcc/g++ already on the
+        # runner image but the explicit install keeps the step
+        # self-documenting.
+        run: sudo apt-get update && sudo apt-get install -y ant gcc g++
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Cache upstream zserio jars
+        # Two artifacts cached together: zserio_core.jar (drives our
+        # generator) and zserio.jar (the bundle with the cpp
+        # extension, drives the oracle). Both rebuild from the same
+        # source under compiler/.
+        uses: actions/cache@v4
+        with:
+          path: build-jars
+          key: zserio-bundle-${{ hashFiles('third_party/zserio/compiler/**', 'third_party/zserio/build.xml') }}
+      - name: Build upstream zserio_core.jar
+        run: tools/build_zserio_core_jar.sh
+      - name: Build upstream zserio.jar (bundle)
+        run: tools/build_zserio_bundle_jar.sh
+      - name: Build zserio_c.jar
+        run: tools/build_generator_jar.sh
+      - name: Cache cpp runtime + harness scratch
+        # The cpp runtime static lib is ~10MB and rebuilds in ~30s.
+        # Cache it across runs keyed on the cpp-runtime sources.
+        uses: actions/cache@v4
+        with:
+          path: |
+            build-xvalidation/libZserioCppRuntime.a
+            build-xvalidation/cpp_rt_objs
+            build-xvalidation/runtime-objs
+          key: xval-rt-${{ hashFiles('third_party/zserio/compiler/extensions/cpp/runtime/src/**', 'runtime/src/**', 'runtime/include/**') }}
+      - name: Run xvalidation harness
+        # Five seeds × 181 schemas = 905 byte-equal round-trips per
+        # run. Exits non-zero on any wire-format divergence, surfaced
+        # here so a regression blocks the merge.
+        shell: bash
+        run: |
+          set -o pipefail
+          SEEDS="1 2 7 42 999" \
+            bash tests/xvalidation/run_xvalidation.sh 2>&1 | tee /tmp/xval.log
+      - name: Summarise xvalidation result
+        if: always()
+        run: |
+          set -u
+          PASS_LINE="$(grep -E '^xval: [0-9]+ schemas passed' /tmp/xval.log | tail -1)"
+          FAIL_LIST="$(grep -E 'failed|MISMATCH' /tmp/xval.log | head -20)"
+          {
+            echo "${PASS_LINE:-(no summary line found)}"
+            if [[ -n "${FAIL_LIST}" ]]; then
+              echo
+              echo "First failures:"
+              echo "${FAIL_LIST}"
+            fi
+          } > /tmp/xval-summary.txt
+          cat /tmp/xval-summary.txt
+      - name: Post xvalidation summary as commit comment
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -u
+          {
+            printf 'xvalidation (REQ-FN-001) for commit %s:\n\n```\n' "${GITHUB_SHA}"
+            cat /tmp/xval-summary.txt 2>/dev/null || echo "(no summary captured)"
+            printf '\n```\n\nFull log (last 50KB):\n\n```\n'
+            tail -c 50000 /tmp/xval.log 2>/dev/null || echo "(no log captured)"
+            printf '\n```\n'
+          } > /tmp/comment_body.md
+          gh api -X POST \
+            "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
+            -F body=@/tmp/comment_body.md \
+            -H 'Accept: application/vnd.github+json'
+      - name: Upload xvalidation log + diverged bins
+        # If a wire-format check fails, the diverged bytes_c.bin /
+        # bytes_cpp.bin pair lands under build-xvalidation/<schema>/;
+        # uploading the whole tree gives us the diagnostic data
+        # without having to reproduce locally.
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xvalidation-failure
+          path: |
+            build-xvalidation/**/bytes_c.s*.bin
+            build-xvalidation/**/bytes_cpp.s*.bin
+            /tmp/xval.log
