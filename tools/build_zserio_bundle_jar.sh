@@ -85,8 +85,20 @@ fi
 
 (
     cd "${UPSTREAM_DIR}"
-    # `zserio_bundle.jar` is the upstream target that produces the fat
-    # bundle (compiler core + all extensions packaged together).
+    # `zserio_bundle.jar` in the root build.xml ONLY depends on
+    # `install` (= zserio_core.install) — it does NOT build the
+    # extensions. The bundle target then sweeps every `*.jar` it
+    # finds under `${zserio.jars_dir}` (= distr/zserio_libs/) into
+    # the fat jar. So we must build & install the cpp extension
+    # FIRST, otherwise the bundle silently lacks the cpp generator
+    # and `java -jar zserio.jar ... -cpp out_dir ...` parses but
+    # produces no cpp output (codegen returns non-zero, gen.log is
+    # empty because the failure is "no extension registered for
+    # -cpp" which prints nothing on the error path we capture).
+    #
+    # Build cpp extension first, then the bundle. The cpp extension's
+    # `install` target compiles + jars + copies to zserio_libs/.
+    ant -f compiler/extensions/cpp/build.xml install 1>&2
     ant -f build.xml zserio_bundle.jar 1>&2
 )
 
