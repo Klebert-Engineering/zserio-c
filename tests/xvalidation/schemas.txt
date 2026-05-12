@@ -170,6 +170,7 @@ indexed_offsets/zs/indexed_offsets/optional_indexed_offset_array.zs
 choice_types/zs/choice_types/templated_choice.zs
 choice_types/zs/choice_types/enum_with_removed_item_param_choice.zs
 templates/zs/templates/instantiate_not_imported.zs
+subtypes/zs/subtypes/subtype_imported.zs
 
 # DEFERRED: packed_arrays_mapping — 30-field packed kitchen sink.
 # Cpp reader hits EOF on our output for every seed, so one or more
