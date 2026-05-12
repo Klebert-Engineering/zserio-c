@@ -167,6 +167,15 @@ expressions/zs/expressions/field_type_with_parent_clash.zs
 # expects. Localising via cpp oracle hasn't been done yet.
 #   array_types/zs/array_types/packed_arrays_mapping.zs
 
+# DEFERRED: `packed Union[]` when the union has no packable scalars
+# (e.g. arms are CoordXY/string). Parent's packed-array codegen still
+# calls the union's `_init_packing_context` / `_read_packed` /
+# `_write_packed` helpers, but the union codegen doesn't emit them
+# in this case. Fix: either always emit union packing helpers as
+# no-ops, or detect the absence of packable scalars in the parent's
+# packed-array path and fall through to unpacked encoding.
+#   union_types/zs/union_types/union_compatibility_check.zs
+
 # DEFERRED: packed dynamic-bit (`packed bit<expr>`) arrays. The
 # generator's PackedElementSpec uses `bits = 64` for DynamicBitFieldType
 # elements ("the runtime protocol caps at 64 — so we use the
