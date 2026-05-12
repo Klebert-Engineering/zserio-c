@@ -184,6 +184,7 @@ extended_members/zs/extended_members/multiple_extended_fields_various_types.zs
 offsets/zs/offsets/parameter_offset.zs
 offsets/zs/offsets/offset_in_choice.zs
 offsets/zs/offsets/offset_in_union.zs
+optional_members/zs/optional_members/optional_recursion.zs
 
 # DEFERRED: packed_arrays_mapping — 30-field packed kitchen sink.
 # Cpp reader hits EOF on our output for every seed, so one or more
@@ -198,9 +199,3 @@ offsets/zs/offsets/offset_in_union.zs
 # redeclared as different kind of entity`. Pure cpp toolchain issue,
 # nothing for the C generator to fix.
 #   packages/zs/index.zs
-
-# DEFERRED: optional_recursion — an optional self-referential struct
-# member is emitted by value (`optional_members_optional_recursion_block_t
-# next_data;`) which is an incomplete type. Needs heap indirection
-# in the generator for any optional/conditional self-referential field.
-#   optional_members/zs/optional_members/optional_recursion.zs

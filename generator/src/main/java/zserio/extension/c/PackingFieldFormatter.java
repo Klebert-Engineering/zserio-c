@@ -281,7 +281,7 @@ public final class PackingFieldFormatter
         // helpers. This matches upstream's nested
         // ZserioPackingContext pattern.
         final CompoundType compoundChild = compoundPackableUnderlying(field);
-        if (compoundChild != null)
+        if (compoundChild != null && !isSameCompound(compoundChild, owner))
         {
             return formatCompoundPacked(field, plainData,
                     compoundChild, holderExpr, owner, ctxHolder);
@@ -319,7 +319,7 @@ public final class PackingFieldFormatter
             // initialised child context (same rationale as the scalar
             // path's unconditional init).
             final CompoundType optionalChild = optionalCompoundPackableUnderlying(field);
-            if (optionalChild != null)
+            if (optionalChild != null && !isSameCompound(optionalChild, owner))
             {
                 return formatOptionalCompoundPacked(field, plainData,
                         optionalChild, holderExpr, owner, ctxHolder);
@@ -596,6 +596,20 @@ public final class PackingFieldFormatter
     /** Thread-local in-flight set for {@link #hasPackableField}. */
     private static final ThreadLocal<Set<CompoundType>> VISITING =
             ThreadLocal.withInitial(HashSet::new);
+
+    /** Object-equal-by-identity comparison of two compound types,
+     *  treating subtypes as transparent. Used to detect self-
+     *  referential fields in the packing dispatch. */
+    private static boolean isSameCompound(CompoundType a, CompoundType b)
+    {
+        if (a == null || b == null)
+        {
+            return false;
+        }
+        return a == b
+                || (a.getName().equals(b.getName())
+                    && a.getPackage().getPackageName().equals(b.getPackage().getPackageName()));
+    }
 
     /**
      * Walk subtype / instantiate layers down to a {@link CompoundType},

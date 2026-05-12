@@ -2376,6 +2376,16 @@ public final class FieldFormatter
         final PackageName pkg = ct.getPackage().getPackageName();
         final String prefix = CIdentifierFormatter.funcPrefix(pkg, ct.getName());
 
+        // Self-referential field (the field's type is the same compound
+        // it lives in) — C can't have a by-value member of an
+        // incomplete type, so we emit a heap pointer and allocate /
+        // free at read / free time. Zserio only allows this when the
+        // recursion has a base case (the field is gated by an `if`
+        // clause), so we expect the outer wrapper (wrapIfOptional /
+        // wrapAutoOptional) to short-circuit through the presence
+        // flag; the read body below allocates only when reached.
+        final boolean selfRef = isSameCompound(ct, owner);
+
         // For a parameterised child, the parent must pin the child's
         // parameter members before each read or write — the parent's
         // own state may have changed since the last read, and the
@@ -2396,7 +2406,33 @@ public final class FieldFormatter
             // The trailing newline + indent keeps the rendered statement
             // visually aligned with the read/write line that follows it
             // when the template substitutes the placeholder.
-            setParamsLine = prefix + "_set_parameters(&" + h + name + args + ");\n        ";
+            final String target = selfRef ? (h + name) : ("&" + h + name);
+            setParamsLine = prefix + "_set_parameters(" + target + args + ");\n        ";
+        }
+
+        if (selfRef)
+        {
+            final String typeName = b.cType;
+            final String access = h + name;
+            final String read =
+                    access + " = (" + typeName + " *)alloc->vtable->alloc(\n"
+                    + "                alloc->userdata, sizeof(*" + access + "), sizeof(*" + access + "));\n"
+                    + "        if (" + access + " == NULL) {\n"
+                    + "            return ZSERIO_ERR_OUT_OF_MEMORY;\n"
+                    + "        }\n"
+                    + "        (void)memset(" + access + ", 0, sizeof(*" + access + "));\n"
+                    + "        " + setParamsLine
+                    + "ZSERIO_TRY(" + prefix + "_read(" + access + ", bs, alloc));";
+            final String write = setParamsLine + "ZSERIO_TRY(" + prefix
+                    + "_write(" + access + ", bs));";
+            final String free =
+                    "if (" + access + " != NULL) {\n"
+                    + "        " + prefix + "_free(" + access + ", alloc);\n"
+                    + "        alloc->vtable->free(alloc->userdata, " + access + ",\n"
+                    + "                sizeof(*" + access + "), sizeof(*" + access + "));\n"
+                    + "        " + access + " = NULL;\n"
+                    + "    }";
+            return new FieldData(name, typeName + " *", read, write, free, true, b.extraInclude);
         }
 
         final String read  = setParamsLine + "ZSERIO_TRY(" + prefix
@@ -2409,6 +2445,20 @@ public final class FieldFormatter
         // to look at the child's own field list to decide.
         final String free = prefix + "_free(&" + h + name + ", alloc);";
         return new FieldData(name, b.cType, read, write, free, true, b.extraInclude);
+    }
+
+    /** Object-equal-by-identity comparison of two compound types,
+     *  treating subtypes as transparent. Used to detect self-
+     *  referential fields. */
+    private static boolean isSameCompound(CompoundType a, CompoundType b)
+    {
+        if (a == null || b == null)
+        {
+            return false;
+        }
+        return a == b
+                || (a.getName().equals(b.getName())
+                    && a.getPackage().getPackageName().equals(b.getPackage().getPackageName()));
     }
 
     /* -------- type binding -------- */
