@@ -25,13 +25,22 @@ int main(int argc, char *argv[])
             ? (uint64_t)seed * 0x0101010101010101ull
             : (uint64_t)((seed * 1103u) & ((1ull << pkg.unsigned_big_bit_length) - 1u));
 
-    /* uint64 width — 1..64 */
+    /* uint64 width — 1..64. The signed range for int<N> is
+     * [-2^(N-1), 2^(N-1) - 1]; pick a small in-range value derived
+     * from the seed and avoid 64-bit shift / modulo overflow for
+     * the wide widths (signed_bit_length == 64 makes the cap shift
+     * undefined; signed_bit_length >= 33 overflows a uint32-domain
+     * modulo, which on CI surfaces as SIGFPE — locally the
+     * compiler may fold differently). Cap the magnitude at the
+     * width or 16, whichever is smaller, so the value always fits. */
     pkg.signed_bit_length = (uint64_t)((seed % 64u) + 1u);
     if (pkg.signed_bit_length == 1u) {
         pkg.signed_value = (int64_t)(-((int)(seed & 1u)));  /* -1..0 */
     } else {
-        const int64_t cap = (int64_t)1 << (pkg.signed_bit_length - 1u);
-        pkg.signed_value = (int64_t)((int)(seed % (uint32_t)cap) - cap / 2);
+        const uint32_t span = (pkg.signed_bit_length >= 5u) ? 16u
+                : (uint32_t)(1ull << (pkg.signed_bit_length - 1u));
+        const int32_t half = (int32_t)(span / 2u);
+        pkg.signed_value = (int64_t)((int32_t)(seed % span) - half);
     }
 
     uint8_t buf[64];
