@@ -163,6 +163,7 @@ expressions/zs/expressions/field_type_with_parent_clash.zs
 structure_types/zs/structure_types/structure_inner_classes_clashing.zs
 parameterized_types/zs/parameterized_types/parameterized_inner_classes_clashing.zs
 templates/zs/templates/expression_full_template_argument.zs
+choice_types/zs/choice_types/choice_compatibility_check.zs
 
 # DEFERRED: packed_arrays_mapping — 30-field packed kitchen sink.
 # Cpp reader hits EOF on our output for every seed, so one or more
