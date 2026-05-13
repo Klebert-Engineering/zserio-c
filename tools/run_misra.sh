@@ -49,7 +49,7 @@ CPPCHECK_ARGS=(
     # never compiled into production builds. Without --undefine,
     # cppcheck explores both configurations and reports the banned
     # symbols. See docs/misra-deviations/README.md.
-    --undefine=ZSERIO_TRACE_ENABLED
+    -UZSERIO_TRACE_ENABLED
     -I"${REPO_ROOT}/runtime/include"
     "${REPO_ROOT}/runtime/src"
     "${REPO_ROOT}/runtime/include"
