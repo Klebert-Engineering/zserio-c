@@ -19,6 +19,10 @@ products are tracked in `safety-plan.md` § Work products.
 | [stack-budget.md](stack-budget.md) | draft | Stack-usage analysis closing hazard H-09; methodology, current numbers, and the threshold the CI `stack` job enforces. |
 | [functional-safety-concept.md](functional-safety-concept.md) | draft | Safety goals derived from the HARA, mapped to existing `requirements/` entries and architecture layers. ISO 26262-3 §7. |
 | [technical-safety-concept.md](technical-safety-concept.md) | draft | Per-goal implementation mechanisms, anchored to specific source files, tests, and CI gates. ISO 26262-4 §6. |
+| [tool-qualification-gcc.md](tool-qualification-gcc.md) | draft | TCL2 qualification analysis for gcc (production compiler). ISO 26262-8 §11. |
+| [tool-qualification-cppcheck.md](tool-qualification-cppcheck.md) | draft | TCL2 qualification analysis for cppcheck (MISRA enforcement). ISO 26262-8 §11. |
+| [tool-qualification-coverage.md](tool-qualification-coverage.md) | draft | TCL2 qualification analysis for lcov / gcov (coverage gate). ISO 26262-8 §11. |
+| [tool-qualification-generator.md](tool-qualification-generator.md) | draft | TCL1 qualification analysis for the zserio-c generator. ISO 26262-8 §11. |
 
 Every document has a YAML frontmatter `status` field. `draft` means
 the document is structurally complete and reviewable but has not

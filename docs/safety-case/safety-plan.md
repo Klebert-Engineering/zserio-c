@@ -48,10 +48,10 @@ sibling files in this directory and in `requirements/`.
 | done   | Technical safety concept                      | `docs/safety-case/technical-safety-concept.md`      | Fritz       | Per-goal implementation mechanisms with mechanism-to-gate matrix; moves to `accepted` when tool-qualification records land |
 | open   | Software unit verification report             | `docs/safety-case/unit-verification.md`             | TBD         | Assembles coverage + MISRA + traceability evidence per release |
 | open   | Software integration and verification report  | `docs/safety-case/integration-verification.md`      | TBD         | Records xvalidation + NDS Live SmartLayerTile end-to-end |
-| open   | Tool qualification — compiler                 | `docs/safety-case/tool-qualification-gcc.md`        | TBD         | TCL classification + criteria evidence |
-| open   | Tool qualification — cppcheck                 | `docs/safety-case/tool-qualification-cppcheck.md`   | TBD         | Static analyzer for MISRA enforcement |
-| open   | Tool qualification — lcov / gcov              | `docs/safety-case/tool-qualification-coverage.md`   | TBD         | Coverage measurement tool |
-| open   | Tool qualification — zserio-c generator       | `docs/safety-case/tool-qualification-generator.md`  | TBD         | The generator is on the safety path because it produces certified code |
+| done   | Tool qualification — compiler                 | `docs/safety-case/tool-qualification-gcc.md`        | Fritz       | TCL2; method (1) confidence-from-use + (3) validation; validated by `build-and-test`, `xvalidation`, `stack`, `coverage` gates |
+| done   | Tool qualification — cppcheck                 | `docs/safety-case/tool-qualification-cppcheck.md`   | Fritz       | TCL2; method (3) validation per rule category; one off-CI sanity check (Rule 17.2 recursive program) noted for follow-up |
+| done   | Tool qualification — lcov / gcov              | `docs/safety-case/tool-qualification-coverage.md`   | Fritz       | TCL2; method (1) + (3); gate uses raw .info so summary bugs cannot affect outcome |
+| done   | Tool qualification — zserio-c generator       | `docs/safety-case/tool-qualification-generator.md`  | Fritz       | TCL1 (TI2 × TD1 due to xvalidation's strong detection); one Open gap: MISRA gate not run on generator output |
 | done   | Stack-budget analysis                         | `tools/measure_stack_usage.py` + `docs/safety-case/stack-budget.md` + `stack` CI job | Fritz | Closes hazard H-09; per-function ≤ 256 B + static-qualifier strict mode |
 | done   | Failure-mode injection tests                  | `tests/runtime/test_failure_modes.c`                | Fritz       | One test per actionable HARA row (H-01, H-02, H-03, H-06); others handled by other gates or out of scope |
 | open   | Safety case report                            | `docs/safety-case/safety-case-report.md`            | TBD         | Final assembly of the above into one argument |
@@ -76,11 +76,18 @@ Phase 5 deliverables, in dependency order:
    mapped to existing requirements) and `technical-safety-concept.md`
    (per-goal mechanisms with a single mechanism-to-gate matrix
    covering every claim).
-5. **Next:** the four tool-qualification records, in parallel.
-   Until those land, SG-9 is the only safety goal not fully
-   discharged by CI gates.
-6. **Finally:** the two verification reports + the safety case
-   report.
+5. **Done after that:** the four tool-qualification records —
+   gcc (TCL2), cppcheck (TCL2), lcov/gcov (TCL2), and the
+   `zserio-c` generator (TCL1). Each names its TI/TD/TCL
+   classification and the validation evidence; open gaps within
+   each record are recorded inline (e.g. generator-output MISRA
+   gate). SG-9 from `functional-safety-concept.md` is now
+   discharged in `draft` status.
+6. **Next:** the two verification reports — unit verification
+   and integration verification — which collate CI evidence per
+   release tag.
+7. **Finally:** the safety case report, assembling the above
+   into one argument.
 
 The Phase 5 → Phase 6 transition gate is: every row in the work
 product table above is at status `done` or has an explicit

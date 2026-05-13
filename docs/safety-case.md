@@ -56,12 +56,14 @@ Draft (delivered in the Phase 5 launch commit):
 - [/] Technical safety concept —
       `docs/safety-case/technical-safety-concept.md`. Per-goal
       implementation mechanisms with mechanism-to-gate matrix.
+- [/] Tool qualification records — `docs/safety-case/tool-qualification-{gcc,cppcheck,coverage,generator}.md`.
+      gcc/cppcheck/lcov-gcov at TCL2 with method (1)+(3) evidence;
+      generator at TCL1 thanks to the xvalidation TD1 detection.
 
 Open (Phase 5 work items, in dependency order):
+
 - [ ] Software unit verification report.
 - [ ] Software integration and verification report.
-- [ ] Tool qualification records — compiler, cppcheck, lcov/gcov,
-      generator.
 - [ ] Safety case report (final assembly).
 
 ## Decisions already taken
@@ -82,10 +84,16 @@ and are not negotiable without an explicit waiver process:
 
 ## Open questions
 
-- Tool qualification path for the Java generator in Phase 2 — qualified
-  as TCL3 or treated as a development tool with the *generated code*
-  being the safety-relevant artifact subject to inspection?
-- Bounded-stack analysis approach: static analysis tool, manual budget
-  per call site, or both?
 - Random-input fuzzing vs. structured property-based testing for the
-  decode path's robustness against malformed inputs.
+  decode path's robustness against malformed inputs. (The seeded
+  xvalidation runs are property-style; broader fuzzing remains an
+  open Phase 5/6 question.)
+
+Previously listed questions, now answered:
+
+- Tool qualification path for the Java generator → TCL1 with the
+  xvalidation gate as the detection mechanism. See
+  `safety-case/tool-qualification-generator.md`.
+- Bounded-stack analysis approach → per-function `-fstack-usage`
+  gate with a 256 B ceiling; transitive path total flagged as a
+  follow-up. See `safety-case/stack-budget.md`.
