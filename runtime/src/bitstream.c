@@ -449,10 +449,12 @@ zserio_status_t zserio_bitstream_write_bits(zserio_bitstream_writer_t *bs,
 
         /* Middle full bytes: each holds 8 contiguous bits of value, no
          * read-modify-write needed because the buffer is pre-zeroed and
-         * we own these byte positions. */
+         * we own these byte positions. The post-increment is split from
+         * the assignment to satisfy MISRA Rule 13.3. */
         while (rest_bits >= 8U) {
             rest_bits = (uint8_t)(rest_bits - 8U);
-            bs->buffer[byte_idx++] = (uint8_t)((value >> rest_bits) & 0xFFU);
+            bs->buffer[byte_idx] = (uint8_t)((value >> rest_bits) & 0xFFU);
+            byte_idx++;
         }
         bits_free = 8U;
     }
