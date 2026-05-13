@@ -46,15 +46,15 @@ sibling files in this directory and in `requirements/`.
 | draft  | Safety plan                                   | `docs/safety-case/safety-plan.md` (this document)   | Fritz       | This phase |
 | done   | Functional safety concept                     | `docs/safety-case/functional-safety-concept.md`     | Fritz       | 9 safety goals, mapped to existing `requirements/` set and architecture layers; SG-9 (tool qualification) is the only goal not yet fully discharged |
 | done   | Technical safety concept                      | `docs/safety-case/technical-safety-concept.md`      | Fritz       | Per-goal implementation mechanisms with mechanism-to-gate matrix; moves to `accepted` when tool-qualification records land |
-| open   | Software unit verification report             | `docs/safety-case/unit-verification.md`             | TBD         | Assembles coverage + MISRA + traceability evidence per release |
-| open   | Software integration and verification report  | `docs/safety-case/integration-verification.md`      | TBD         | Records xvalidation + NDS Live SmartLayerTile end-to-end |
+| done   | Software unit verification report             | `docs/safety-case/unit-verification.md`             | Fritz       | Per-runtime-module evidence: coverage, MISRA, stack, size, traceability. Snapshot pattern; per-release versions replace snapshot tables. |
+| done   | Software integration and verification report  | `docs/safety-case/integration-verification.md`      | Fritz       | xvalidation (182 schemas × 5 seeds) + conformance/ndslive end-to-end. |
 | done   | Tool qualification — compiler                 | `docs/safety-case/tool-qualification-gcc.md`        | Fritz       | TCL2; method (1) confidence-from-use + (3) validation; validated by `build-and-test`, `xvalidation`, `stack`, `coverage` gates |
 | done   | Tool qualification — cppcheck                 | `docs/safety-case/tool-qualification-cppcheck.md`   | Fritz       | TCL2; method (3) validation per rule category; one off-CI sanity check (Rule 17.2 recursive program) noted for follow-up |
 | done   | Tool qualification — lcov / gcov              | `docs/safety-case/tool-qualification-coverage.md`   | Fritz       | TCL2; method (1) + (3); gate uses raw .info so summary bugs cannot affect outcome |
 | done   | Tool qualification — zserio-c generator       | `docs/safety-case/tool-qualification-generator.md`  | Fritz       | TCL1 (TI2 × TD1 due to xvalidation's strong detection); one Open gap: MISRA gate not run on generator output |
 | done   | Stack-budget analysis                         | `tools/measure_stack_usage.py` + `docs/safety-case/stack-budget.md` + `stack` CI job | Fritz | Closes hazard H-09; per-function ≤ 256 B + static-qualifier strict mode |
 | done   | Failure-mode injection tests                  | `tests/runtime/test_failure_modes.c`                | Fritz       | One test per actionable HARA row (H-01, H-02, H-03, H-06); others handled by other gates or out of scope |
-| open   | Safety case report                            | `docs/safety-case/safety-case-report.md`            | TBD         | Final assembly of the above into one argument |
+| done   | Safety case report                            | `docs/safety-case/safety-case-report.md`            | Fritz       | Single entry document for a reviewer. Assembles the argument from item definition through HARA → SG/FSC/TSC → verification → TQ. |
 
 ## Sequencing
 
@@ -83,11 +83,16 @@ Phase 5 deliverables, in dependency order:
    each record are recorded inline (e.g. generator-output MISRA
    gate). SG-9 from `functional-safety-concept.md` is now
    discharged in `draft` status.
-6. **Next:** the two verification reports — unit verification
-   and integration verification — which collate CI evidence per
-   release tag.
-7. **Finally:** the safety case report, assembling the above
-   into one argument.
+6. **Done after that:** the two verification reports —
+   `unit-verification.md` (per-runtime-module evidence) and
+   `integration-verification.md` (xvalidation + conformance/
+   ndslive). Each is taken as a snapshot against `main` HEAD;
+   per-release versions replace the snapshot tables.
+7. **Done after that:** the safety case report — `safety-case-report.md`.
+   Phase 5 is structurally complete; every work product is at
+   `draft`. Acceptance is gated on independent review and on
+   closing the three Open items in
+   `safety-case-report.md` § Open items.
 
 The Phase 5 → Phase 6 transition gate is: every row in the work
 product table above is at status `done` or has an explicit

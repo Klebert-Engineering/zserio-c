@@ -60,11 +60,21 @@ Draft (delivered in the Phase 5 launch commit):
       gcc/cppcheck/lcov-gcov at TCL2 with method (1)+(3) evidence;
       generator at TCL1 thanks to the xvalidation TD1 detection.
 
-Open (Phase 5 work items, in dependency order):
+Draft (later in Phase 5):
 
-- [ ] Software unit verification report.
-- [ ] Software integration and verification report.
-- [ ] Safety case report (final assembly).
+- [/] Software unit verification report —
+      `docs/safety-case/unit-verification.md`. Snapshot of per-
+      runtime-module evidence against `main` HEAD.
+- [/] Software integration and verification report —
+      `docs/safety-case/integration-verification.md`. xvalidation
+      (182 × 5) + conformance/ndslive end-to-end.
+- [/] Safety case report —
+      `docs/safety-case/safety-case-report.md`. Single entry
+      document for a reviewer.
+
+Phase 5 is structurally complete; every work product is at
+`draft`. The case as a whole moves to `accepted` when the three
+Open items in `safety-case-report.md` § Open items close.
 
 ## Decisions already taken
 

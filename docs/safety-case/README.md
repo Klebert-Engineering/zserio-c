@@ -7,9 +7,12 @@ the safety case is *for*; this directory is what the safety case
 
 ## Status
 
-Phase 5 (safety-case maturation) is open. The launch commit
-delivers the three foundational documents below; the remaining work
-products are tracked in `safety-plan.md` § Work products.
+Phase 5 (safety-case maturation) is structurally complete: every
+work product listed in `safety-plan.md` § Work products is at
+`draft` status. The case as a whole moves to `accepted` when the
+three open items recorded in `safety-case-report.md` § Open items
+close and the integration verification is replayed against the
+next release tag.
 
 | Document | Status | Purpose |
 | --- | --- | --- |
@@ -23,6 +26,9 @@ products are tracked in `safety-plan.md` § Work products.
 | [tool-qualification-cppcheck.md](tool-qualification-cppcheck.md) | draft | TCL2 qualification analysis for cppcheck (MISRA enforcement). ISO 26262-8 §11. |
 | [tool-qualification-coverage.md](tool-qualification-coverage.md) | draft | TCL2 qualification analysis for lcov / gcov (coverage gate). ISO 26262-8 §11. |
 | [tool-qualification-generator.md](tool-qualification-generator.md) | draft | TCL1 qualification analysis for the zserio-c generator. ISO 26262-8 §11. |
+| [unit-verification.md](unit-verification.md) | draft | Per-runtime-module evidence: coverage, MISRA, stack, size, traceability. ISO 26262-6 §9. |
+| [integration-verification.md](integration-verification.md) | draft | Wire-format evidence: xvalidation (182 schemas × 5 seeds) + conformance/ndslive end-to-end fixture. ISO 26262-6 §10. |
+| [safety-case-report.md](safety-case-report.md) | draft | Final assembly. The single entry document for a reviewer. ISO 26262-2 §6.4. |
 
 Every document has a YAML frontmatter `status` field. `draft` means
 the document is structurally complete and reviewable but has not
