@@ -80,16 +80,36 @@ zserio_status_t zserio_read_bytes(zserio_bitstream_reader_t *bs,
         return ZSERIO_ERR_OUT_OF_MEMORY;
     }
 
-    for (size_t i = 0U; i < (size_t)length; i++) {
-        uint64_t byte = 0U;
-        const zserio_status_t st = zserio_bitstream_read_bits(bs, 8U, &byte);
-        if (st != ZSERIO_OK) { /* LCOV_EXCL_START — unreachable: the
-                                * bound check above guarantees
-                                * bit_index + length*8 <= buffer size. */
-            alloc->vtable->free(alloc->userdata, dst, (size_t)length, 1U);
-            return st;
-        } /* LCOV_EXCL_STOP */
-        dst[i] = (uint8_t)byte;
+    if (((bs->bit_index & (size_t)0x7U) == 0U)
+            && ((bs->cache_bits & (uint8_t)0x7U) == 0U)) {
+        /* Fast path mirror of zserio_read_extern / zserio_read_string:
+         * byte-aligned stream + whole-byte cache → drain cache then
+         * memcpy the rest from the buffer. */
+        size_t i = 0U;
+        while ((bs->cache_bits >= 8U) && (i < (size_t)length)) {
+            bs->cache_bits = (uint8_t)(bs->cache_bits - 8U);
+            dst[i] = (uint8_t)(bs->bit_cache >> bs->cache_bits);
+            bs->bit_index += 8U;
+            i++;
+        }
+        if (i < (size_t)length) {
+            const size_t src_byte = bs->bit_index >> 3U;
+            const size_t to_copy = (size_t)length - i;
+            (void)memcpy(&dst[i], &bs->buffer[src_byte], to_copy);
+            bs->bit_index += to_copy * 8U;
+        }
+    } else {
+        for (size_t i = 0U; i < (size_t)length; i++) {
+            uint64_t byte = 0U;
+            const zserio_status_t st = zserio_bitstream_read_bits(bs, 8U, &byte);
+            if (st != ZSERIO_OK) { /* LCOV_EXCL_START — unreachable: the
+                                    * bound check above guarantees
+                                    * bit_index + length*8 <= buffer size. */
+                alloc->vtable->free(alloc->userdata, dst, (size_t)length, 1U);
+                return st;
+            } /* LCOV_EXCL_STOP */
+            dst[i] = (uint8_t)byte;
+        }
     }
 
     out->bytes = dst;

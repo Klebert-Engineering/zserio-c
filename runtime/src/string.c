@@ -111,17 +111,40 @@ zserio_status_t zserio_read_string(zserio_bitstream_reader_t *bs,
         return ZSERIO_ERR_OUT_OF_MEMORY;
     }
 
-    /* Byte-by-byte copy. read_bits handles bit-misalignment naturally. */
-    for (size_t i = 0U; i < (size_t)length; i++) {
-        uint64_t byte = 0U;
-        const zserio_status_t st = zserio_bitstream_read_bits(bs, 8U, &byte);
-        if (st != ZSERIO_OK) { /* LCOV_EXCL_START — unreachable: the
-                                * bound check above guarantees the loop
-                                * stays within buffer_bit_size. */
-            alloc->vtable->free(alloc->userdata, dst, (size_t)length, 1U);
-            return st;
-        } /* LCOV_EXCL_STOP */
-        dst[i] = (char)(uint8_t)byte;
+    if (((bs->bit_index & (size_t)0x7U) == 0U)
+            && ((bs->cache_bits & (uint8_t)0x7U) == 0U)) {
+        /* Fast path: byte-aligned stream + whole-byte cache. Same
+         * shape as zserio_read_extern's fast path. Drain whole-byte
+         * chunks out of the cache, then memcpy the rest from the
+         * source buffer. The profile showed 16 strings per NDS Live
+         * tile at ~110 ns each — 47% of the per-tile decode time —
+         * before this shortcut. */
+        size_t i = 0U;
+        while ((bs->cache_bits >= 8U) && (i < (size_t)length)) {
+            bs->cache_bits = (uint8_t)(bs->cache_bits - 8U);
+            dst[i] = (char)(uint8_t)(bs->bit_cache >> bs->cache_bits);
+            bs->bit_index += 8U;
+            i++;
+        }
+        if (i < (size_t)length) {
+            const size_t src_byte = bs->bit_index >> 3U;
+            const size_t to_copy = (size_t)length - i;
+            (void)memcpy(&dst[i], &bs->buffer[src_byte], to_copy);
+            bs->bit_index += to_copy * 8U;
+        }
+    } else {
+        /* Slow path: byte-by-byte for bit-misaligned starts. */
+        for (size_t i = 0U; i < (size_t)length; i++) {
+            uint64_t byte = 0U;
+            const zserio_status_t st = zserio_bitstream_read_bits(bs, 8U, &byte);
+            if (st != ZSERIO_OK) { /* LCOV_EXCL_START — unreachable: the
+                                    * bound check above guarantees the loop
+                                    * stays within buffer_bit_size. */
+                alloc->vtable->free(alloc->userdata, dst, (size_t)length, 1U);
+                return st;
+            } /* LCOV_EXCL_STOP */
+            dst[i] = (char)(uint8_t)byte;
+        }
     }
 
     out->bytes = dst;
