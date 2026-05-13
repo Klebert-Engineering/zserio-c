@@ -27,6 +27,10 @@
  * decoded and we're about to decode a specific layer payload).
  */
 #ifdef ZSERIO_TRACE_ENABLED
+/* cppcheck-suppress misra-c2012-21.6 ; production builds do not
+ * define ZSERIO_TRACE_ENABLED so this include is never compiled in;
+ * cppcheck's misra addon scans include directives regardless of
+ * preprocessor state (false positive). */
 #include <stdio.h>
 #include <stdlib.h>
 static FILE *s_zsc_trace_fp = NULL;
