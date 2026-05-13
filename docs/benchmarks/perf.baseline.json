@@ -4,17 +4,17 @@
       "bytes": 31,
       "inner_iters": 200000,
       "ratio_cpp_to_c": {
-        "decode": 0.415,
-        "encode": 0.614
+        "decode": 0.621,
+        "encode": 0.670
       },
       "runs": 5,
       "zserio_c": {
-        "decode_ns_per_op": 99.02,
-        "encode_ns_per_op": 117.72
+        "decode_ns_per_op": 66.61,
+        "encode_ns_per_op": 108.45
       },
       "zserio_cpp": {
-        "decode_ns_per_op": 41.07,
-        "encode_ns_per_op": 72.30
+        "decode_ns_per_op": 41.36,
+        "encode_ns_per_op": 72.71
       }
     }
   }
