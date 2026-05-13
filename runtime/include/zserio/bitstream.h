@@ -84,6 +84,67 @@ zserio_status_t zserio_bitstream_read_bits(zserio_bitstream_reader_t *bs,
                                            uint64_t *out);
 
 /**
+ * Mask table for bit-cache fast-path extracts.
+ *
+ * `zserio_bitstream_mask_table[i] = (1 << i) - 1` for i in [0, 63];
+ * [64] = UINT64_MAX since (1 << 64) is undefined in C. Defined in
+ * bitstream.c. Exposed here so the inline fast path below can use
+ * it without crossing a translation-unit boundary.
+ *
+ * Implementation detail. Not part of the public API contract; do
+ * not depend on the symbol name from outside the runtime.
+ */
+extern const uint64_t zserio_bitstream_mask_table[65];
+
+/**
+ * Refill the bit cache from `bs->bit_index`. Precondition: caller
+ * has verified the read is in bounds and `bs->cache_bits == 0`.
+ * Defined in bitstream.c so the parse-byte helpers stay one-copy.
+ *
+ * Implementation detail. Used by the inline fast path below.
+ */
+void zserio_bitstream_load_cache_next(zserio_bitstream_reader_t *bs);
+
+/**
+ * Inline bit-cache read fast path.
+ *
+ * Caller MUST have already verified:
+ *   - `bs` and the bit-index are valid;
+ *   - `num_bits` is in [1, 64];
+ *   - `bs->bit_index + num_bits <= bs->buffer_bit_size`.
+ *
+ * The public `zserio_bitstream_read_bits` does those checks and
+ * then delegates here. Per-width primitive readers in primitives.h
+ * inline this directly after their own narrower checks. Both
+ * patterns avoid the validate-and-dispatch overhead per primitive
+ * read.
+ *
+ * Implementation detail. Calling this without the preconditions is
+ * undefined behaviour.
+ */
+static inline uint64_t zserio_bitstream_read_bits_impl(
+    zserio_bitstream_reader_t *bs, uint8_t num_bits)
+{
+    uint64_t value = 0U;
+    uint8_t remaining = num_bits;
+    if (bs->cache_bits < remaining) {
+        value = bs->bit_cache & zserio_bitstream_mask_table[bs->cache_bits];
+        bs->bit_index += bs->cache_bits;
+        remaining = (uint8_t)(remaining - bs->cache_bits);
+        bs->cache_bits = 0U;
+        zserio_bitstream_load_cache_next(bs);
+        if (remaining < 64U) {
+            value <<= remaining;
+        }
+    }
+    value |= (bs->bit_cache >> (uint8_t)(bs->cache_bits - remaining))
+           & zserio_bitstream_mask_table[remaining];
+    bs->cache_bits = (uint8_t)(bs->cache_bits - remaining);
+    bs->bit_index += remaining;
+    return value;
+}
+
+/**
  * Read `num_bits` bits as a signed integer (two's complement, sign-extended).
  *
  * `num_bits` MUST be in [1, 64]. Output is written to `*out` only on

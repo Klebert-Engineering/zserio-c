@@ -86,10 +86,12 @@ void zsc_trace_set_enabled(bool enabled)
  * preceding refill's bit count, and refills only happen in 8-bit chunks.
  */
 
-/* MASK_TABLE[i] = (1 << i) - 1 for i in [0, 64], with [64] = UINT64_MAX
- * (since (1 << 64) is undefined in C). Indexed by the bit width of an
- * extract; the table is hot-cache-resident at ~520 bytes. */
-static const uint64_t MASK_TABLE[65] = {
+/* zserio_bitstream_mask_table[i] = (1 << i) - 1 for i in [0, 64],
+ * with [64] = UINT64_MAX (since (1 << 64) is undefined in C).
+ * Declared `extern` in bitstream.h so the inline read_bits_impl
+ * defined there can reach the table; the .h reaching across the
+ * TU boundary is the whole point of exposing it. */
+const uint64_t zserio_bitstream_mask_table[65] = {
     UINT64_C(0x0000000000000000),
     UINT64_C(0x0000000000000001), UINT64_C(0x0000000000000003),
     UINT64_C(0x0000000000000007), UINT64_C(0x000000000000000F),
@@ -140,7 +142,7 @@ static inline uint64_t parse64_be(const uint8_t *p)
  * trailing partial-byte chunk and right-shift away the padding bits.
  *
  * `bit_index` is byte-aligned at entry by the cache invariant. */
-static inline void load_cache_next(zserio_bitstream_reader_t *bs)
+void zserio_bitstream_load_cache_next(zserio_bitstream_reader_t *bs)
 {
     const size_t byte_idx = bs->bit_index >> 3U;
     const size_t remaining = bs->buffer_bit_size - bs->bit_index;
@@ -169,33 +171,10 @@ static inline void load_cache_next(zserio_bitstream_reader_t *bs)
     }
 }
 
-/* Unchecked impl: caller guarantees `num_bits in [1, 64]` and that the
- * read is in bounds. Returns the read value. */
-static inline uint64_t read_bits_impl(zserio_bitstream_reader_t *bs, uint8_t num_bits)
-{
-    uint64_t value = 0U;
-    /* Local copy of the bit count we still need; rule 17.8 (do not
-     * modify parameters). */
-    uint8_t remaining = num_bits;
-    if (bs->cache_bits < remaining) {
-        /* Take the entire cache as the high part of the result. */
-        value = bs->bit_cache & MASK_TABLE[bs->cache_bits];
-        bs->bit_index += bs->cache_bits;
-        remaining = (uint8_t)(remaining - bs->cache_bits);
-        bs->cache_bits = 0U;
-        load_cache_next(bs);
-        /* MASK_TABLE[0] == 0 ensures the shift-by-0 case (remaining == 64
-         * after cache drain) produces value == 0, leaving the low 64
-         * bits to come entirely from the refilled cache below. */
-        if (remaining < 64U) {
-            value <<= remaining;
-        }
-    }
-    value |= (bs->bit_cache >> (uint8_t)(bs->cache_bits - remaining)) & MASK_TABLE[remaining];
-    bs->cache_bits = (uint8_t)(bs->cache_bits - remaining);
-    bs->bit_index += remaining;
-    return value;
-}
+/* The unchecked cache-extract impl lives in bitstream.h as
+ * `zserio_bitstream_read_bits_impl`; defining it there lets per-width
+ * primitive readers inline the whole hot path without crossing a
+ * translation-unit boundary. */
 
 /* Round `value` up to the next multiple of `alignment`. The zserio
  * `align(N):` directive accepts any positive integer (the schema uses
@@ -256,7 +235,7 @@ zserio_status_t zserio_bitstream_read_bits(zserio_bitstream_reader_t *bs,
         return ZSERIO_ERR_END_OF_STREAM;
     }
 
-    const uint64_t value = read_bits_impl(bs, num_bits);
+    const uint64_t value = zserio_bitstream_read_bits_impl(bs, num_bits);
     *out = value;
     zsc_trace("read", num_bits, bs->bit_index, (unsigned long long)value);
     return ZSERIO_OK;
