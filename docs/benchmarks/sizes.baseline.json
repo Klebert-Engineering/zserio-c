@@ -165,8 +165,8 @@
   "totals": {
     ".bss": 0,
     ".data": 0,
-    ".rodata": 432,
-    ".text": 8221,
+    ".rodata": 720,
+    ".text": 9756,
     "other": 702
   }
 }
