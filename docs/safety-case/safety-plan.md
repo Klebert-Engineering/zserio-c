@@ -53,7 +53,7 @@ sibling files in this directory and in `requirements/`.
 | open   | Tool qualification — lcov / gcov              | `docs/safety-case/tool-qualification-coverage.md`   | TBD         | Coverage measurement tool |
 | open   | Tool qualification — zserio-c generator       | `docs/safety-case/tool-qualification-generator.md`  | TBD         | The generator is on the safety path because it produces certified code |
 | done   | Stack-budget analysis                         | `tools/measure_stack_usage.py` + `docs/safety-case/stack-budget.md` + `stack` CI job | Fritz | Closes hazard H-09; per-function ≤ 256 B + static-qualifier strict mode |
-| open   | Failure-mode injection tests                  | `tests/runtime/test_negative_*.c`                   | TBD         | One test per HARA row that asserts the documented mitigation fires |
+| done   | Failure-mode injection tests                  | `tests/runtime/test_failure_modes.c`                | Fritz       | One test per actionable HARA row (H-01, H-02, H-03, H-06); others handled by other gates or out of scope |
 | open   | Safety case report                            | `docs/safety-case/safety-case-report.md`            | TBD         | Final assembly of the above into one argument |
 
 ## Sequencing
@@ -62,13 +62,18 @@ Phase 5 deliverables, in dependency order:
 
 1. **Done in the Phase 5 launch commit:** item definition, HARA,
    this plan.
-2. **Done after that:** stack-budget analysis — `tools/measure_stack_usage.py`,
-   the `stack` CI gate, and `docs/safety-case/stack-budget.md`. Closes
-   hazard H-09.
-3. **Next:** failure-mode injection tests (one per HARA row, asserting
-   the documented mitigation actually fires).
-4. **Then:** functional + technical safety concepts (one document each,
-   building on the HARA's mitigation column and the now-closed H-09).
+2. **Done after that:** stack-budget analysis —
+   `tools/measure_stack_usage.py`, the `stack` CI gate, and
+   `docs/safety-case/stack-budget.md`. Closes hazard H-09.
+3. **Done after that:** failure-mode injection tests —
+   `tests/runtime/test_failure_modes.c`. One test per actionable
+   HARA row (H-01, H-02, H-03, H-06); others are handled by
+   existing gates (H-07: MISRA, H-08: xvalidation, H-09: stack)
+   or are explicitly out of scope at the item level (H-04, H-05,
+   H-10).
+4. **Next:** functional + technical safety concepts (one document
+   each, citing the now-closed H-09 and the failure-mode test
+   coverage as primary evidence).
 5. **Then:** the four tool-qualification records, in parallel.
 6. **Finally:** the two verification reports + the safety case
    report.

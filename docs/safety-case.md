@@ -46,10 +46,12 @@ Draft (delivered in the Phase 5 launch commit):
 - [/] Stack-budget analysis — `docs/safety-case/stack-budget.md` +
       `tools/measure_stack_usage.py` + CI `stack` job. Closes hazard
       H-09; current worst frame 144 B, gate at 256 B per function.
+- [/] Failure-mode injection tests — `tests/runtime/test_failure_modes.c`.
+      One test per actionable HARA row (H-01, H-02, H-03, H-06);
+      remaining rows handled by other gates or out of scope.
 
 Open (Phase 5 work items, in dependency order):
 
-- [ ] Failure-mode injection tests (one per HARA row).
 - [ ] Functional safety concept.
 - [ ] Technical safety concept.
 - [ ] Software unit verification report.

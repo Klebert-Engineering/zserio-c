@@ -62,13 +62,17 @@ requirements and verification regime. Closure status:
 1. **H-04 / H-05 integrator notes.** A short integration guide
    under `docs/integration-guide.md` that records the assumed
    integrator responsibilities listed in the rightmost column.
-2. **Failure-mode injection tests.** Each row in the hazard table
-   should have a corresponding negative-path test that proves the
-   listed mitigation actually fires. We already have several
-   (REQ-FS-006 boundary tests); the gap analysis is part of the
-   verification report (planned).
-3. **Transitive stack-budget calculation.** The current gate enforces
+2. **Transitive stack-budget calculation.** The current gate enforces
    a per-function ceiling but does not compute the worst-case path
    total. A cflow/call-graph traversal would tighten the analysis
    from "≤ 256 B × depth" to an exact upper bound. Tracked in
    `stack-budget.md` § Limitations.
+
+## Closed items
+
+- **Failure-mode injection tests** for H-01 (buffer over/underrun),
+  H-02 (unbounded execution on malformed input), H-03 (allocator
+  misbehavior), and H-06 (freedom from interference) landed in
+  `tests/runtime/test_failure_modes.c`. Each test maps 1:1 to a
+  HARA row and verifies the documented status code is returned
+  rather than the runtime crashing or looping.
