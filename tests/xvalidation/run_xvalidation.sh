@@ -137,8 +137,25 @@ while IFS= read -r schema_rel; do
     fi
     rel_schema="${pkg_dir:+${pkg_dir}/}${pkg_last}.zs"
 
+    # Per-schema codegen flags. `packages/zs/index.zs` declares a
+    # top-level package literally named `index`, which collides with
+    # libc's `index()` (declared by <strings.h>) in the cpp output —
+    # the cpp compile fails with `namespace index redeclared as
+    # different kind of entity`. Upstream's own test harness uses
+    # `-setTopLevelPackage index_workaround` to dodge the collision;
+    # we apply the same workaround. The flag is core-level so both
+    # the C and cpp generators see the renamed package; the harness
+    # drivers must reference the prefixed symbols accordingly.
+    extra_codegen_args=()
+    case "${schema_rel}" in
+        packages/zs/index.zs)
+            extra_codegen_args=(-setTopLevelPackage index_workaround)
+            ;;
+    esac
+
     java -cp "${ZSERIO_CORE_JAR}:${ZSERIO_C_JAR}:${ZSERIO_JAR}" \
         zserio.tools.ZserioTool \
+        "${extra_codegen_args[@]}" \
         -src "${work}/staging" "${rel_schema}" \
         -c "${work}/c_out" -cpp "${work}/cpp_out" \
         1>/dev/null 2>"${work}/gen.log" || {

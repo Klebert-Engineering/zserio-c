@@ -187,10 +187,10 @@ offsets/zs/offsets/offset_in_union.zs
 optional_members/zs/optional_members/optional_recursion.zs
 array_types/zs/array_types/packed_arrays_mapping.zs
 
-# DEFERRED: packages/zs/index.zs — top-level package literally named
-# `index` collides with libc's `index()` declared via `<strings.h>`.
-# Upstream cpp uses `-setTopLevelPackage` to remap. Our cpp_driver
-# doesn't apply that and the cpp side fails with `namespace index
-# redeclared as different kind of entity`. Pure cpp toolchain issue,
-# nothing for the C generator to fix.
-#   packages/zs/index.zs
+# `packages/zs/index.zs` declares a top-level package literally named
+# `index` — collides with libc's `index()` declared by <strings.h>.
+# Upstream uses `-setTopLevelPackage index_workaround` to remap; the
+# xvalidation runner applies the same flag (see run_xvalidation.sh
+# `extra_codegen_args` case). The harness drivers reference the
+# prefixed symbols accordingly.
+packages/zs/index.zs
