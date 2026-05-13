@@ -621,6 +621,3 @@ DELTA_TRAITS_SIGNED  (varint16,  int16_t);
 DELTA_TRAITS_SIGNED  (varint32,  int32_t);
 DELTA_TRAITS_SIGNED  (varint64,  int64_t);
 DELTA_TRAITS_SIGNED  (varint,    int64_t);
-
-#undef DELTA_TRAITS_UNSIGNED
-#undef DELTA_TRAITS_SIGNED

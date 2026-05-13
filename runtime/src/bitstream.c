@@ -5,12 +5,15 @@
 
 #include "zserio/bitstream.h"
 
-#include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 
 /*
- * Per-primitive-read trace facility. Enabled via env var
+ * Per-primitive-read trace facility. Built only when
+ * `ZSERIO_TRACE_ENABLED` is defined at compile time — production
+ * builds compile this block out entirely so the runtime stays free
+ * of <stdio.h>, getenv, fopen, fprintf (all MISRA-banned).
+ *
+ * Enabled at runtime via env var
  *   ZSERIO_TRACE=<path>
  * Each call to zserio_bitstream_read_bits / read_signed emits one line:
  *   <pos_after> <op> <nbits> <value>
@@ -18,23 +21,27 @@
  * traces are intended to be diffed to localise wire-format divergence
  * field-by-field rather than guessing from end-state error codes.
  *
- * The trace is OFF by default. Set ZSERIO_TRACE to a writable path,
- * then call zsc_trace_set_enabled(true) at the point where you want
- * tracing to start (typically: after the SmartLayerTile is decoded
- * and we're about to decode a specific layer payload). Setting
- * ZSERIO_TRACE alone is not sufficient — the C reader doesn't trace
- * unconditionally to avoid swamping output and to match the cpp
- * oracle's per-layer-scope contract.
+ * Build with -DZSERIO_TRACE_ENABLED, set ZSERIO_TRACE to a writable
+ * path, then call zsc_trace_set_enabled(true) at the point where you
+ * want tracing to start (typically: after the SmartLayerTile is
+ * decoded and we're about to decode a specific layer payload).
  */
+#ifdef ZSERIO_TRACE_ENABLED
+#include <stdio.h>
+#include <stdlib.h>
 static FILE *s_zsc_trace_fp = NULL;
 static bool s_zsc_trace_inited = false;
 static bool s_zsc_trace_enabled = false;
 static void zsc_trace_init(void)
 {
-    if (s_zsc_trace_inited) return;
+    if (s_zsc_trace_inited)
+    {
+        return;
+    }
     s_zsc_trace_inited = true;
     const char *path = getenv("ZSERIO_TRACE");
-    if (path != NULL && *path != '\0') {
+    if ((path != NULL) && (*path != '\0'))
+    {
         s_zsc_trace_fp = fopen(path, "w");
     }
 }
@@ -45,11 +52,22 @@ void zsc_trace_set_enabled(bool enabled)
 }
 static void zsc_trace(const char *op, unsigned nbits, size_t pos_after, unsigned long long value)
 {
-    if (!s_zsc_trace_inited) zsc_trace_init();
-    if (s_zsc_trace_fp != NULL && s_zsc_trace_enabled) {
-        fprintf(s_zsc_trace_fp, "%zu %s %u %llu\n", pos_after, op, nbits, value);
+    if (!s_zsc_trace_inited)
+    {
+        zsc_trace_init();
+    }
+    if ((s_zsc_trace_fp != NULL) && s_zsc_trace_enabled)
+    {
+        (void)fprintf(s_zsc_trace_fp, "%zu %s %u %llu\n", pos_after, op, nbits, value);
     }
 }
+#else
+void zsc_trace_set_enabled(bool enabled)
+{
+    (void)enabled;
+}
+#define zsc_trace(op, nbits, pos_after, value) ((void)0)
+#endif /* ZSERIO_TRACE_ENABLED */
 
 /*
  * Phase 1 implementation: byte-walk algorithm. Correctness-first.

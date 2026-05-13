@@ -9,6 +9,7 @@
 #include <stdint.h>
 
 #include "zserio/bitstream.h"
+#include "zserio/delta.h"
 #include "zserio/status.h"
 
 /**
@@ -103,8 +104,6 @@ size_t zserio_bitsize_varint  (int64_t v);
 /* `zserio_delta_init_traits(&ctx, &zserio_delta_traits_varuintXX)` for      */
 /* packed arrays whose element shape is the matching varint family.         */
 /* ------------------------------------------------------------------------ */
-
-#include "zserio/delta.h"
 
 extern const zserio_delta_traits_t zserio_delta_traits_varuint16;
 extern const zserio_delta_traits_t zserio_delta_traits_varuint32;
