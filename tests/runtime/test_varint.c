@@ -396,6 +396,36 @@ static void test_write_overflow_propagation(void)
 }
 
 /* ------------------------------------------------------------------------ */
+/* Direct zserio_bitsize_var* coverage. The trait round-trip tests in       */
+/* test_delta_traits.c hit the common paths; these target the wide-value   */
+/* and INT64_MIN edge cases of the byte-count helpers, which the moderate */
+/* trait inputs don't reach. */
+/* ------------------------------------------------------------------------ */
+
+static void test_bitsize_varuint64_max_uses_all_bytes(void)
+{
+    /* UINT64_MAX exceeds every VARUINT64_MAX[i] bucket, so
+     * bytes_for_unsigned returns the trailing max_bytes value
+     * (8 bytes = 64 bits) without finding an earlier fit. */
+    TEST_ASSERT_EQUAL_size_t(64U, zserio_bitsize_varuint64(UINT64_MAX));
+}
+
+static void test_bitsize_varint_int64_min_single_byte(void)
+{
+    /* INT64_MIN is the single-byte special form for varint
+     * (support_int64_min == true): sign bit set, zero magnitude. */
+    TEST_ASSERT_EQUAL_size_t(8U, zserio_bitsize_varint(INT64_MIN));
+}
+
+static void test_bitsize_varint64_int64_min_uses_max_bytes(void)
+{
+    /* INT64_MIN on varint64 (no single-byte special form): magnitude
+     * cannot be negated within int64_t, so bytes_for_signed returns
+     * max_bytes (8 bytes = 64 bits). */
+    TEST_ASSERT_EQUAL_size_t(64U, zserio_bitsize_varint64(INT64_MIN));
+}
+
+/* ------------------------------------------------------------------------ */
 /* Test runner                                                              */
 /* ------------------------------------------------------------------------ */
 
@@ -437,6 +467,10 @@ int main(void)
     RUN_TEST(test_read_null_out);
     RUN_TEST(test_read_eof_propagation);
     RUN_TEST(test_write_overflow_propagation);
+
+    RUN_TEST(test_bitsize_varuint64_max_uses_all_bytes);
+    RUN_TEST(test_bitsize_varint_int64_min_single_byte);
+    RUN_TEST(test_bitsize_varint64_int64_min_uses_max_bytes);
 
     return UNITY_END();
 }

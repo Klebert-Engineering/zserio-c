@@ -835,6 +835,16 @@ static void test_two_readers_independent(void)
 /* Test runner                                                              */
 /* ------------------------------------------------------------------------ */
 
+/* The trace facility is gated behind -DZSERIO_TRACE_ENABLED. In
+ * production builds (the default — both for tests and shipping
+ * libraries) zsc_trace_set_enabled is a no-op stub. This test just
+ * keeps the symbol exercised so coverage stays at 100%. */
+static void test_trace_set_enabled_is_callable(void)
+{
+    zsc_trace_set_enabled(true);
+    zsc_trace_set_enabled(false);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -921,6 +931,8 @@ int main(void)
     RUN_TEST(test_round_trip_simple_structure);
     RUN_TEST(test_round_trip_random);
     RUN_TEST(test_two_readers_independent);
+
+    RUN_TEST(test_trace_set_enabled_is_callable);
 
     return UNITY_END();
 }
