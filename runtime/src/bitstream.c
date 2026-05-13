@@ -145,7 +145,7 @@ static inline void load_cache_next(zserio_bitstream_reader_t *bs)
     const size_t byte_idx = bs->bit_index >> 3U;
     const size_t remaining = bs->buffer_bit_size - bs->bit_index;
     if (remaining >= 64U) {
-        bs->bit_cache = parse64_be(bs->buffer + byte_idx);
+        bs->bit_cache = parse64_be(&bs->buffer[byte_idx]);
         bs->cache_bits = 64U;
     } else {
         /* Build cache one byte at a time from the trailing tail. Each
@@ -174,23 +174,26 @@ static inline void load_cache_next(zserio_bitstream_reader_t *bs)
 static inline uint64_t read_bits_impl(zserio_bitstream_reader_t *bs, uint8_t num_bits)
 {
     uint64_t value = 0U;
-    if (bs->cache_bits < num_bits) {
+    /* Local copy of the bit count we still need; rule 17.8 (do not
+     * modify parameters). */
+    uint8_t remaining = num_bits;
+    if (bs->cache_bits < remaining) {
         /* Take the entire cache as the high part of the result. */
         value = bs->bit_cache & MASK_TABLE[bs->cache_bits];
         bs->bit_index += bs->cache_bits;
-        num_bits = (uint8_t)(num_bits - bs->cache_bits);
+        remaining = (uint8_t)(remaining - bs->cache_bits);
         bs->cache_bits = 0U;
         load_cache_next(bs);
-        /* MASK_TABLE[0] == 0 ensures the shift-by-0 case (num_bits == 64
+        /* MASK_TABLE[0] == 0 ensures the shift-by-0 case (remaining == 64
          * after cache drain) produces value == 0, leaving the low 64
          * bits to come entirely from the refilled cache below. */
-        if (num_bits < 64U) {
-            value <<= num_bits;
+        if (remaining < 64U) {
+            value <<= remaining;
         }
     }
-    value |= (bs->bit_cache >> (uint8_t)(bs->cache_bits - num_bits)) & MASK_TABLE[num_bits];
-    bs->cache_bits = (uint8_t)(bs->cache_bits - num_bits);
-    bs->bit_index += num_bits;
+    value |= (bs->bit_cache >> (uint8_t)(bs->cache_bits - remaining)) & MASK_TABLE[remaining];
+    bs->cache_bits = (uint8_t)(bs->cache_bits - remaining);
+    bs->bit_index += remaining;
     return value;
 }
 
@@ -416,28 +419,55 @@ zserio_status_t zserio_bitstream_write_bits(zserio_bitstream_writer_t *bs,
         return ZSERIO_ERR_BUFFER_OVERFLOW;
     }
 
-    size_t bit_pos = bs->bit_index;
-    uint8_t bits_remaining = num_bits;
+    /* Smart byte-walk pattern (see
+     * docs/upstream-analysis/04-cpp-runtime-internals.md §5). For
+     * unaligned writes spanning multiple bytes we split into:
+     *   - first partial byte: read-modify-write to preserve already-
+     *     populated high bits;
+     *   - middle full bytes: straight stores (the buffer is pre-zeroed
+     *     and we own these byte positions completely);
+     *   - last partial byte: read-modify-write to preserve future-write
+     *     low bits (typically zero, but seek-back patterns matter).
+     * Byte-aligned writes (bit_index % 8 == 0) skip the first partial
+     * branch and run only the straight middle-byte loop. */
+    uint8_t rest_bits = num_bits;
+    const uint8_t bits_used = (uint8_t)(bs->bit_index & 0x07U);
+    uint8_t bits_free = (uint8_t)(8U - bits_used);
+    size_t byte_idx = bs->bit_index >> 3U;
 
-    while (bits_remaining > 0U) {
-        const size_t byte_idx = bit_pos / 8U;
-        const uint8_t bit_offset = (uint8_t)(bit_pos % 8U);
-        const uint8_t bits_in_byte = (uint8_t)(8U - bit_offset);
-        const uint8_t take = (bits_remaining < bits_in_byte) ? bits_remaining : bits_in_byte;
-        const uint8_t shift = (uint8_t)(bits_in_byte - take);
+    if (rest_bits > bits_free) {
+        /* First partial byte: bits_free new bits fit in the trailing
+         * low bits_free positions of buffer[byte_idx]; preserve the
+         * high bits_used bits. */
+        const uint8_t shift_num = (uint8_t)(rest_bits - bits_free);
+        const uint8_t preserve_mask = (uint8_t)(0xFFU << bits_free);
+        const uint8_t high_bits =
+            (uint8_t)((value >> shift_num) & (uint64_t)(0xFFU >> bits_used));
+        bs->buffer[byte_idx] = (uint8_t)((bs->buffer[byte_idx] & preserve_mask) | high_bits);
+        byte_idx++;
+        rest_bits = (uint8_t)(rest_bits - bits_free);
 
-        const uint64_t source_mask = ((uint64_t)1U << (uint64_t)take) - 1U;
-        const uint64_t bits_to_write = (value >> (uint64_t)(bits_remaining - take)) & source_mask;
-        const uint8_t  byte_mask = (uint8_t)(((1U << take) - 1U) << shift);
-
-        bs->buffer[byte_idx] = (uint8_t)((bs->buffer[byte_idx] & (uint8_t)~byte_mask)
-                                         | (uint8_t)((uint8_t)bits_to_write << shift));
-
-        bit_pos += take;
-        bits_remaining = (uint8_t)(bits_remaining - take);
+        /* Middle full bytes: each holds 8 contiguous bits of value, no
+         * read-modify-write needed because the buffer is pre-zeroed and
+         * we own these byte positions. */
+        while (rest_bits >= 8U) {
+            rest_bits = (uint8_t)(rest_bits - 8U);
+            bs->buffer[byte_idx++] = (uint8_t)((value >> rest_bits) & 0xFFU);
+        }
+        bits_free = 8U;
     }
 
-    bs->bit_index = bit_pos;
+    /* Last partial byte: rest_bits new bits land in the high
+     * positions of buffer[byte_idx]; preserve the low bits. */
+    if (rest_bits > 0U) {
+        const uint8_t shift_num = (uint8_t)(bits_free - rest_bits);
+        const uint8_t mask = (uint8_t)((1U << rest_bits) - 1U);
+        const uint8_t preserve_mask = (uint8_t)~(uint8_t)(mask << shift_num);
+        const uint8_t new_bits = (uint8_t)(((uint8_t)value & mask) << shift_num);
+        bs->buffer[byte_idx] = (uint8_t)((bs->buffer[byte_idx] & preserve_mask) | new_bits);
+    }
+
+    bs->bit_index += num_bits;
     return ZSERIO_OK;
 }
 
