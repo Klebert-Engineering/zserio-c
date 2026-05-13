@@ -31,6 +31,27 @@ RUNS="${RUNS:-5}"
 # override to a smaller count so each run stays in the low-seconds.
 INNER_ITERS_DEFAULT="${INNER_ITERS:-200000}"
 
+# Link-time optimisation toggle. Defaults to on for the benchmark
+# build — `gcc -flto` lets the compiler inline across TU boundaries,
+# which is the dominant overhead on small messages. Set `BENCH_LTO=0`
+# to disable for a comparison run; ar must then be plain `ar`.
+BENCH_LTO="${BENCH_LTO:-1}"
+if [[ "${BENCH_LTO}" -eq 1 ]]; then
+    LTO_CFLAGS="-flto"
+    AR_BIN="gcc-ar"
+else
+    LTO_CFLAGS=""
+    AR_BIN="ar"
+fi
+# Force a clean rebuild when the LTO flag changes so we don't mix
+# LTO and non-LTO object files in the same .a / driver binary.
+RT_STATE="${WORK_ROOT}/.lto-state"
+DESIRED_STATE="lto=${BENCH_LTO}"
+if [[ -d "${WORK_ROOT}" ]] && [[ ! -f "${RT_STATE}" || "$(cat "${RT_STATE}" 2>/dev/null)" != "${DESIRED_STATE}" ]]; then
+    rm -rf "${WORK_ROOT}/runtime-objs" "${WORK_ROOT}/cpp_rt_objs" \
+           "${WORK_ROOT}/libZserioCppRuntime.a"
+fi
+
 ZSERIO_JAR="${REPO_ROOT}/build-jars/zserio.jar"
 ZSERIO_CORE_JAR="${REPO_ROOT}/build-jars/zserio_core.jar"
 ZSERIO_C_JAR="${REPO_ROOT}/generator/build/jar/zserio_c.jar"
@@ -44,6 +65,7 @@ if [[ ! -f "${ZSERIO_C_JAR}" ]]; then
 fi
 
 mkdir -p "${WORK_ROOT}"
+printf '%s' "${DESIRED_STATE}" > "${RT_STATE}"
 
 # --- Pre-build the C runtime (release-mode, -O2) -------------------------
 # Reuses build-benchmarks/runtime-objs/ across runs. We do NOT share with
@@ -55,7 +77,7 @@ mkdir -p "${C_RT_OBJS_DIR}"
 for c in "${REPO_ROOT}/runtime/src"/*.c; do
     obj="${C_RT_OBJS_DIR}/$(basename "${c}" .c).o"
     if [[ ! -f "${obj}" ]] || [[ "${c}" -nt "${obj}" ]]; then
-        gcc -std=c99 -O2 -DNDEBUG -Wall -Wextra -Wpedantic \
+        gcc -std=c99 -O2 ${LTO_CFLAGS} -DNDEBUG -Wall -Wextra -Wpedantic \
             -I"${REPO_ROOT}/runtime/include" \
             -c "${c}" -o "${obj}"
     fi
@@ -69,11 +91,11 @@ if [[ ! -f "${CPP_RT_LIB}" ]]; then
     mkdir -p "${WORK_ROOT}/cpp_rt_objs"
     while IFS= read -r src; do
         obj="${WORK_ROOT}/cpp_rt_objs/$(echo "${src#${CPP_RT_SRC}/}" | tr / _).o"
-        g++ -std=c++11 -O2 -DNDEBUG -Wall -Wextra -Wpedantic \
+        g++ -std=c++11 -O2 ${LTO_CFLAGS} -DNDEBUG -Wall -Wextra -Wpedantic \
             -I"${CPP_RT_SRC}" \
             -c "${src}" -o "${obj}"
     done < <(find "${CPP_RT_SRC}" -name '*.cpp')
-    ar rcs "${CPP_RT_LIB}" "${WORK_ROOT}/cpp_rt_objs"/*.o
+    "${AR_BIN}" rcs "${CPP_RT_LIB}" "${WORK_ROOT}/cpp_rt_objs"/*.o
 fi
 
 # --- Median of N numeric samples on stdin -------------------------------
@@ -126,13 +148,13 @@ for workload_dir in "${WORKLOADS_DIR}"/*/; do
     c_objs=()
     while IFS= read -r c; do
         obj="${work}/$(echo "${c#${work}/c_out/}" | tr / _).o"
-        gcc -std=c99 -O2 -DNDEBUG -Wall -Wextra -Wpedantic \
+        gcc -std=c99 -O2 ${LTO_CFLAGS} -DNDEBUG -Wall -Wextra -Wpedantic \
             -I"${REPO_ROOT}/runtime/include" \
             -I"${work}/c_out" \
             -c "${c}" -o "${obj}"
         c_objs+=("${obj}")
     done < <(find "${work}/c_out" -name '*.c')
-    gcc -O2 -DNDEBUG -std=c99 \
+    gcc -O2 ${LTO_CFLAGS} -DNDEBUG -std=c99 \
         -I"${REPO_ROOT}/runtime/include" -I"${work}/c_out" \
         "${workload_dir}/c_driver.c" "${c_objs[@]}" "${C_RT_OBJS_DIR}"/*.o \
         -o "${work}/c_driver"
@@ -141,13 +163,13 @@ for workload_dir in "${WORKLOADS_DIR}"/*/; do
     cpp_objs=()
     while IFS= read -r cpp; do
         obj="${work}/$(echo "${cpp#${work}/cpp_out/}" | tr / _).o"
-        g++ -std=c++11 -O2 -DNDEBUG -Wall -Wextra -Wpedantic \
+        g++ -std=c++11 -O2 ${LTO_CFLAGS} -DNDEBUG -Wall -Wextra -Wpedantic \
             -I"${CPP_RT_SRC}" \
             -I"${work}/cpp_out" \
             -c "${cpp}" -o "${obj}"
         cpp_objs+=("${obj}")
     done < <(find "${work}/cpp_out" -name '*.cpp')
-    g++ -O2 -DNDEBUG -std=c++11 \
+    g++ -O2 ${LTO_CFLAGS} -DNDEBUG -std=c++11 \
         -I"${CPP_RT_SRC}" -I"${work}/cpp_out" \
         "${workload_dir}/cpp_driver.cpp" "${cpp_objs[@]}" "${CPP_RT_LIB}" \
         -o "${work}/cpp_driver"
