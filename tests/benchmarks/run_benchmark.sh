@@ -26,7 +26,10 @@ WORKLOADS_DIR="${REPO_ROOT}/tests/benchmarks/workloads"
 WORK_ROOT="${REPO_ROOT}/build-benchmarks"
 
 RUNS="${RUNS:-5}"
-INNER_ITERS="${INNER_ITERS:-200000}"
+# Default inner-iters when a workload directory doesn't carry its own
+# `inner_iters.txt`. Larger workloads (medium_nested, large_array)
+# override to a smaller count so each run stays in the low-seconds.
+INNER_ITERS_DEFAULT="${INNER_ITERS:-200000}"
 
 ZSERIO_JAR="${REPO_ROOT}/build-jars/zserio.jar"
 ZSERIO_CORE_JAR="${REPO_ROOT}/build-jars/zserio_core.jar"
@@ -149,12 +152,19 @@ for workload_dir in "${WORKLOADS_DIR}"/*/; do
         "${workload_dir}/cpp_driver.cpp" "${cpp_objs[@]}" "${CPP_RT_LIB}" \
         -o "${work}/cpp_driver"
 
+    # Per-workload inner-iters override; falls back to the global default.
+    if [[ -f "${workload_dir}/inner_iters.txt" ]]; then
+        inner_iters="$(tr -d '[:space:]' < "${workload_dir}/inner_iters.txt")"
+    else
+        inner_iters="${INNER_ITERS_DEFAULT}"
+    fi
+
     # Run RUNS samples; collect encode + decode ns per op.
     c_encode_samples=""; c_decode_samples=""
     cpp_encode_samples=""; cpp_decode_samples=""
     bytes_observed="0"
     for run in $(seq 1 "${RUNS}"); do
-        line="$("${work}/c_driver" "${INNER_ITERS}")"
+        line="$("${work}/c_driver" "${inner_iters}")"
         c_enc=$(echo "${line}" | awk -F'[= ]' '{for(i=1;i<=NF;i++) if ($i=="encode_ns_per_op") print $(i+1)}')
         c_dec=$(echo "${line}" | awk -F'[= ]' '{for(i=1;i<=NF;i++) if ($i=="decode_ns_per_op") print $(i+1)}')
         b=$(echo "${line}" | awk -F'[= ]' '{for(i=1;i<=NF;i++) if ($i=="bytes") print $(i+1)}')
@@ -162,7 +172,7 @@ for workload_dir in "${WORKLOADS_DIR}"/*/; do
         c_decode_samples="${c_decode_samples}${c_dec}\n"
         bytes_observed="${b}"
 
-        line="$("${work}/cpp_driver" "${INNER_ITERS}")"
+        line="$("${work}/cpp_driver" "${inner_iters}")"
         cpp_enc=$(echo "${line}" | awk -F'[= ]' '{for(i=1;i<=NF;i++) if ($i=="encode_ns_per_op") print $(i+1)}')
         cpp_dec=$(echo "${line}" | awk -F'[= ]' '{for(i=1;i<=NF;i++) if ($i=="decode_ns_per_op") print $(i+1)}')
         cpp_encode_samples="${cpp_encode_samples}${cpp_enc}\n"
@@ -182,7 +192,7 @@ for workload_dir in "${WORKLOADS_DIR}"/*/; do
     first_workload=0
     results_json="${results_json}\"${name}\":{"
     results_json="${results_json}\"bytes\":${bytes_observed},"
-    results_json="${results_json}\"inner_iters\":${INNER_ITERS},"
+    results_json="${results_json}\"inner_iters\":${inner_iters},"
     results_json="${results_json}\"runs\":${RUNS},"
     results_json="${results_json}\"zserio_c\":{\"encode_ns_per_op\":${c_enc_med},\"decode_ns_per_op\":${c_dec_med}},"
     results_json="${results_json}\"zserio_cpp\":{\"encode_ns_per_op\":${cpp_enc_med},\"decode_ns_per_op\":${cpp_dec_med}},"
