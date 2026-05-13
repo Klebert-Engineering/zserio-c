@@ -145,6 +145,37 @@ static void test_extern_view_succeeds_on_misaligned_source(void)
 /* Round-trip via materializing read                                        */
 /* ------------------------------------------------------------------------ */
 
+static void test_extern_materialize_large_byte_aligned(void)
+{
+    /* Verifies: REQ-FS-001, REQ-FN-001 — exercises the memcpy fast
+     * path in zserio_read_extern. A 20-byte payload exceeds the
+     * 8-byte (64-bit) bit-cache capacity, so the path drains the
+     * cache byte-by-byte and then `memcpy`s the rest directly from
+     * the source buffer. The small-payload tests above only exercise
+     * the cache-drain branch. */
+    uint8_t src[20];
+    for (size_t i = 0U; i < 20U; i++) {
+        src[i] = (uint8_t)(0xA0U + i);
+    }
+    const zserio_bit_view_t in_view = { src, 0U, 20U * 8U };
+
+    uint8_t buf[40] = { 0 };
+    zserio_bitstream_writer_t w;
+    (void)zserio_bitstream_writer_init(&w, buf, 8U * sizeof(buf));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zserio_write_extern(&w, in_view));
+
+    zserio_bitstream_reader_t r;
+    (void)zserio_bitstream_reader_init(&r, buf, zserio_bitstream_writer_position(&w));
+    const zserio_allocator_t alloc = test_allocator();
+    zserio_extern_t out = { NULL, 0U };
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zserio_read_extern(&r, &alloc, &out));
+    TEST_ASSERT_EQUAL_size_t(20U * 8U, out.bit_length);
+    for (size_t i = 0U; i < 20U; i++) {
+        TEST_ASSERT_EQUAL_HEX8(src[i], out.bytes[i]);
+    }
+    zserio_extern_free(&out, &alloc);
+}
+
 static void test_extern_round_trip_materialize_byte_aligned(void)
 {
     /* Verifies: REQ-FS-001, REQ-FN-001 — materialize aligns the bits
@@ -385,6 +416,7 @@ int main(void)
     RUN_TEST(test_extern_round_trip_materialize_byte_aligned);
     RUN_TEST(test_extern_materialize_misaligned_source);
     RUN_TEST(test_extern_partial_byte_trailing_zeros);
+    RUN_TEST(test_extern_materialize_large_byte_aligned);
 
     RUN_TEST(test_extern_empty_view);
     RUN_TEST(test_extern_empty_owned_no_allocation);

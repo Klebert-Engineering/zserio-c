@@ -157,6 +157,34 @@ static void test_bytes_round_trip_owned_aligned(void)
     TEST_ASSERT_EQUAL_size_t(1U, g_alloc.free_count);
 }
 
+static void test_bytes_round_trip_owned_large(void)
+{
+    /* Verifies: REQ-FN-001 — exercises the memcpy fast path in
+     * zserio_read_bytes. A 20-byte payload exceeds the 8-byte
+     * bit-cache capacity, so the read drains the cache then
+     * `memcpy`s the remainder from the source buffer. */
+    uint8_t in[20];
+    for (size_t i = 0U; i < 20U; i++) {
+        in[i] = (uint8_t)(0x10U + i);
+    }
+    const zserio_bytes_view_t in_view = { in, 20U };
+
+    uint8_t buf[40] = { 0 };
+    zserio_bitstream_writer_t w;
+    (void)zserio_bitstream_writer_init(&w, buf, 8U * sizeof(buf));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zserio_write_bytes(&w, in_view));
+
+    zserio_bitstream_reader_t r;
+    (void)zserio_bitstream_reader_init(&r, buf, zserio_bitstream_writer_position(&w));
+    const zserio_allocator_t alloc = test_allocator();
+    zserio_bytes_t out = { NULL, 0U };
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zserio_read_bytes(&r, &alloc, &out));
+    TEST_ASSERT_EQUAL_size_t(20U, out.length);
+    TEST_ASSERT_EQUAL_MEMORY(in, out.bytes, 20U);
+
+    zserio_bytes_free(&out, &alloc);
+}
+
 static void test_bytes_round_trip_owned_misaligned(void)
 {
     /* Verifies: REQ-FN-001 */
@@ -333,6 +361,7 @@ int main(void)
     RUN_TEST(test_bytes_round_trip_view_aligned);
     RUN_TEST(test_bytes_view_misaligned_fails);
     RUN_TEST(test_bytes_round_trip_owned_aligned);
+    RUN_TEST(test_bytes_round_trip_owned_large);
     RUN_TEST(test_bytes_round_trip_owned_misaligned);
     RUN_TEST(test_bytes_empty_no_allocation);
     RUN_TEST(test_bytes_write_too_long);

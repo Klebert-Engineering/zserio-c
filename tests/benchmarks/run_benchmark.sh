@@ -132,6 +132,14 @@ for workload_dir in "${WORKLOADS_DIR}"/*/; do
             echo "perf: ${name}: schema.config must set schema_dir and entry" >&2
             exit 1
         fi
+        # Skip cleanly when the schema tree isn't materialised on this
+        # host (e.g. conformance/ndslive/zs is user-asset-extracted and
+        # not present in CI). Workloads that need a schema-tree we
+        # don't have are silently dropped rather than failing the gate.
+        if [[ ! -d "${REPO_ROOT}/${schema_dir}" ]]; then
+            echo "perf: ${name}: schema_dir ${schema_dir} not present; skipping" >&2
+            continue
+        fi
         cp -r "${REPO_ROOT}/${schema_dir}/." "${work}/staging/"
         rel_schema="${entry}"
     else
@@ -208,10 +216,17 @@ for workload_dir in "${WORKLOADS_DIR}"/*/; do
     fi
 
     # Per-workload extra input file (e.g. a binary blob the driver
-    # reads at start-up). Path is REPO_ROOT-relative.
+    # reads at start-up). Path is REPO_ROOT-relative. Skip the workload
+    # when the file isn't present (same rationale as the schema_dir
+    # skip above — workloads that need user-provided assets that aren't
+    # in the repo silently drop).
     extra_arg=()
     if [[ -f "${workload_dir}/extra_input.txt" ]]; then
         rel_path="$(tr -d '[:space:]' < "${workload_dir}/extra_input.txt")"
+        if [[ ! -f "${REPO_ROOT}/${rel_path}" ]]; then
+            echo "perf: ${name}: extra_input ${rel_path} not present; skipping" >&2
+            continue
+        fi
         extra_arg=("${REPO_ROOT}/${rel_path}")
     fi
 

@@ -50,6 +50,12 @@ CPPCHECK_ARGS=(
     # cppcheck explores both configurations and reports the banned
     # symbols. See docs/misra-deviations/README.md.
     -UZSERIO_TRACE_ENABLED
+    # Teach cppcheck what `__builtin_expect` is. The gcc/clang
+    # built-in is a transparent passthrough for branch prediction —
+    # treating it as a no-op macro lets cppcheck's misra addon see
+    # the underlying expression instead of an unknown function
+    # (which would trigger Rule 17.3 "implicit declaration").
+    -D__builtin_expect(x,y)=(x)
     -I"${REPO_ROOT}/runtime/include"
     "${REPO_ROOT}/runtime/src"
     "${REPO_ROOT}/runtime/include"

@@ -208,6 +208,31 @@ static void test_string_round_trip_owned_aligned(void)
     TEST_ASSERT_EQUAL_size_t(1U, g_alloc_state.free_count);
 }
 
+static void test_string_round_trip_owned_large(void)
+{
+    /* Verifies: REQ-FN-001 — exercises the memcpy fast path in
+     * zserio_read_string. A 20-byte string exceeds the 8-byte
+     * bit-cache capacity, so the read drains the cache then
+     * `memcpy`s the remainder from the source buffer. */
+    const char *literal = "This is twenty bytes";
+    uint8_t buf[40] = { 0 };
+    zserio_bitstream_writer_t w;
+    (void)zserio_bitstream_writer_init(&w, buf, 8U * sizeof(buf));
+    const zserio_string_view_t in = zserio_string_view_from_cstr(literal);
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zserio_write_string(&w, in));
+
+    zserio_bitstream_reader_t r;
+    (void)zserio_bitstream_reader_init(&r, buf,
+                                       zserio_bitstream_writer_position(&w));
+    const zserio_allocator_t alloc = test_allocator();
+    zserio_string_t out = { NULL, 0U };
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zserio_read_string(&r, &alloc, &out));
+    TEST_ASSERT_EQUAL_size_t(20U, out.length);
+    TEST_ASSERT_EQUAL_MEMORY(literal, out.bytes, 20U);
+
+    zserio_string_free(&out, &alloc);
+}
+
 static void test_string_round_trip_owned_misaligned(void)
 {
     /* Verifies: REQ-FN-001 — materializing read works for misaligned start. */
@@ -404,6 +429,7 @@ int main(void)
     RUN_TEST(test_string_view_misaligned_fails);
 
     RUN_TEST(test_string_round_trip_owned_aligned);
+    RUN_TEST(test_string_round_trip_owned_large);
     RUN_TEST(test_string_round_trip_owned_misaligned);
     RUN_TEST(test_string_owned_empty_no_allocation);
 
