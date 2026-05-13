@@ -55,7 +55,7 @@ CPPCHECK_ARGS=(
     # treating it as a no-op macro lets cppcheck's misra addon see
     # the underlying expression instead of an unknown function
     # (which would trigger Rule 17.3 "implicit declaration").
-    -D__builtin_expect(x,y)=(x)
+    '-D__builtin_expect(x,y)=(x)'
     -I"${REPO_ROOT}/runtime/include"
     "${REPO_ROOT}/runtime/src"
     "${REPO_ROOT}/runtime/include"
