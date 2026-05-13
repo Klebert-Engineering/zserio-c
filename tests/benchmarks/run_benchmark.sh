@@ -120,6 +120,8 @@ for workload_dir in "${WORKLOADS_DIR}"/*/; do
     rm -rf "${work}" && mkdir -p "${work}/c_out" "${work}/cpp_out" "${work}/staging"
 
     extra_codegen_args=""
+    extra_arg_override=()
+    bootstrap_json=""
     if [[ -f "${workload_dir}/schema.config" ]]; then
         # Multi-file schema: the workload points at an existing schema
         # tree (e.g. conformance/ndslive/zs) and names the entry-point
@@ -208,6 +210,31 @@ for workload_dir in "${WORKLOADS_DIR}"/*/; do
         "${workload_dir}/cpp_driver.cpp" "${cpp_objs[@]}" "${CPP_RT_LIB}" \
         -o "${work}/cpp_driver"
 
+    # Bootstrap: convert JSON dataset → wire BLOB once via upstream's
+    # cpp runtime (`zserio::fromJsonFile<T>` + `serializeToFile`), so
+    # the timed drivers decode the exact same bytes upstream's own
+    # benchmark uses.
+    if [[ -f "${workload_dir}/bootstrap.cpp" ]] && [[ -n "${bootstrap_json:-}" ]]; then
+        bootstrap_json_path="${REPO_ROOT}/${bootstrap_json}"
+        if [[ ! -f "${bootstrap_json_path}" ]]; then
+            echo "perf: ${name}: bootstrap_json ${bootstrap_json} not present; skipping" >&2
+            continue
+        fi
+        g++ -O2 ${LTO_CFLAGS} -DNDEBUG -std=c++11 \
+            -I"${CPP_RT_SRC}" -I"${work}/cpp_out" \
+            "${workload_dir}/bootstrap.cpp" "${cpp_objs[@]}" "${CPP_RT_LIB}" \
+            -o "${work}/bootstrap"
+        bootstrap_blob="${work}/data.blob"
+        "${work}/bootstrap" "${bootstrap_json_path}" "${bootstrap_blob}" >/dev/null 2>"${work}/bootstrap.log" || {
+            echo "perf: ${name}: bootstrap failed (see ${work}/bootstrap.log)" >&2
+            cat "${work}/bootstrap.log" >&2
+            exit 1
+        }
+        # Override extra_arg for this workload — drivers receive the
+        # bootstrapped blob path, not a static `extra_input.txt` value.
+        extra_arg_override=("${bootstrap_blob}")
+    fi
+
     # Per-workload inner-iters override; falls back to the global default.
     if [[ -f "${workload_dir}/inner_iters.txt" ]]; then
         inner_iters="$(tr -d '[:space:]' < "${workload_dir}/inner_iters.txt")"
@@ -215,13 +242,18 @@ for workload_dir in "${WORKLOADS_DIR}"/*/; do
         inner_iters="${INNER_ITERS_DEFAULT}"
     fi
 
-    # Per-workload extra input file (e.g. a binary blob the driver
-    # reads at start-up). Path is REPO_ROOT-relative. Skip the workload
-    # when the file isn't present (same rationale as the schema_dir
-    # skip above — workloads that need user-provided assets that aren't
-    # in the repo silently drop).
+    # Per-workload extra input. Three sources, in priority order:
+    #   1. `extra_arg_override` set above by the bootstrap step (an
+    #      absolute path to a JSON-derived blob in the work dir).
+    #   2. `extra_input.txt` naming a REPO_ROOT-relative file (e.g.
+    #      conformance/ndslive/tile.bin).
+    #   3. None — driver runs without an extra argument.
+    # Skip when (2) is set but the file isn't present, same as the
+    # schema_dir guard above.
     extra_arg=()
-    if [[ -f "${workload_dir}/extra_input.txt" ]]; then
+    if [[ "${#extra_arg_override[@]}" -gt 0 ]]; then
+        extra_arg=("${extra_arg_override[@]}")
+    elif [[ -f "${workload_dir}/extra_input.txt" ]]; then
         rel_path="$(tr -d '[:space:]' < "${workload_dir}/extra_input.txt")"
         if [[ ! -f "${REPO_ROOT}/${rel_path}" ]]; then
             echo "perf: ${name}: extra_input ${rel_path} not present; skipping" >&2

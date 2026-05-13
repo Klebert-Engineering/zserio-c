@@ -4,3 +4,6 @@
 [submodule "third_party/zserio-test-data"]
 	path = third_party/zserio-test-data
 	url = https://github.com/ndsev/zserio-test-data.git
+[submodule "third_party/zserio-benchmarks-datasets"]
+	path = third_party/zserio-benchmarks-datasets
+	url = https://github.com/ndsev/zserio-benchmarks-datasets.git
