@@ -43,6 +43,13 @@ CPPCHECK_ARGS=(
     --error-exitcode=1
     --suppressions-list="${SUPPRESSIONS}"
     --addon=misra
+    # Exclude the debug-only trace facility from analysis. The
+    # `#ifdef ZSERIO_TRACE_ENABLED` block in bitstream.c uses
+    # <stdio.h>, getenv, and fopen — all MISRA-banned — but it is
+    # never compiled into production builds. Without --undefine,
+    # cppcheck explores both configurations and reports the banned
+    # symbols. See docs/misra-deviations/README.md.
+    --undefine=ZSERIO_TRACE_ENABLED
     -I"${REPO_ROOT}/runtime/include"
     "${REPO_ROOT}/runtime/src"
     "${REPO_ROOT}/runtime/include"

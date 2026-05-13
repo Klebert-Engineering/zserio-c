@@ -18,3 +18,4 @@ misra-c2012-7.2
 misra-c2012-10.4
 misra-c2012-10.8
 misra-c2012-20.7:*varint.c
+misra-c2012-20.10:*varint.c
