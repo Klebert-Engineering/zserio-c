@@ -49,11 +49,15 @@ Draft (delivered in the Phase 5 launch commit):
 - [/] Failure-mode injection tests — `tests/runtime/test_failure_modes.c`.
       One test per actionable HARA row (H-01, H-02, H-03, H-06);
       remaining rows handled by other gates or out of scope.
+- [/] Functional safety concept —
+      `docs/safety-case/functional-safety-concept.md`. 9 safety goals
+      mapped to existing `requirements/` entries and architecture
+      layers.
+- [/] Technical safety concept —
+      `docs/safety-case/technical-safety-concept.md`. Per-goal
+      implementation mechanisms with mechanism-to-gate matrix.
 
 Open (Phase 5 work items, in dependency order):
-
-- [ ] Functional safety concept.
-- [ ] Technical safety concept.
 - [ ] Software unit verification report.
 - [ ] Software integration and verification report.
 - [ ] Tool qualification records — compiler, cppcheck, lcov/gcov,

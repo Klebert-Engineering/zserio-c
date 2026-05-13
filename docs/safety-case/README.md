@@ -17,6 +17,8 @@ products are tracked in `safety-plan.md` § Work products.
 | [hazard-analysis.md](hazard-analysis.md) | draft | Catalogue of failure modes the item exposes, with mitigations and residual integrator responsibilities. ISO 26262-3 §6 (item-level). |
 | [safety-plan.md](safety-plan.md) | draft | Meta-document: which work products will be produced, in what order, by whom. ISO 26262-2 §6. |
 | [stack-budget.md](stack-budget.md) | draft | Stack-usage analysis closing hazard H-09; methodology, current numbers, and the threshold the CI `stack` job enforces. |
+| [functional-safety-concept.md](functional-safety-concept.md) | draft | Safety goals derived from the HARA, mapped to existing `requirements/` entries and architecture layers. ISO 26262-3 §7. |
+| [technical-safety-concept.md](technical-safety-concept.md) | draft | Per-goal implementation mechanisms, anchored to specific source files, tests, and CI gates. ISO 26262-4 §6. |
 
 Every document has a YAML frontmatter `status` field. `draft` means
 the document is structurally complete and reviewable but has not

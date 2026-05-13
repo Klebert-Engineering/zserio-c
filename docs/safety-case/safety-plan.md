@@ -44,8 +44,8 @@ sibling files in this directory and in `requirements/`.
 | draft  | Item definition                               | `docs/safety-case/item-definition.md`               | Fritz       | This phase |
 | draft  | Hazard analysis (HARA)                        | `docs/safety-case/hazard-analysis.md`               | Fritz       | This phase |
 | draft  | Safety plan                                   | `docs/safety-case/safety-plan.md` (this document)   | Fritz       | This phase |
-| open   | Functional safety concept                     | `docs/safety-case/functional-safety-concept.md`     | TBD         | Depends on item definition + HARA |
-| open   | Technical safety concept                      | `docs/safety-case/technical-safety-concept.md`      | TBD         | Maps HARA mitigations to runtime/generator architecture |
+| done   | Functional safety concept                     | `docs/safety-case/functional-safety-concept.md`     | Fritz       | 9 safety goals, mapped to existing `requirements/` set and architecture layers; SG-9 (tool qualification) is the only goal not yet fully discharged |
+| done   | Technical safety concept                      | `docs/safety-case/technical-safety-concept.md`      | Fritz       | Per-goal implementation mechanisms with mechanism-to-gate matrix; moves to `accepted` when tool-qualification records land |
 | open   | Software unit verification report             | `docs/safety-case/unit-verification.md`             | TBD         | Assembles coverage + MISRA + traceability evidence per release |
 | open   | Software integration and verification report  | `docs/safety-case/integration-verification.md`      | TBD         | Records xvalidation + NDS Live SmartLayerTile end-to-end |
 | open   | Tool qualification — compiler                 | `docs/safety-case/tool-qualification-gcc.md`        | TBD         | TCL classification + criteria evidence |
@@ -71,10 +71,14 @@ Phase 5 deliverables, in dependency order:
    existing gates (H-07: MISRA, H-08: xvalidation, H-09: stack)
    or are explicitly out of scope at the item level (H-04, H-05,
    H-10).
-4. **Next:** functional + technical safety concepts (one document
-   each, citing the now-closed H-09 and the failure-mode test
-   coverage as primary evidence).
-5. **Then:** the four tool-qualification records, in parallel.
+4. **Done after that:** functional + technical safety concepts
+   — `functional-safety-concept.md` (9 safety goals SG-1..SG-9
+   mapped to existing requirements) and `technical-safety-concept.md`
+   (per-goal mechanisms with a single mechanism-to-gate matrix
+   covering every claim).
+5. **Next:** the four tool-qualification records, in parallel.
+   Until those land, SG-9 is the only safety goal not fully
+   discharged by CI gates.
 6. **Finally:** the two verification reports + the safety case
    report.
 
