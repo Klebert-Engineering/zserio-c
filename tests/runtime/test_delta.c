@@ -4,6 +4,7 @@
  */
 
 #include <stdint.h>
+#include <string.h>
 
 #include "unity.h"
 #include "zserio/bitstream.h"
@@ -21,6 +22,7 @@ static size_t encode_delta_uint8(uint8_t *buf, size_t buf_bits,
     (void)zserio_bitstream_writer_init(&w, buf, buf_bits);
 
     zserio_delta_context_t ctx;
+    (void)memset(&ctx, 0, sizeof(ctx));
     (void)zserio_delta_init(&ctx, 8U, false);
     for (size_t i = 0U; i < n; i++) {
         (void)zserio_delta_observe(&ctx, (uint64_t)elements[i]);
@@ -45,6 +47,7 @@ static void decode_delta_uint8(const uint8_t *buf, size_t buf_bits,
     (void)zserio_bitstream_reader_init(&r, buf, buf_bits);
 
     zserio_delta_context_t ctx;
+    (void)memset(&ctx, 0, sizeof(ctx));
     (void)zserio_delta_init(&ctx, 8U, false);
     for (size_t i = 0U; i < n; i++) {
         uint64_t v = 0U;
@@ -112,6 +115,7 @@ static void test_delta_round_trip_uint16(void)
     (void)zserio_bitstream_writer_init(&w, buf, 128U);
 
     zserio_delta_context_t ctx;
+    (void)memset(&ctx, 0, sizeof(ctx));
     (void)zserio_delta_init(&ctx, 16U, false);
     for (size_t i = 0U; i < 6U; i++) {
         (void)zserio_delta_observe(&ctx, (uint64_t)in[i]);
@@ -151,6 +155,7 @@ static void test_delta_round_trip_signed_with_negative_deltas(void)
     (void)zserio_bitstream_writer_init(&w, buf, 128U);
 
     zserio_delta_context_t ctx;
+    (void)memset(&ctx, 0, sizeof(ctx));
     (void)zserio_delta_init(&ctx, 8U, true);
     for (size_t i = 0U; i < 5U; i++) {
         (void)zserio_delta_observe(&ctx, (uint64_t)(int64_t)in[i]);
@@ -188,6 +193,7 @@ static void test_delta_round_trip_uint32(void)
     (void)zserio_bitstream_writer_init(&w, buf, 256U);
 
     zserio_delta_context_t ctx;
+    (void)memset(&ctx, 0, sizeof(ctx));
     (void)zserio_delta_init(&ctx, 32U, false);
     for (size_t i = 0U; i < 4U; i++) {
         (void)zserio_delta_observe(&ctx, (uint64_t)in[i]);
@@ -258,9 +264,14 @@ static void test_delta_init_invalid_args(void)
 {
     /* Verifies: REQ-FS-006 */
     zserio_delta_context_t ctx;
+    (void)memset(&ctx, 0, sizeof(ctx));
     TEST_ASSERT_EQUAL(ZSERIO_ERR_INVALID_ARGUMENT,
                       zserio_delta_init(NULL, 8U, false));
-    TEST_ASSERT_EQUAL(ZSERIO_ERR_INVALID_NUM_BITS,
+    /* num_bits == 0 is the deferred-init signal used by dynamic-width
+     * generated code: the runtime returns OK and the caller re-invokes
+     * delta_init with the resolved width at observe / read / write
+     * time. */
+    TEST_ASSERT_EQUAL(ZSERIO_OK,
                       zserio_delta_init(&ctx, 0U, false));
     TEST_ASSERT_EQUAL(ZSERIO_ERR_INVALID_NUM_BITS,
                       zserio_delta_init(&ctx, 65U, false));
@@ -270,6 +281,7 @@ static void test_delta_observe_after_finalise(void)
 {
     /* After write begins, finalise has run; observe must reject. */
     zserio_delta_context_t ctx;
+    (void)memset(&ctx, 0, sizeof(ctx));
     (void)zserio_delta_init(&ctx, 8U, false);
     (void)zserio_delta_observe(&ctx, 1U);
     (void)zserio_delta_observe(&ctx, 2U);
@@ -295,6 +307,7 @@ static void test_delta_write_without_observe_takes_unpacked_path(void)
      * "IS_PACKED was never set" early-return branch. Subsequent write
      * proceeds through the unpacked path. */
     zserio_delta_context_t ctx;
+    (void)memset(&ctx, 0, sizeof(ctx));
     (void)zserio_delta_init(&ctx, 8U, false);
     uint8_t buf[2] = { 0 };
     zserio_bitstream_writer_t w;
@@ -315,6 +328,7 @@ static void test_delta_max_bit_number_exceeds_limit(void)
     /* Verifies: REQ-FN-001 — when the delta width exceeds the 62-bit
      * MAX_BIT_NUMBER_LIMIT, the encoder falls back to unpacked. */
     zserio_delta_context_t ctx;
+    (void)memset(&ctx, 0, sizeof(ctx));
     (void)zserio_delta_init(&ctx, 64U, false);
     /* observe 0 and UINT64_MAX → abs_delta = UINT64_MAX, bit_length = 64 > 62 */
     (void)zserio_delta_observe(&ctx, 0U);
@@ -345,6 +359,7 @@ static void test_delta_write_read_null_args(void)
 {
     /* Verifies: REQ-FS-006 */
     zserio_delta_context_t ctx;
+    (void)memset(&ctx, 0, sizeof(ctx));
     (void)zserio_delta_init(&ctx, 8U, false);
     uint8_t buf[1] = { 0 };
     zserio_bitstream_writer_t w;

@@ -288,14 +288,15 @@ static void test_align_byte(void)
 
 static void test_align_invalid_alignment(void)
 {
-    /* Verifies: REQ-FS-006 */
+    /* Verifies: REQ-FS-006.
+     *
+     * Zserio's `align(N):` directive accepts any positive integer
+     * (the upstream test corpus uses align(3), align(5), align(6),
+     * align(7) in alignment/bit_alignment) — so the runtime rejects
+     * only alignment == 0. Non-power-of-two alignments are valid. */
     const uint8_t buf[2] = { 0 };
     zserio_bitstream_reader_t r;
     (void)zserio_bitstream_reader_init(&r, buf, 16U);
-    /* 3 is not a power of two. */
-    TEST_ASSERT_EQUAL(ZSERIO_ERR_INVALID_ARGUMENT,
-                      zserio_bitstream_reader_align(&r, 3U));
-    /* 0 is not a positive power of two. */
     TEST_ASSERT_EQUAL(ZSERIO_ERR_INVALID_ARGUMENT,
                       zserio_bitstream_reader_align(&r, 0U));
 }
@@ -388,13 +389,17 @@ static void test_aligned_eof_extend_probe(void)
 
 static void test_aligned_eof_defensive(void)
 {
-    /* Verifies: REQ-FS-006 (defensive: returns true on bad input) */
+    /* Verifies: REQ-FS-006 (defensive: returns true on bad input).
+     *
+     * "Bad input" means NULL bitstream or alignment == 0. Non-power-of-two
+     * alignments are valid per the zserio spec (the upstream corpus
+     * uses align(3) and align(5)), so `aligned_eof(&r, 3U)` is *not*
+     * a defensive case — it computes a valid aligned position. */
     TEST_ASSERT_TRUE(zserio_bitstream_reader_aligned_eof(NULL, 8U));
     const uint8_t buf[2] = { 0 };
     zserio_bitstream_reader_t r;
     (void)zserio_bitstream_reader_init(&r, buf, 16U);
     TEST_ASSERT_TRUE(zserio_bitstream_reader_aligned_eof(&r, 0U));
-    TEST_ASSERT_TRUE(zserio_bitstream_reader_aligned_eof(&r, 3U));
 }
 
 /* ------------------------------------------------------------------------ */
@@ -659,14 +664,16 @@ static void test_writer_align_no_op(void)
 
 static void test_writer_align_invalid_alignment(void)
 {
-    /* Verifies: REQ-FS-006 */
+    /* Verifies: REQ-FS-006.
+     *
+     * Mirrors test_align_invalid_alignment on the reader side: only
+     * alignment == 0 (and a NULL writer) are invalid; non-power-of-
+     * two alignments are valid per the zserio spec. */
     uint8_t buf[1] = { 0 };
     zserio_bitstream_writer_t w;
     (void)zserio_bitstream_writer_init(&w, buf, 8U);
     TEST_ASSERT_EQUAL(ZSERIO_ERR_INVALID_ARGUMENT,
                       zserio_bitstream_writer_align(&w, 0U));
-    TEST_ASSERT_EQUAL(ZSERIO_ERR_INVALID_ARGUMENT,
-                      zserio_bitstream_writer_align(&w, 6U));
     TEST_ASSERT_EQUAL(ZSERIO_ERR_INVALID_ARGUMENT,
                       zserio_bitstream_writer_align(NULL, 8U));
 }
