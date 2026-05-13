@@ -112,16 +112,21 @@ in the certified subset.
 
 ## Phase plan
 
-| Phase | Scope                                                                  |
-|-------|------------------------------------------------------------------------|
-| 0     | Bootstrap, upstream analysis (this phase).                             |
-| 1     | Runtime MVP: bitstream, varints, basic primitives. 100% line+branch.   |
-| 2     | Java generator extension; hello-world end-to-end.                      |
-| 3     | Full schema-language coverage (compounds, choices, parameterized…).    |
-| 4     | Conformance against the upstream zserio test corpus.                   |
-| 5     | Safety case maturation — MISRA-clean pass, ISO 26262 work products.    |
-| 6     | Performance benchmarks vs. C++ runtime; tune.                          |
-| 7     | C-native parser replaces the Java front-end.                           |
+| Phase | Scope                                                                  | Status                              |
+|-------|------------------------------------------------------------------------|-------------------------------------|
+| 0     | Bootstrap, upstream analysis.                                          | done                                |
+| 1     | Runtime MVP: bitstream, varints, basic primitives. 100% line+branch.   | done                                |
+| 2     | Java generator extension; hello-world end-to-end.                      | done                                |
+| 3     | Full schema-language coverage (compounds, choices, parameterized…).    | done                                |
+| 4     | Conformance against the upstream zserio test corpus.                   | done — xvalidation gate (182 × 5)   |
+| 5     | Safety case maturation — MISRA-clean pass, ISO 26262 work products.    | substantively complete (all `draft`) |
+| 6     | Performance benchmarks vs. C++ runtime; tune.                          | next                                |
+| 7     | C-native parser replaces the Java front-end.                           | open                                |
+
+The current phase is recorded at the repository root in `.phase` and
+read by `tools/check_traceability.py`. Every accepted requirement
+whose `phase_target <= .phase` must have a `Verifies:` marker in
+some test or tool; the traceability gate fails the build otherwise.
 
 Each phase has acceptance criteria recorded against requirements in
 `requirements/`. A phase ends when all its acceptance criteria are
