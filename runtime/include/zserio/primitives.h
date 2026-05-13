@@ -50,61 +50,107 @@
 /* The hot path on a valid call is ~5 instructions.                         */
 /* ------------------------------------------------------------------------ */
 
-#define ZSERIO_PRIMITIVES_DEFINE_READ_UNSIGNED(SUF, T, N)                              \
-static inline zserio_status_t zserio_read_##SUF(zserio_bitstream_reader_t *bs, T *out) \
-{                                                                                      \
-    if (out == NULL) {                                                                 \
-        return ZSERIO_ERR_INVALID_ARGUMENT;                                            \
-    }                                                                                  \
-    if (bs == NULL) {                                                                  \
-        return ZSERIO_ERR_INVALID_ARGUMENT;                                            \
-    }                                                                                  \
-    if ((bs->bit_index + (N)) > bs->buffer_bit_size) {                                 \
-        return ZSERIO_ERR_END_OF_STREAM;                                               \
-    }                                                                                  \
-    *out = (T)zserio_bitstream_read_bits_impl(bs, (N));                                \
-    return ZSERIO_OK;                                                                  \
+/* Unsigned reads. The bodies are hand-expanded rather than emitted
+ * by a type-parametric macro so the file stays free of the Rule
+ * 20.7 / 20.10 idiom that needs a deviation entry (the runtime-
+ * traits dispatcher in varint.c already burns one such deviation;
+ * we don't multiply). */
+
+static inline zserio_status_t zserio_read_uint8(zserio_bitstream_reader_t *bs, uint8_t *out)
+{
+    if (out == NULL) { return ZSERIO_ERR_INVALID_ARGUMENT; }
+    if (bs == NULL)  { return ZSERIO_ERR_INVALID_ARGUMENT; }
+    if ((bs->bit_index + 8U) > bs->buffer_bit_size) { return ZSERIO_ERR_END_OF_STREAM; }
+    *out = (uint8_t)zserio_bitstream_read_bits_impl(bs, 8U);
+    return ZSERIO_OK;
 }
 
-ZSERIO_PRIMITIVES_DEFINE_READ_UNSIGNED(uint8,  uint8_t,   8U)
-ZSERIO_PRIMITIVES_DEFINE_READ_UNSIGNED(uint16, uint16_t, 16U)
-ZSERIO_PRIMITIVES_DEFINE_READ_UNSIGNED(uint32, uint32_t, 32U)
-ZSERIO_PRIMITIVES_DEFINE_READ_UNSIGNED(uint64, uint64_t, 64U)
-
-/* Signed reads sign-extend the value before narrowing. For 64-bit
- * the extracted value already occupies all bits so no extension. */
-#define ZSERIO_PRIMITIVES_DEFINE_READ_SIGNED(SUF, T, N)                                \
-static inline zserio_status_t zserio_read_##SUF(zserio_bitstream_reader_t *bs, T *out) \
-{                                                                                      \
-    if (out == NULL) {                                                                 \
-        return ZSERIO_ERR_INVALID_ARGUMENT;                                            \
-    }                                                                                  \
-    if (bs == NULL) {                                                                  \
-        return ZSERIO_ERR_INVALID_ARGUMENT;                                            \
-    }                                                                                  \
-    if ((bs->bit_index + (N)) > bs->buffer_bit_size) {                                 \
-        return ZSERIO_ERR_END_OF_STREAM;                                               \
-    }                                                                                  \
-    uint64_t raw = zserio_bitstream_read_bits_impl(bs, (N));                           \
-    /* Sign-extend if the MSB of the read bits is set. For N == 64 the value           \
-     * already occupies all bits; the mask table at [64] is UINT64_MAX so              \
-     * ~mask_table[64] == 0 and the OR is a no-op (also guarded by the if). */        \
-    if ((N) < 64U) {                                                                   \
-        const uint64_t sign_bit = (uint64_t)1U << (uint64_t)((N) - 1U);                \
-        if ((raw & sign_bit) != 0U) {                                                  \
-            raw |= ~zserio_bitstream_mask_table[(N)];                                  \
-        }                                                                              \
-    }                                                                                  \
-    int64_t signed_value;                                                              \
-    (void)memcpy(&signed_value, &raw, sizeof(signed_value));                           \
-    *out = (T)signed_value;                                                            \
-    return ZSERIO_OK;                                                                  \
+static inline zserio_status_t zserio_read_uint16(zserio_bitstream_reader_t *bs, uint16_t *out)
+{
+    if (out == NULL) { return ZSERIO_ERR_INVALID_ARGUMENT; }
+    if (bs == NULL)  { return ZSERIO_ERR_INVALID_ARGUMENT; }
+    if ((bs->bit_index + 16U) > bs->buffer_bit_size) { return ZSERIO_ERR_END_OF_STREAM; }
+    *out = (uint16_t)zserio_bitstream_read_bits_impl(bs, 16U);
+    return ZSERIO_OK;
 }
 
-ZSERIO_PRIMITIVES_DEFINE_READ_SIGNED(int8,  int8_t,   8U)
-ZSERIO_PRIMITIVES_DEFINE_READ_SIGNED(int16, int16_t, 16U)
-ZSERIO_PRIMITIVES_DEFINE_READ_SIGNED(int32, int32_t, 32U)
-ZSERIO_PRIMITIVES_DEFINE_READ_SIGNED(int64, int64_t, 64U)
+static inline zserio_status_t zserio_read_uint32(zserio_bitstream_reader_t *bs, uint32_t *out)
+{
+    if (out == NULL) { return ZSERIO_ERR_INVALID_ARGUMENT; }
+    if (bs == NULL)  { return ZSERIO_ERR_INVALID_ARGUMENT; }
+    if ((bs->bit_index + 32U) > bs->buffer_bit_size) { return ZSERIO_ERR_END_OF_STREAM; }
+    *out = (uint32_t)zserio_bitstream_read_bits_impl(bs, 32U);
+    return ZSERIO_OK;
+}
+
+static inline zserio_status_t zserio_read_uint64(zserio_bitstream_reader_t *bs, uint64_t *out)
+{
+    if (out == NULL) { return ZSERIO_ERR_INVALID_ARGUMENT; }
+    if (bs == NULL)  { return ZSERIO_ERR_INVALID_ARGUMENT; }
+    if ((bs->bit_index + 64U) > bs->buffer_bit_size) { return ZSERIO_ERR_END_OF_STREAM; }
+    *out = zserio_bitstream_read_bits_impl(bs, 64U);
+    return ZSERIO_OK;
+}
+
+/* Signed reads: extract, sign-extend, narrow.
+ *
+ * For N == 64 the sign-extension is a no-op (the value already
+ * occupies all bits), so int64 has its own body without the
+ * sign-bit branch — saves the branch entirely on the 64-bit path. */
+
+static inline int64_t zserio_primitives_sign_extend(uint64_t raw, uint8_t num_bits)
+{
+    const uint64_t sign_bit = (uint64_t)1U << (uint64_t)(num_bits - 1U);
+    uint64_t v = raw;
+    if ((v & sign_bit) != 0U) {
+        v |= ~zserio_bitstream_mask_table[num_bits];
+    }
+    int64_t signed_value;
+    (void)memcpy(&signed_value, &v, sizeof(signed_value));
+    return signed_value;
+}
+
+static inline zserio_status_t zserio_read_int8(zserio_bitstream_reader_t *bs, int8_t *out)
+{
+    if (out == NULL) { return ZSERIO_ERR_INVALID_ARGUMENT; }
+    if (bs == NULL)  { return ZSERIO_ERR_INVALID_ARGUMENT; }
+    if ((bs->bit_index + 8U) > bs->buffer_bit_size) { return ZSERIO_ERR_END_OF_STREAM; }
+    const uint64_t raw = zserio_bitstream_read_bits_impl(bs, 8U);
+    *out = (int8_t)zserio_primitives_sign_extend(raw, 8U);
+    return ZSERIO_OK;
+}
+
+static inline zserio_status_t zserio_read_int16(zserio_bitstream_reader_t *bs, int16_t *out)
+{
+    if (out == NULL) { return ZSERIO_ERR_INVALID_ARGUMENT; }
+    if (bs == NULL)  { return ZSERIO_ERR_INVALID_ARGUMENT; }
+    if ((bs->bit_index + 16U) > bs->buffer_bit_size) { return ZSERIO_ERR_END_OF_STREAM; }
+    const uint64_t raw = zserio_bitstream_read_bits_impl(bs, 16U);
+    *out = (int16_t)zserio_primitives_sign_extend(raw, 16U);
+    return ZSERIO_OK;
+}
+
+static inline zserio_status_t zserio_read_int32(zserio_bitstream_reader_t *bs, int32_t *out)
+{
+    if (out == NULL) { return ZSERIO_ERR_INVALID_ARGUMENT; }
+    if (bs == NULL)  { return ZSERIO_ERR_INVALID_ARGUMENT; }
+    if ((bs->bit_index + 32U) > bs->buffer_bit_size) { return ZSERIO_ERR_END_OF_STREAM; }
+    const uint64_t raw = zserio_bitstream_read_bits_impl(bs, 32U);
+    *out = (int32_t)zserio_primitives_sign_extend(raw, 32U);
+    return ZSERIO_OK;
+}
+
+static inline zserio_status_t zserio_read_int64(zserio_bitstream_reader_t *bs, int64_t *out)
+{
+    if (out == NULL) { return ZSERIO_ERR_INVALID_ARGUMENT; }
+    if (bs == NULL)  { return ZSERIO_ERR_INVALID_ARGUMENT; }
+    if ((bs->bit_index + 64U) > bs->buffer_bit_size) { return ZSERIO_ERR_END_OF_STREAM; }
+    const uint64_t raw = zserio_bitstream_read_bits_impl(bs, 64U);
+    int64_t signed_value;
+    (void)memcpy(&signed_value, &raw, sizeof(signed_value));
+    *out = signed_value;
+    return ZSERIO_OK;
+}
 
 /**
  * Read a single bit as a boolean. `1` becomes `true`, `0` becomes `false`.
