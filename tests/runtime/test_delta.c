@@ -14,7 +14,14 @@
 void setUp(void) {}
 void tearDown(void) {}
 
-/* Helper: encode a uint8 array via delta and return the position. */
+/* Helper: encode a uint8 array via delta and return the position.
+ *
+ * Encoding lifecycle: init → observe (every element once) → write
+ * (every element). `zserio_delta_init` is idempotent on an already-
+ * configured context, so re-init between observe and write is a
+ * harmless no-op. Repeated observes, however, accumulate
+ * num_elements and pick up bogus inter-pass deltas — the encoded
+ * size drifts and the read side desyncs. */
 static size_t encode_delta_uint8(uint8_t *buf, size_t buf_bits,
                                  const uint8_t *elements, size_t n)
 {
@@ -27,12 +34,6 @@ static size_t encode_delta_uint8(uint8_t *buf, size_t buf_bits,
     for (size_t i = 0U; i < n; i++) {
         (void)zserio_delta_observe(&ctx, (uint64_t)elements[i]);
     }
-    /* Re-init for the use pass (single ctx is one-shot). */
-    (void)zserio_delta_init(&ctx, 8U, false);
-    for (size_t i = 0U; i < n; i++) {
-        (void)zserio_delta_observe(&ctx, (uint64_t)elements[i]);
-    }
-    /* Now use phase. */
     for (size_t i = 0U; i < n; i++) {
         (void)zserio_delta_write(&ctx, &w, (uint64_t)elements[i]);
     }
@@ -120,11 +121,6 @@ static void test_delta_round_trip_uint16(void)
     for (size_t i = 0U; i < 6U; i++) {
         (void)zserio_delta_observe(&ctx, (uint64_t)in[i]);
     }
-    /* Reset for use phase. */
-    (void)zserio_delta_init(&ctx, 16U, false);
-    for (size_t i = 0U; i < 6U; i++) {
-        (void)zserio_delta_observe(&ctx, (uint64_t)in[i]);
-    }
     for (size_t i = 0U; i < 6U; i++) {
         TEST_ASSERT_EQUAL(ZSERIO_OK,
             zserio_delta_write(&ctx, &w, (uint64_t)in[i]));
@@ -134,6 +130,7 @@ static void test_delta_round_trip_uint16(void)
     zserio_bitstream_reader_t r;
     (void)zserio_bitstream_reader_init(&r, buf, total_bits);
     zserio_delta_context_t rctx;
+    (void)memset(&rctx, 0, sizeof(rctx));
     (void)zserio_delta_init(&rctx, 16U, false);
     uint16_t out[6] = { 0 };
     for (size_t i = 0U; i < 6U; i++) {
@@ -160,10 +157,6 @@ static void test_delta_round_trip_signed_with_negative_deltas(void)
     for (size_t i = 0U; i < 5U; i++) {
         (void)zserio_delta_observe(&ctx, (uint64_t)(int64_t)in[i]);
     }
-    (void)zserio_delta_init(&ctx, 8U, true);
-    for (size_t i = 0U; i < 5U; i++) {
-        (void)zserio_delta_observe(&ctx, (uint64_t)(int64_t)in[i]);
-    }
     for (size_t i = 0U; i < 5U; i++) {
         TEST_ASSERT_EQUAL(ZSERIO_OK,
             zserio_delta_write(&ctx, &w, (uint64_t)(int64_t)in[i]));
@@ -173,6 +166,7 @@ static void test_delta_round_trip_signed_with_negative_deltas(void)
     (void)zserio_bitstream_reader_init(&r, buf,
                                        zserio_bitstream_writer_position(&w));
     zserio_delta_context_t rctx;
+    (void)memset(&rctx, 0, sizeof(rctx));
     (void)zserio_delta_init(&rctx, 8U, true);
     int8_t out[5] = { 0 };
     for (size_t i = 0U; i < 5U; i++) {
@@ -198,10 +192,6 @@ static void test_delta_round_trip_uint32(void)
     for (size_t i = 0U; i < 4U; i++) {
         (void)zserio_delta_observe(&ctx, (uint64_t)in[i]);
     }
-    (void)zserio_delta_init(&ctx, 32U, false);
-    for (size_t i = 0U; i < 4U; i++) {
-        (void)zserio_delta_observe(&ctx, (uint64_t)in[i]);
-    }
     for (size_t i = 0U; i < 4U; i++) {
         (void)zserio_delta_write(&ctx, &w, (uint64_t)in[i]);
     }
@@ -210,6 +200,7 @@ static void test_delta_round_trip_uint32(void)
     (void)zserio_bitstream_reader_init(&r, buf,
                                        zserio_bitstream_writer_position(&w));
     zserio_delta_context_t rctx;
+    (void)memset(&rctx, 0, sizeof(rctx));
     (void)zserio_delta_init(&rctx, 32U, false);
     uint32_t out[4] = { 0 };
     for (size_t i = 0U; i < 4U; i++) {
@@ -228,14 +219,15 @@ static void test_delta_round_trip_uint32(void)
 
 static void test_delta_two_equal_elements_packed(void)
 {
-    /* All-equal elements give max_bit_number = 0, which lets each delta
-     * fit in 1 signed bit. Round-trip must succeed. */
+    /* All-equal elements give max_bit_number = 0. The runtime elides
+     * the per-element delta entirely in that case (matches upstream
+     * cpp's wire format — see the `max_bit_number == 0` branch in
+     * zserio_delta_write). Bits: 1 (isPacked) + 6 (maxBitNumber=0)
+     * + 8 (first element) + 0 (deltas elided) = 15 bits. */
     const uint8_t in[3] = { 42U, 42U, 42U };
     uint8_t buf[8] = { 0 };
     const size_t pos = encode_delta_uint8(buf, 64U, in, 3U);
-    /* Bits: 1 (isPacked) + 6 (maxBitNumber=0) + 8 (first element) + 2*1 (deltas of 0)
-     *     = 17 bits */
-    TEST_ASSERT_EQUAL_size_t(17U, pos);
+    TEST_ASSERT_EQUAL_size_t(15U, pos);
 
     uint8_t out[3] = { 0 };
     decode_delta_uint8(buf, pos, out, 3U);
@@ -317,6 +309,7 @@ static void test_delta_write_without_observe_takes_unpacked_path(void)
     zserio_bitstream_reader_t r;
     (void)zserio_bitstream_reader_init(&r, buf, zserio_bitstream_writer_position(&w));
     zserio_delta_context_t rctx;
+    (void)memset(&rctx, 0, sizeof(rctx));
     (void)zserio_delta_init(&rctx, 8U, false);
     uint64_t v = 0U;
     TEST_ASSERT_EQUAL(ZSERIO_OK, zserio_delta_read(&rctx, &r, &v));
@@ -330,23 +323,24 @@ static void test_delta_max_bit_number_exceeds_limit(void)
     zserio_delta_context_t ctx;
     (void)memset(&ctx, 0, sizeof(ctx));
     (void)zserio_delta_init(&ctx, 64U, false);
-    /* observe 0 and UINT64_MAX → abs_delta = UINT64_MAX, bit_length = 64 > 62 */
+    /* observe 0 and UINT64_MAX → abs_delta = UINT64_MAX, bit_length
+     * = 64 > 62. The observe path clears the tentative IS_PACKED
+     * flag, so finalise takes the unpacked branch. Single observe
+     * pass (see encode_delta_uint8 helper for why double-observe is
+     * a bug). */
     (void)zserio_delta_observe(&ctx, 0U);
     (void)zserio_delta_observe(&ctx, UINT64_MAX);
 
     uint8_t buf[24] = { 0 };
     zserio_bitstream_writer_t w;
     (void)zserio_bitstream_writer_init(&w, buf, 192U);
-    /* Re-init for the use pass. */
-    (void)zserio_delta_init(&ctx, 64U, false);
-    (void)zserio_delta_observe(&ctx, 0U);
-    (void)zserio_delta_observe(&ctx, UINT64_MAX);
     TEST_ASSERT_EQUAL(ZSERIO_OK, zserio_delta_write(&ctx, &w, 0U));
     TEST_ASSERT_EQUAL(ZSERIO_OK, zserio_delta_write(&ctx, &w, UINT64_MAX));
 
     zserio_bitstream_reader_t r;
     (void)zserio_bitstream_reader_init(&r, buf, zserio_bitstream_writer_position(&w));
     zserio_delta_context_t rctx;
+    (void)memset(&rctx, 0, sizeof(rctx));
     (void)zserio_delta_init(&rctx, 64U, false);
     uint64_t a = 0U, b = 0U;
     (void)zserio_delta_read(&rctx, &r, &a);
