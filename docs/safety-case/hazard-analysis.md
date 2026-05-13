@@ -27,7 +27,7 @@ Scope and conventions follow `item-definition.md`.
 | H-06  | Leakage of state between codec instances             | Hidden static state shared across encoder/decoder calls      | Any public API                  | Architectural review; tests instantiate two readers in parallel | REQ-FS-007 freedom from interference; no static mutable state                       | None — wholly inside `zserio-c`    |
 | H-07  | Reflection / dynamic dispatch surprises              | Generated code uses runtime type info that varies by build   | Generated code                  | Architectural review                                          | REQ-FS-008 no runtime reflection                                                    | None — wholly inside `zserio-c`    |
 | H-08  | Wire-format divergence from upstream zserio          | `zserio-c` encoder produces bytes that upstream cannot decode (or vice versa) | Both encode and decode | xvalidation gate (`tests/xvalidation/`) compares byte-for-byte against `v2.18.1` for 182 schemas × 5 seeds per CI run | REQ-FN-001 enforced in CI                                                            | None — wholly inside `zserio-c`    |
-| H-09  | Stack overflow on deeply nested compounds            | Schema permits arbitrary nesting; decode path's stack frames are not statically bounded | Decode path | Architectural review; no recursion (REQ-FS-003); but per-call stack budget is not yet measured | REQ-FS-003 forbids recursion. **Open** — see `safety-plan.md` work item "stack-budget analysis". | Integrator may impose target-side stack guards |
+| H-09  | Stack overflow on deeply nested compounds            | Schema permits arbitrary nesting; decode path's stack frames are not statically bounded | Decode path | CI gate (`stack` job) enforces per-function frame ≤ 256 B and rejects non-static (`dynamic`/`bounded`) frames | REQ-FS-003 forbids recursion; per-function ceiling enforced by `tools/measure_stack_usage.py --strict`. Current worst frame: 144 B (`zserio_read_extern`). See `stack-budget.md`. | Integrator may impose target-side stack guards |
 | H-10  | Toolchain miscompilation                             | Compiler or static analyzer produces incorrect code/output   | Generated runtime + codec       | Out of scope at the item level                                | Tool qualification record per tool (planned — `tool-qualification.md`)              | Integrator selects qualified toolchain |
 
 ## Classification
@@ -40,8 +40,13 @@ catalogue of failure modes for that analysis to reference.
 
 For our own development we treat all hazards in the table as
 ASIL-B-equivalent — i.e. controllable through the existing safety
-requirements and verification regime. Hazards marked **Open** above
-gate the Phase 5 → Phase 6 transition.
+requirements and verification regime. Closure status:
+
+- H-01..H-08, H-10: addressed by existing requirements + CI gates.
+- H-09: closed by `stack-budget.md` + the `stack` CI gate
+  (per-function ceiling 256 B, strict static-qualifier check).
+- H-04, H-05: out of scope at the item level; integrator-side
+  responsibilities recorded for the integration guide.
 
 ## Cross-references
 
@@ -54,17 +59,16 @@ gate the Phase 5 → Phase 6 transition.
 
 ## Open items
 
-1. **H-09 stack-budget analysis.** A formal upper bound on the
-   per-call stack frame consumed by the deepest-nesting codec we
-   currently emit. Likely deliverable: a script in `tools/` that
-   walks the generator's compound-nesting depth across all schemas
-   in the corpus and reports the worst-case frame count, plus a
-   gcc `-Wstack-usage=N` build configuration in CI.
-2. **H-04 / H-05 integrator notes.** A short integration guide
+1. **H-04 / H-05 integrator notes.** A short integration guide
    under `docs/integration-guide.md` that records the assumed
    integrator responsibilities listed in the rightmost column.
-3. **Failure-mode injection tests.** Each row in the hazard table
+2. **Failure-mode injection tests.** Each row in the hazard table
    should have a corresponding negative-path test that proves the
    listed mitigation actually fires. We already have several
    (REQ-FS-006 boundary tests); the gap analysis is part of the
    verification report (planned).
+3. **Transitive stack-budget calculation.** The current gate enforces
+   a per-function ceiling but does not compute the worst-case path
+   total. A cflow/call-graph traversal would tighten the analysis
+   from "≤ 256 B × depth" to an exact upper bound. Tracked in
+   `stack-budget.md` § Limitations.

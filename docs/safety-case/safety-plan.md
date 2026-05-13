@@ -52,7 +52,7 @@ sibling files in this directory and in `requirements/`.
 | open   | Tool qualification — cppcheck                 | `docs/safety-case/tool-qualification-cppcheck.md`   | TBD         | Static analyzer for MISRA enforcement |
 | open   | Tool qualification — lcov / gcov              | `docs/safety-case/tool-qualification-coverage.md`   | TBD         | Coverage measurement tool |
 | open   | Tool qualification — zserio-c generator       | `docs/safety-case/tool-qualification-generator.md`  | TBD         | The generator is on the safety path because it produces certified code |
-| open   | Stack-budget analysis                         | `tools/measure_stack_usage.py` + `docs/safety-case/stack-budget.md` | TBD | Hazard H-09; needs `-Wstack-usage` build + per-schema worst-case calculation |
+| done   | Stack-budget analysis                         | `tools/measure_stack_usage.py` + `docs/safety-case/stack-budget.md` + `stack` CI job | Fritz | Closes hazard H-09; per-function ≤ 256 B + static-qualifier strict mode |
 | open   | Failure-mode injection tests                  | `tests/runtime/test_negative_*.c`                   | TBD         | One test per HARA row that asserts the documented mitigation fires |
 | open   | Safety case report                            | `docs/safety-case/safety-case-report.md`            | TBD         | Final assembly of the above into one argument |
 
@@ -62,11 +62,13 @@ Phase 5 deliverables, in dependency order:
 
 1. **Done in the Phase 5 launch commit:** item definition, HARA,
    this plan.
-2. **Next:** functional + technical safety concepts (one document each,
-   building on the HARA's mitigation column).
-3. **Then:** stack-budget analysis (closes hazard H-09, needed before
-   the technical safety concept can be marked complete).
-4. **Then:** failure-mode injection tests (per HARA row).
+2. **Done after that:** stack-budget analysis — `tools/measure_stack_usage.py`,
+   the `stack` CI gate, and `docs/safety-case/stack-budget.md`. Closes
+   hazard H-09.
+3. **Next:** failure-mode injection tests (one per HARA row, asserting
+   the documented mitigation actually fires).
+4. **Then:** functional + technical safety concepts (one document each,
+   building on the HARA's mitigation column and the now-closed H-09).
 5. **Then:** the four tool-qualification records, in parallel.
 6. **Finally:** the two verification reports + the safety case
    report.

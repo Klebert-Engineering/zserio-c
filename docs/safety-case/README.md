@@ -16,6 +16,7 @@ products are tracked in `safety-plan.md` § Work products.
 | [item-definition.md](item-definition.md) | draft | What `zserio-c` is, what its boundaries are, what its assumed system context is. ISO 26262-3 §5. |
 | [hazard-analysis.md](hazard-analysis.md) | draft | Catalogue of failure modes the item exposes, with mitigations and residual integrator responsibilities. ISO 26262-3 §6 (item-level). |
 | [safety-plan.md](safety-plan.md) | draft | Meta-document: which work products will be produced, in what order, by whom. ISO 26262-2 §6. |
+| [stack-budget.md](stack-budget.md) | draft | Stack-usage analysis closing hazard H-09; methodology, current numbers, and the threshold the CI `stack` job enforces. |
 
 Every document has a YAML frontmatter `status` field. `draft` means
 the document is structurally complete and reviewable but has not

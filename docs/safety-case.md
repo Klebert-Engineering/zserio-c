@@ -43,13 +43,15 @@ Draft (delivered in the Phase 5 launch commit):
 - [/] Item definition — `docs/safety-case/item-definition.md`.
 - [/] Hazard analysis (HARA, item-level) —
       `docs/safety-case/hazard-analysis.md`.
+- [/] Stack-budget analysis — `docs/safety-case/stack-budget.md` +
+      `tools/measure_stack_usage.py` + CI `stack` job. Closes hazard
+      H-09; current worst frame 144 B, gate at 256 B per function.
 
 Open (Phase 5 work items, in dependency order):
 
+- [ ] Failure-mode injection tests (one per HARA row).
 - [ ] Functional safety concept.
 - [ ] Technical safety concept.
-- [ ] Stack-budget analysis (closes hazard H-09).
-- [ ] Failure-mode injection tests (one per HARA row).
 - [ ] Software unit verification report.
 - [ ] Software integration and verification report.
 - [ ] Tool qualification records — compiler, cppcheck, lcov/gcov,
