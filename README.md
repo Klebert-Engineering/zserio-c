@@ -6,12 +6,13 @@ target ASIL-B, architectural headroom toward ASIL-D).
 
 ## Status
 
-**Phase 4 complete · Phase 5 substantively complete.** Every CI gate green on
+**Phase 5 substantively complete · Phase 6 active.** Every CI gate green on
 `main`. Wire compatibility with upstream `ndsev/zserio v2.18.1` is gated at
 182 schemas × 5 seeds per commit. The ISO 26262 safety case is drafted end
 to end under [`docs/safety-case/`](docs/safety-case/), pending independent
-review for `draft → accepted`. The bit-cache performance work in Phase 6 is
-the next milestone.
+review for `draft → accepted`. Phase 6 is now in measurement-first mode:
+the `perf` CI job runs the benchmark harness on every commit (advisory)
+while the optimisation work that closes the cpp ratio is staged.
 
 | Phase | Status | Marker |
 | ----- | ------ | ------ |
@@ -21,7 +22,7 @@ the next milestone.
 | 3 — Full schema-language coverage | ✅ done | 391/391 grammar acceptance on upstream test corpus |
 | 4 — Conformance against upstream test corpus | ✅ done | `xvalidation` CI gate: 182 schemas × 5 seeds byte-equal vs cpp |
 | 5 — Safety case maturation | 🟢 substantively complete | 14 work products in `docs/safety-case/`, all `draft`; three Open items recorded |
-| 6 — Performance benchmarks vs C++ runtime | ⬜ open | next |
+| 6 — Performance benchmarks vs C++ runtime | 🟢 measurement live (advisory) | `perf` CI job: harness + cpp-ratio reporting; optimisation work to close the ratio is open |
 | 7 — C-native parser replaces Java front-end | ⬜ open | |
 
 See [`docs/architecture.md`](docs/architecture.md) for the design and
@@ -43,6 +44,7 @@ Every commit to `main` runs the following gates. All currently pass:
 | Stack-budget analysis (REQ-FS-003, hazard H-09) | Every function has a static, ≤ 256 B frame | `tools/measure_stack_usage.py --strict` |
 | Requirements traceability | Every accepted in-phase requirement has a `Verifies:` marker | `tools/check_traceability.py` |
 | Phase 2 generator | The generator jar builds and loads end to end | ant |
+| Performance benchmark (REQ-PF-001, advisory) | Median-of-5 encode/decode ns/op for each benchmark workload, side-by-side vs upstream cpp | `tests/benchmarks/run_benchmark.sh` |
 | Test-data discovery (advisory) | Reports schemas in the upstream corpus not yet in xvalidation | bash |
 
 ## Quick start
@@ -139,14 +141,16 @@ requirements/                  — REQ-FN-* (functional), REQ-FS-* (safety),
 
 tests/runtime/                 — Unity unit tests, 11 suites
 tests/xvalidation/             — 182-schema byte-equal cross-validation harness
+tests/benchmarks/              — REQ-PF-001 throughput harness (median-of-5
+                                 encode/decode vs upstream cpp)
 conformance/ndslive/           — NDS Live SmartLayerTile end-to-end fixture
 
 tools/                         — measure_size, check_size_regression,
                                  measure_stack_usage, check_coverage,
-                                 check_traceability, run_misra,
-                                 build_zserio_core_jar, build_generator_jar,
-                                 build_zserio_bundle_jar
-.github/workflows/ci.yml       — the 10 gates listed above
+                                 check_perf_regression, check_traceability,
+                                 run_misra, build_zserio_core_jar,
+                                 build_generator_jar, build_zserio_bundle_jar
+.github/workflows/ci.yml       — the 11 gates listed above
 ```
 
 ## Documentation entry points

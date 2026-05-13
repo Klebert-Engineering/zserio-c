@@ -120,7 +120,7 @@ in the certified subset.
 | 3     | Full schema-language coverage (compounds, choices, parameterized…).    | done                                |
 | 4     | Conformance against the upstream zserio test corpus.                   | done — xvalidation gate (182 × 5)   |
 | 5     | Safety case maturation — MISRA-clean pass, ISO 26262 work products.    | substantively complete (all `draft`) |
-| 6     | Performance benchmarks vs. C++ runtime; tune.                          | next                                |
+| 6     | Performance benchmarks vs. C++ runtime; tune.                          | active — measurement framework live (advisory CI gate) |
 | 7     | C-native parser replaces the Java front-end.                           | open                                |
 
 The current phase is recorded at the repository root in `.phase` and

@@ -171,6 +171,74 @@ jobs:
             -F body=@/tmp/comment_body.md \
             -H 'Accept: application/vnd.github+json'
 
+  perf:
+    name: Performance benchmark (REQ-PF-001, advisory)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # for posting the benchmark report as a commit comment
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - name: Init upstream submodule
+        run: git submodule update --init third_party/zserio
+      - name: Install build tools
+        run: sudo apt-get update && sudo apt-get install -y ant gcc g++
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Cache upstream zserio jars
+        uses: actions/cache@v4
+        with:
+          path: build-jars
+          key: zserio-bundle-${{ hashFiles('third_party/zserio/compiler/**') }}
+      - name: Build upstream zserio bundle
+        shell: bash
+        run: |
+          set -o pipefail
+          tools/build_zserio_core_jar.sh
+          tools/build_zserio_bundle_jar.sh
+      - name: Build zserio_c.jar
+        shell: bash
+        run: tools/build_generator_jar.sh
+      - name: Run benchmark harness
+        shell: bash
+        run: |
+          set -o pipefail
+          RUNS=5 INNER_ITERS=200000 bash tests/benchmarks/run_benchmark.sh > perf.json
+      - name: Report regression (advisory — does not fail the build yet)
+        shell: bash
+        # The gate is advisory in this phase. Public CI runner noise is
+        # significant, and we do not yet have stable baseline numbers
+        # measured on the runner. Once 2–3 green runs have produced
+        # comparable numbers, the baseline gets bumped to a CI-measured
+        # value and `|| true` is removed.
+        run: |
+          set -o pipefail
+          python3 tools/check_perf_regression.py perf.json | tee perf-report.txt || true
+      - name: Post benchmark report as commit comment
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -u
+          {
+            printf 'performance benchmark (REQ-PF-001, advisory) for commit %s:\n\n```\n' "${GITHUB_SHA}"
+            if [[ -s perf-report.txt ]]; then
+              cat perf-report.txt
+              printf '\n--- raw JSON ---\n'
+            fi
+            if [[ -s perf.json ]]; then
+              cat perf.json
+            fi
+            printf '\n```\n'
+          } > /tmp/comment_body.md
+          gh api -X POST \
+            "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
+            -F body=@/tmp/comment_body.md \
+            -H 'Accept: application/vnd.github+json'
+
   generator:
     name: Phase 2 generator (build JAR + smoke load)
     runs-on: ubuntu-latest

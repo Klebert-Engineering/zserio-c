@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Phase 6 — measurement framework (2026-05-13)
+
+`.phase` advanced from 4 to 6. Phase 5 is substantively complete
+(every work product at `draft`); Phase 6 opens with the benchmark
+infrastructure that REQ-PF-001 calls for.
+
+#### Added
+
+- **`tests/benchmarks/`** — REQ-PF-001 throughput harness.
+  - `run_benchmark.sh` — generates C and cpp code from each
+    workload's `.zs` schema, builds both drivers at `-O2`, runs
+    each `RUNS` times (default 5), takes the median per metric,
+    and emits aggregated JSON.
+  - `workloads/small_flat/` — first workload: 10 fixed-width
+    primitives + bool + bit:4, ~31 bytes encoded. Drivers
+    measure encode and decode ns/op using `CLOCK_MONOTONIC` on
+    the C side and `std::chrono::steady_clock` on the cpp side.
+- **`tools/check_perf_regression.py`** — analogue of the size
+  regression checker. Compares current measurement against
+  `docs/benchmarks/perf.baseline.json` and fails on a zserio-c
+  metric regression > 15% (initial loose threshold to absorb
+  public CI runner noise; tightening is a follow-up).
+- **`docs/benchmarks/perf.baseline.json`** — initial baseline,
+  seeded from a local measurement. To be replaced with CI-measured
+  numbers once 2–3 green runs characterise the runner noise floor.
+- **`docs/benchmarks/README.md`** — methodology + gate-semantics
+  + planned workloads.
+- **CI: new `perf` job (advisory)** — runs the harness on every
+  commit, posts the full output as a commit comment. Does NOT
+  fail the build on regression yet (`|| true` on the check step);
+  the gate flips to mandatory once we have stable CI baseline
+  numbers.
+
+#### Current performance state (local measurement, x86_64)
+
+| Workload   | metric         | zserio_c (ns) | zserio_cpp (ns) | cpp/c |
+| ---------- | -------------- | ------------: | --------------: | ----: |
+| small_flat | encode_ns/op   |         69.24 |           34.91 | 0.504 |
+| small_flat | decode_ns/op   |         68.74 |           19.94 | 0.290 |
+
+The cpp/c ratio < 1.0 confirms the optimisation gap REQ-PF-001
+exists to close. The documented next step is the bit-cache +
+mask-table read pattern in `runtime/src/bitstream.c:78-80`.
+
 ### Phase 5 — substantively complete (2026-05-13)
 
 The ISO 26262 safety case is drafted end to end. Every work product

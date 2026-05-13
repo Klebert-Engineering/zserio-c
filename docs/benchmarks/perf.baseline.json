@@ -1,0 +1,21 @@
+{
+  "workloads": {
+    "small_flat": {
+      "bytes": 31,
+      "inner_iters": 200000,
+      "ratio_cpp_to_c": {
+        "decode": 0.29,
+        "encode": 0.504
+      },
+      "runs": 5,
+      "zserio_c": {
+        "decode_ns_per_op": 68.74,
+        "encode_ns_per_op": 69.24
+      },
+      "zserio_cpp": {
+        "decode_ns_per_op": 19.94,
+        "encode_ns_per_op": 34.91
+      }
+    }
+  }
+}
