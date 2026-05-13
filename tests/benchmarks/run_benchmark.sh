@@ -116,27 +116,45 @@ first_workload=1
 
 for workload_dir in "${WORKLOADS_DIR}"/*/; do
     name="$(basename "${workload_dir}")"
-    schema="${workload_dir}/${name}.zs"
     work="${WORK_ROOT}/${name}"
     rm -rf "${work}" && mkdir -p "${work}/c_out" "${work}/cpp_out" "${work}/staging"
 
-    # The zserio compiler wants the schema laid out per its package
-    # declaration. Mirror what run_xvalidation.sh does, simplified for
-    # benchmarks (no sibling imports).
-    pkg="$(awk '/^[[:space:]]*package[[:space:]]+/ {sub(/^[[:space:]]*package[[:space:]]+/,""); sub(/;.*/,""); print; exit}' "${schema}")"
-    pkg_prefix_dots="${pkg%.*}"
-    pkg_last="${pkg##*.}"
-    if [[ "${pkg_prefix_dots}" == "${pkg}" ]]; then
-        pkg_dir=""
+    extra_codegen_args=""
+    if [[ -f "${workload_dir}/schema.config" ]]; then
+        # Multi-file schema: the workload points at an existing schema
+        # tree (e.g. conformance/ndslive/zs) and names the entry-point
+        # file relative to that tree. May also set extra_codegen_args
+        # (e.g. -setTopLevelPackage for schemas with name collisions).
+        schema_dir=""; entry=""
+        # shellcheck disable=SC1090
+        source "${workload_dir}/schema.config"
+        if [[ -z "${schema_dir}" || -z "${entry}" ]]; then
+            echo "perf: ${name}: schema.config must set schema_dir and entry" >&2
+            exit 1
+        fi
+        cp -r "${REPO_ROOT}/${schema_dir}/." "${work}/staging/"
+        rel_schema="${entry}"
     else
-        pkg_dir="$(echo "${pkg_prefix_dots}" | tr . /)"
+        # Single-file schema. The .zs file is in the workload dir under
+        # the same name as the workload; mirror its package layout into
+        # the staging tree.
+        schema="${workload_dir}/${name}.zs"
+        pkg="$(awk '/^[[:space:]]*package[[:space:]]+/ {sub(/^[[:space:]]*package[[:space:]]+/,""); sub(/;.*/,""); print; exit}' "${schema}")"
+        pkg_prefix_dots="${pkg%.*}"
+        pkg_last="${pkg##*.}"
+        if [[ "${pkg_prefix_dots}" == "${pkg}" ]]; then
+            pkg_dir=""
+        else
+            pkg_dir="$(echo "${pkg_prefix_dots}" | tr . /)"
+        fi
+        mkdir -p "${work}/staging/${pkg_dir}"
+        cp "${schema}" "${work}/staging/${pkg_dir}/${pkg_last}.zs"
+        rel_schema="${pkg_dir:+${pkg_dir}/}${pkg_last}.zs"
     fi
-    mkdir -p "${work}/staging/${pkg_dir}"
-    cp "${schema}" "${work}/staging/${pkg_dir}/${pkg_last}.zs"
-    rel_schema="${pkg_dir:+${pkg_dir}/}${pkg_last}.zs"
 
+    # shellcheck disable=SC2086  # word-split extra_codegen_args intentionally
     java -cp "${ZSERIO_CORE_JAR}:${ZSERIO_C_JAR}:${ZSERIO_JAR}" \
-        zserio.tools.ZserioTool \
+        zserio.tools.ZserioTool ${extra_codegen_args} \
         -src "${work}/staging" "${rel_schema}" \
         -c "${work}/c_out" -cpp "${work}/cpp_out" \
         1>/dev/null 2>"${work}/gen.log" || {
@@ -159,9 +177,17 @@ for workload_dir in "${WORKLOADS_DIR}"/*/; do
         "${workload_dir}/c_driver.c" "${c_objs[@]}" "${C_RT_OBJS_DIR}"/*.o \
         -o "${work}/c_driver"
 
-    # Compile + link cpp_driver
+    # Compile + link cpp_driver. Some schemas pull in service/filestore
+    # types that reference external libraries (sqlite3, gRPC). The
+    # benchmark drivers don't use those, but a non-LTO build still
+    # needs the symbols at link time. Skip Filestore.cpp specifically
+    # — it's the only sqlite-dependent file in the corpora we exercise.
     cpp_objs=()
     while IFS= read -r cpp; do
+        base="$(basename "${cpp}")"
+        if [[ "${base}" == "Filestore.cpp" ]]; then
+            continue
+        fi
         obj="${work}/$(echo "${cpp#${work}/cpp_out/}" | tr / _).o"
         g++ -std=c++11 -O2 ${LTO_CFLAGS} -DNDEBUG -Wall -Wextra -Wpedantic \
             -I"${CPP_RT_SRC}" \
@@ -181,12 +207,20 @@ for workload_dir in "${WORKLOADS_DIR}"/*/; do
         inner_iters="${INNER_ITERS_DEFAULT}"
     fi
 
+    # Per-workload extra input file (e.g. a binary blob the driver
+    # reads at start-up). Path is REPO_ROOT-relative.
+    extra_arg=()
+    if [[ -f "${workload_dir}/extra_input.txt" ]]; then
+        rel_path="$(tr -d '[:space:]' < "${workload_dir}/extra_input.txt")"
+        extra_arg=("${REPO_ROOT}/${rel_path}")
+    fi
+
     # Run RUNS samples; collect encode + decode ns per op.
     c_encode_samples=""; c_decode_samples=""
     cpp_encode_samples=""; cpp_decode_samples=""
     bytes_observed="0"
     for run in $(seq 1 "${RUNS}"); do
-        line="$("${work}/c_driver" "${inner_iters}")"
+        line="$("${work}/c_driver" "${inner_iters}" "${extra_arg[@]}")"
         c_enc=$(echo "${line}" | awk -F'[= ]' '{for(i=1;i<=NF;i++) if ($i=="encode_ns_per_op") print $(i+1)}')
         c_dec=$(echo "${line}" | awk -F'[= ]' '{for(i=1;i<=NF;i++) if ($i=="decode_ns_per_op") print $(i+1)}')
         b=$(echo "${line}" | awk -F'[= ]' '{for(i=1;i<=NF;i++) if ($i=="bytes") print $(i+1)}')
@@ -194,7 +228,7 @@ for workload_dir in "${WORKLOADS_DIR}"/*/; do
         c_decode_samples="${c_decode_samples}${c_dec}\n"
         bytes_observed="${b}"
 
-        line="$("${work}/cpp_driver" "${inner_iters}")"
+        line="$("${work}/cpp_driver" "${inner_iters}" "${extra_arg[@]}")"
         cpp_enc=$(echo "${line}" | awk -F'[= ]' '{for(i=1;i<=NF;i++) if ($i=="encode_ns_per_op") print $(i+1)}')
         cpp_dec=$(echo "${line}" | awk -F'[= ]' '{for(i=1;i<=NF;i++) if ($i=="decode_ns_per_op") print $(i+1)}')
         cpp_encode_samples="${cpp_encode_samples}${cpp_enc}\n"
