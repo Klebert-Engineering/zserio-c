@@ -34,7 +34,21 @@
 typedef struct zserio_bitstream_reader {
     const uint8_t *buffer;            /**< Borrowed; not owned. */
     size_t         buffer_bit_size;   /**< Total bits the buffer represents. */
-    size_t         bit_index;         /**< Current read position in bits. */
+    size_t         bit_index;         /**< Current read position in bits.
+                                       *   When `cache_bits == 0`, `bit_index`
+                                       *   is byte-aligned and points at the
+                                       *   next byte to load into the cache.
+                                       *   While `cache_bits > 0`, `bit_index`
+                                       *   is the LOGICAL stream position the
+                                       *   caller observes; the buffer has
+                                       *   already been read up to
+                                       *   `bit_index + cache_bits`. */
+    uint64_t       bit_cache;         /**< Right-justified cache of pre-read
+                                       *   bits. The low `cache_bits` bits are
+                                       *   the unread part of the stream.
+                                       *   Implementation detail. */
+    uint8_t        cache_bits;        /**< Number of valid bits in `bit_cache`,
+                                       *   in [0, 64]. Implementation detail. */
 } zserio_bitstream_reader_t;
 
 /**
