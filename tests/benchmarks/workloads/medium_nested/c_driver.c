@@ -78,8 +78,10 @@ int main(int argc, char *argv[])
     clock_gettime(CLOCK_MONOTONIC, &t1);
     const double encode_ns = ns_diff(t0, t1) / (double)N;
 
-    /* Decode timing. */
+    /* Decode timing. The `sink` accumulator prevents DCE under LTO;
+     * see small_flat/c_driver.c for the rationale. */
     const zserio_allocator_t alloc = zserio_allocator_libc();
+    uint64_t sink = 0U;
     clock_gettime(CLOCK_MONOTONIC, &t0);
     for (int i = 0; i < N; ++i) {
         zserio_bitstream_reader_t r;
@@ -87,11 +89,12 @@ int main(int argc, char *argv[])
         benchmarks_medium_nested_medium_nested_t out;
         benchmarks_medium_nested_medium_nested_init(&out);
         (void)benchmarks_medium_nested_medium_nested_read(&out, &r, &alloc);
+        sink ^= out.a.d ^ out.e.d ^ out.j.d;
     }
     clock_gettime(CLOCK_MONOTONIC, &t1);
     const double decode_ns = ns_diff(t0, t1) / (double)N;
 
-    fprintf(stdout, "encode_ns_per_op=%.2f decode_ns_per_op=%.2f bytes=%zu\n",
-            encode_ns, decode_ns, bytes);
+    fprintf(stdout, "encode_ns_per_op=%.2f decode_ns_per_op=%.2f bytes=%zu sink=%llu\n",
+            encode_ns, decode_ns, bytes, (unsigned long long)sink);
     return 0;
 }

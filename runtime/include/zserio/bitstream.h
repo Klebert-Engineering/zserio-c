@@ -97,13 +97,64 @@ zserio_status_t zserio_bitstream_read_bits(zserio_bitstream_reader_t *bs,
 extern const uint64_t zserio_bitstream_mask_table[65];
 
 /**
+ * Big-endian 8-byte parser. Bytes load MSB-first to match the
+ * zserio wire format. Implementation detail; exposed so the inline
+ * cache-refill below stays self-contained.
+ */
+static inline uint64_t zserio_bitstream_parse64_be(const uint8_t *p)
+{
+    return ((uint64_t)p[0] << 56) | ((uint64_t)p[1] << 48)
+         | ((uint64_t)p[2] << 40) | ((uint64_t)p[3] << 32)
+         | ((uint64_t)p[4] << 24) | ((uint64_t)p[5] << 16)
+         | ((uint64_t)p[6] <<  8) | ((uint64_t)p[7]);
+}
+
+/**
  * Refill the bit cache from `bs->bit_index`. Precondition: caller
  * has verified the read is in bounds and `bs->cache_bits == 0`.
- * Defined in bitstream.c so the parse-byte helpers stay one-copy.
+ * `bs->bit_index` is byte-aligned at entry by the cache invariant.
+ *
+ * Inlined so callers don't pay a function call on the cache-miss
+ * path. The full-64-bit branch is the common one and is a straight
+ * 8-byte load; the partial-tail branch fires at most once per
+ * stream (the very end of the buffer).
  *
  * Implementation detail. Used by the inline fast path below.
  */
-void zserio_bitstream_load_cache_next(zserio_bitstream_reader_t *bs);
+static inline void zserio_bitstream_load_cache_next(zserio_bitstream_reader_t *bs)
+{
+    const size_t byte_idx = bs->bit_index >> 3U;
+    const size_t remaining = bs->buffer_bit_size - bs->bit_index;
+    if (remaining >= 64U) {
+        bs->bit_cache = zserio_bitstream_parse64_be(&bs->buffer[byte_idx]);
+        bs->cache_bits = 64U;
+    } else {
+        /* Build cache one byte at a time from the trailing tail. */
+        const uint8_t valid_bits = (uint8_t)remaining;
+        const uint8_t aligned = (uint8_t)((valid_bits + 7U) & (uint8_t)~0x7U);
+        const size_t byte_count = (size_t)aligned >> 3U;
+        uint64_t v = 0U;
+        for (size_t i = 0U; i < byte_count; i++) {
+            v = (v << 8) | (uint64_t)bs->buffer[byte_idx + i];
+        }
+        if (aligned != valid_bits) {
+            v >>= (uint8_t)(aligned - valid_bits);
+        }
+        bs->bit_cache = v;
+        bs->cache_bits = valid_bits;
+    }
+}
+
+/* Branch-prediction hint. `__builtin_expect` is a gcc / clang
+ * extension; under MISRA we treat it as a no-op so we don't drag a
+ * Rule 1.2 (language extensions) deviation across every read site.
+ * The hint is a performance signal, not a correctness one — the
+ * code behaves identically with or without it. */
+#if defined(__GNUC__) || defined(__clang__)
+#  define ZSERIO_BITSTREAM_UNLIKELY(x) __builtin_expect(!!(x), 0)
+#else
+#  define ZSERIO_BITSTREAM_UNLIKELY(x) (x)
+#endif
 
 /**
  * Inline bit-cache read fast path.
@@ -127,7 +178,7 @@ static inline uint64_t zserio_bitstream_read_bits_impl(
 {
     uint64_t value = 0U;
     uint8_t remaining = num_bits;
-    if (bs->cache_bits < remaining) {
+    if (ZSERIO_BITSTREAM_UNLIKELY(bs->cache_bits < remaining)) {
         value = bs->bit_cache & zserio_bitstream_mask_table[bs->cache_bits];
         bs->bit_index += bs->cache_bits;
         remaining = (uint8_t)(remaining - bs->cache_bits);

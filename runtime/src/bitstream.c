@@ -127,54 +127,12 @@ const uint64_t zserio_bitstream_mask_table[65] = {
     UINT64_C(0x7FFFFFFFFFFFFFFF), UINT64_C(0xFFFFFFFFFFFFFFFF)
 };
 
-/* Big-endian 8-byte parser. Bytes load MSB-first to match the wire. */
-static inline uint64_t parse64_be(const uint8_t *p)
-{
-    return ((uint64_t)p[0] << 56) | ((uint64_t)p[1] << 48)
-         | ((uint64_t)p[2] << 40) | ((uint64_t)p[3] << 32)
-         | ((uint64_t)p[4] << 24) | ((uint64_t)p[5] << 16)
-         | ((uint64_t)p[6] <<  8) | ((uint64_t)p[7]);
-}
-
-/* Refill the bit cache. Precondition: caller has verified the read is in
- * bounds (`bit_index + needed <= buffer_bit_size`) and `cache_bits == 0`.
- * When ≥ 8 bytes remain we load all 64 bits; otherwise we load only the
- * trailing partial-byte chunk and right-shift away the padding bits.
- *
- * `bit_index` is byte-aligned at entry by the cache invariant. */
-void zserio_bitstream_load_cache_next(zserio_bitstream_reader_t *bs)
-{
-    const size_t byte_idx = bs->bit_index >> 3U;
-    const size_t remaining = bs->buffer_bit_size - bs->bit_index;
-    if (remaining >= 64U) {
-        bs->bit_cache = parse64_be(&bs->buffer[byte_idx]);
-        bs->cache_bits = 64U;
-    } else {
-        /* Build cache one byte at a time from the trailing tail. Each
-         * call here loads at most 56 bits (7 bytes) and runs at most
-         * once per stream — every preceding refill went through the
-         * fast 64-bit path above. */
-        const uint8_t valid_bits = (uint8_t)remaining;
-        const uint8_t aligned = (uint8_t)((valid_bits + 7U) & (uint8_t)~0x7U);
-        const size_t byte_count = (size_t)aligned >> 3U;
-        uint64_t v = 0U;
-        for (size_t i = 0U; i < byte_count; i++) {
-            v = (v << 8) | (uint64_t)bs->buffer[byte_idx + i];
-        }
-        /* Right-shift the trailing zero-pad off so the cache is right-
-         * justified with `valid_bits` low bits valid. */
-        if (aligned != valid_bits) {
-            v >>= (uint8_t)(aligned - valid_bits);
-        }
-        bs->bit_cache = v;
-        bs->cache_bits = valid_bits;
-    }
-}
-
-/* The unchecked cache-extract impl lives in bitstream.h as
- * `zserio_bitstream_read_bits_impl`; defining it there lets per-width
- * primitive readers inline the whole hot path without crossing a
- * translation-unit boundary. */
+/* The hot read path lives entirely in bitstream.h:
+ *   - zserio_bitstream_parse64_be   (8-byte BE load)
+ *   - zserio_bitstream_load_cache_next  (cache refill)
+ *   - zserio_bitstream_read_bits_impl   (cache extract)
+ * Inlining all three means a caller's translation unit sees the
+ * full fast path without crossing a TU boundary or needing LTO. */
 
 /* Round `value` up to the next multiple of `alignment`. The zserio
  * `align(N):` directive accepts any positive integer (the schema uses

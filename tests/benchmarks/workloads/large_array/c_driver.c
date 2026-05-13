@@ -71,8 +71,10 @@ int main(int argc, char *argv[])
 
     /* Decode timing. The runtime allocates a fresh data array per
      * decode; that allocation cost shows up in the number but
-     * matches what the cpp counterpart does. */
+     * matches what the cpp counterpart does. The sink touches a
+     * fixed-index element so the optimiser can't DCE the read. */
     const zserio_allocator_t alloc = zserio_allocator_libc();
+    uint64_t sink = 0U;
     clock_gettime(CLOCK_MONOTONIC, &t0);
     for (int i = 0; i < N; ++i) {
         zserio_bitstream_reader_t r;
@@ -80,13 +82,16 @@ int main(int argc, char *argv[])
         benchmarks_large_array_large_array_t out;
         benchmarks_large_array_large_array_init(&out);
         (void)benchmarks_large_array_large_array_read(&out, &r, &alloc);
+        if (out.data != NULL && out.data_count > 0U) {
+            sink ^= (uint64_t)out.data[0] ^ (uint64_t)out.data[out.data_count - 1U];
+        }
         benchmarks_large_array_large_array_free(&out, &alloc);
     }
     clock_gettime(CLOCK_MONOTONIC, &t1);
     const double decode_ns = ns_diff(t0, t1) / (double)N;
 
-    fprintf(stdout, "encode_ns_per_op=%.2f decode_ns_per_op=%.2f bytes=%zu\n",
-            encode_ns, decode_ns, bytes);
+    fprintf(stdout, "encode_ns_per_op=%.2f decode_ns_per_op=%.2f bytes=%zu sink=%llu\n",
+            encode_ns, decode_ns, bytes, (unsigned long long)sink);
     free(v.data); free(buf);
     return 0;
 }

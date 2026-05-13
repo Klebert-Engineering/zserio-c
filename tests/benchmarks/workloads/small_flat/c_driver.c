@@ -67,8 +67,15 @@ int main(int argc, char *argv[])
     const double encode_ns = ns_diff(t0, t1) / (double)N;
 
     /* Decode timing. Flat struct never allocates, but the read API
-     * takes the allocator for uniformity with variable-size types. */
+     * takes the allocator for uniformity with variable-size types.
+     *
+     * The `sink` accumulator + final print prevent the optimiser from
+     * dead-code-eliminating the read entirely. Under LTO + full
+     * inlining gcc can otherwise prove the decoded value is never
+     * observed and erase the timed loop, giving meaningless 0-ish
+     * numbers. */
     const zserio_allocator_t alloc = zserio_allocator_libc();
+    uint64_t sink = 0U;
     clock_gettime(CLOCK_MONOTONIC, &t0);
     for (int i = 0; i < N; ++i) {
         zserio_bitstream_reader_t r;
@@ -76,11 +83,12 @@ int main(int argc, char *argv[])
         benchmarks_small_flat_small_flat_t out;
         benchmarks_small_flat_small_flat_init(&out);
         (void)benchmarks_small_flat_small_flat_read(&out, &r, &alloc);
+        sink ^= out.d ^ (uint64_t)out.h ^ (uint64_t)out.c;
     }
     clock_gettime(CLOCK_MONOTONIC, &t1);
     const double decode_ns = ns_diff(t0, t1) / (double)N;
 
-    fprintf(stdout, "encode_ns_per_op=%.2f decode_ns_per_op=%.2f bytes=%zu\n",
-            encode_ns, decode_ns, bytes);
+    fprintf(stdout, "encode_ns_per_op=%.2f decode_ns_per_op=%.2f bytes=%zu sink=%llu\n",
+            encode_ns, decode_ns, bytes, (unsigned long long)sink);
     return 0;
 }

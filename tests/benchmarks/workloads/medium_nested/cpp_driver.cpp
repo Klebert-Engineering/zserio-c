@@ -60,18 +60,20 @@ int main(int argc, char *argv[])
         std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count()
         / static_cast<double>(N);
 
+    uint64_t sink = 0U;
     t0 = std::chrono::steady_clock::now();
     for (int i = 0; i < N; ++i) {
         ::zserio::BitStreamReader r(buf.data(), buf.size());
         ::benchmarks::medium_nested::MediumNested out(r);
-        (void)out;
+        sink ^= out.getA().getD() ^ out.getE().getD() ^ out.getJ().getD();
     }
     t1 = std::chrono::steady_clock::now();
     const double decode_ns =
         std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count()
         / static_cast<double>(N);
 
-    std::fprintf(stdout, "encode_ns_per_op=%.2f decode_ns_per_op=%.2f bytes=%zu\n",
-                 encode_ns, decode_ns, bytes);
+    std::fprintf(stdout, "encode_ns_per_op=%.2f decode_ns_per_op=%.2f bytes=%zu sink=%llu\n",
+                 encode_ns, decode_ns, bytes,
+                 static_cast<unsigned long long>(sink));
     return 0;
 }
