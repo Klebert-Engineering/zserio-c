@@ -37,6 +37,10 @@ The constraints that actually matter:
 - **Cores** — 2 is enough; jobs just serialise more. Three runner
   instances (the compose default) let GitHub dispatch the lighter
   jobs in parallel, roughly halving a full run's wall-clock.
+  Note: the DSM kernel ships without CPU CFS quota support, so the
+  compose file deliberately sets **no `cpus:` limit** — Docker
+  rejects it ("kernel does not support CPU CFS scheduler"). Memory
+  cgroups do work, so the `memory:` cap is kept.
 - **Disk** — the xvalidation and perf jobs generate large trees
   (`build-xvalidation/`, `build-benchmarks/`, 1500+ files for the
   ndslive schema). Budget ~20 GB of working space.
