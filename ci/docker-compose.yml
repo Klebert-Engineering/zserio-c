@@ -10,6 +10,14 @@
 #   2. docker compose -f ci/docker-compose.yml up -d --build
 #
 # The image is built once and shared by all three services.
+#
+# No named volumes: the runner's `_work` directory lives in the
+# container's own writable layer, created by the unprivileged
+# `runner` user, so there is no volume-ownership problem to manage.
+# Cross-run caching of the upstream zserio jars is handled by
+# `actions/cache` in the workflow (GitHub-backed cache storage), so
+# a persistent `_work` volume bought little and cost a recurring
+# root-owned-volume headache.
 
 services:
   runner-1:
@@ -22,11 +30,6 @@ services:
     env_file: .env
     environment:
       RUNNER_NAME: zserio-ci-1
-    # Persist the runner's registration + _work dir so a restart
-    # reuses the build-jars cache instead of rebuilding the upstream
-    # zserio jars from scratch.
-    volumes:
-      - runner-1-data:/home/runner/actions-runner/_work
     # Cap each runner's memory so a heavy LTO build can't starve DSM.
     # No `cpus:` limit — the Synology DSM kernel is built without CPU
     # CFS quota support, so Docker rejects NanoCPUs ("kernel does not
@@ -44,8 +47,6 @@ services:
     env_file: .env
     environment:
       RUNNER_NAME: zserio-ci-2
-    volumes:
-      - runner-2-data:/home/runner/actions-runner/_work
     deploy:
       resources:
         limits:
@@ -60,16 +61,9 @@ services:
     env_file: .env
     environment:
       RUNNER_NAME: zserio-ci-3
-    volumes:
-      - runner-3-data:/home/runner/actions-runner/_work
     deploy:
       resources:
         limits:
           memory: 8g
     depends_on:
       - runner-1
-
-volumes:
-  runner-1-data:
-  runner-2-data:
-  runner-3-data:

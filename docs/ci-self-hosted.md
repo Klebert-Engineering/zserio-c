@@ -103,25 +103,45 @@ Within ~30 s of the containers starting, three runners named
 **Settings → Actions → Runners**, each showing **Idle**. Push any
 commit (or open a PR) and the jobs route to them.
 
+## Updating after an `ci/` change (Container Manager UI)
+
+When `ci/Dockerfile`, `ci/docker-compose.yml`, or `ci/entrypoint.sh`
+changes, the running project needs a rebuild:
+
+1. Copy the updated `ci/` folder contents into the project folder
+   on the NAS — **keep your existing `ci/.env`**, don't overwrite it.
+2. In **Container Manager → Project → `zserio-ci`**:
+   - **Stop** the project.
+   - **Build** — rebuilds the image from the updated `Dockerfile`
+     (Docker layer cache makes unchanged layers instant).
+   - **Start** — recreates the three containers from the new image.
+3. `entrypoint.sh` re-registers each runner on start (`--replace`
+   keeps the same names), so within ~30 s they're back to **Idle**.
+
+The CLI equivalent is `docker compose -f ci/docker-compose.yml up -d
+--build`.
+
 ## Operations
 
-- **Logs**: `docker logs -f zserio-ci-runner-1` (or the equivalent
-  in Container Manager) shows registration + each job's runner-side
-  output.
-- **Restart**: `docker compose -f ci/docker-compose.yml restart`.
-  The `_work` directory is a named volume, so a restart reuses the
-  `build-jars/` cache rather than rebuilding the upstream zserio
-  jars from scratch.
-- **Stop / remove**: `docker compose -f ci/docker-compose.yml down`.
-  `entrypoint.sh` traps the stop signal and de-registers each runner
-  so it doesn't linger as an offline entry in the repo's runner
-  list.
+- **Logs**: `docker logs -f zserio-ci-runner-1` (or the per-container
+  log view in Container Manager) shows registration + each job's
+  runner-side output.
+- **Restart**: Container Manager → project → Stop then Start, or
+  `docker compose -f ci/docker-compose.yml restart`. The runner
+  re-registers cleanly each time.
+- **Stop / remove**: `docker compose -f ci/docker-compose.yml down`
+  (or the project's Stop). `entrypoint.sh` traps the stop signal and
+  de-registers each runner so it doesn't linger as an offline entry
+  in the repo's runner list.
 - **Bump the runner agent**: GitHub deprecates old runner releases
-  periodically. Edit `RUNNER_VERSION` in `ci/Dockerfile` and
-  `docker compose ... up -d --build`.
-- **Disk pressure**: if the `_work` volumes grow large, stop the
-  stack and `docker volume rm zserio-ci_runner-{1,2,3}-data`. The
-  next start re-registers and rebuilds the jar cache once.
+  periodically. Edit `RUNNER_VERSION` in `ci/Dockerfile`, then
+  rebuild (see "Updating" above).
+- **Disk / `_work`**: the runner's `_work` directory lives in each
+  container's writable layer (no named volume — see the compose
+  file's header comment for why). It's reset whenever a container is
+  recreated, which happens on every rebuild; no manual cleanup
+  needed. Cross-run caching of the upstream zserio jars is handled
+  by `actions/cache` in the workflow, independent of `_work`.
 
 ## Security
 
