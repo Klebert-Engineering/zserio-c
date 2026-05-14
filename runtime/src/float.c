@@ -36,28 +36,18 @@
 #define FLOAT32_EXPONENT_BIAS          ((uint32_t)127U)
 
 /* ------------------------------------------------------------------------ */
-/* float32 / float64 conversion (just memcpy)                                */
+/* float32 / float64 narrow-to-integer (just memcpy)                         */
+/*                                                                           */
+/* The widen-from-integer direction (`zserio_float_from_u32` /               */
+/* `zserio_double_from_u64`) is `static inline` in float.h so the hot decode */
+/* path inlines it; only the encode-side narrow direction stays here.        */
 /* ------------------------------------------------------------------------ */
-
-float zserio_float_from_u32(uint32_t v)
-{
-    float f = 0.0F;
-    (void)memcpy(&f, &v, sizeof(f));
-    return f;
-}
 
 uint32_t zserio_float_to_u32(float v)
 {
     uint32_t bits = 0U;
     (void)memcpy(&bits, &v, sizeof(bits));
     return bits;
-}
-
-double zserio_double_from_u64(uint64_t v)
-{
-    double d = 0.0;
-    (void)memcpy(&d, &v, sizeof(d));
-    return d;
 }
 
 uint64_t zserio_double_to_u64(double v)
@@ -186,41 +176,10 @@ uint16_t zserio_float_to_u16(float v)
 }
 
 /* ------------------------------------------------------------------------ */
-/* Read / write                                                             */
+/* Write                                                                    */
+/*                                                                           */
+/* Reads are `static inline` in float.h (see the rationale there).           */
 /* ------------------------------------------------------------------------ */
-
-zserio_status_t zserio_read_float16(zserio_bitstream_reader_t *bs, float *out)
-{
-    if (out == NULL) {
-        return ZSERIO_ERR_INVALID_ARGUMENT;
-    }
-    uint64_t raw = 0U;
-    ZSERIO_TRY(zserio_bitstream_read_bits(bs, 16U, &raw));
-    *out = zserio_float_from_u16((uint16_t)raw);
-    return ZSERIO_OK;
-}
-
-zserio_status_t zserio_read_float32(zserio_bitstream_reader_t *bs, float *out)
-{
-    if (out == NULL) {
-        return ZSERIO_ERR_INVALID_ARGUMENT;
-    }
-    uint64_t raw = 0U;
-    ZSERIO_TRY(zserio_bitstream_read_bits(bs, 32U, &raw));
-    *out = zserio_float_from_u32((uint32_t)raw);
-    return ZSERIO_OK;
-}
-
-zserio_status_t zserio_read_float64(zserio_bitstream_reader_t *bs, double *out)
-{
-    if (out == NULL) {
-        return ZSERIO_ERR_INVALID_ARGUMENT;
-    }
-    uint64_t raw = 0U;
-    ZSERIO_TRY(zserio_bitstream_read_bits(bs, 64U, &raw));
-    *out = zserio_double_from_u64(raw);
-    return ZSERIO_OK;
-}
 
 zserio_status_t zserio_write_float16(zserio_bitstream_writer_t *bs, float v)
 {
