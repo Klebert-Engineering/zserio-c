@@ -3,6 +3,7 @@ missingIncludeSystem
 misra-c2012-15.5
 misra-c2012-21.3:*allocator.c
 misra-c2012-21.15:*float.c
+misra-c2012-21.15:*float.h
 misra-c2012-11.5:*string.c
 misra-c2012-11.5:*bytes.c
 misra-c2012-11.5:*extern.c
