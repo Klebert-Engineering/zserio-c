@@ -55,7 +55,7 @@ RUN useradd -m -s /bin/bash runner \
 # --- GitHub Actions runner -------------------------------------------------
 # RUNNER_VERSION is overridable at build time; bump it when GitHub
 # deprecates older runner releases.
-ARG RUNNER_VERSION=2.323.0
+ARG RUNNER_VERSION=2.334.0
 ARG TARGETARCH=x64
 RUN mkdir -p /home/runner/actions-runner \
     && cd /home/runner/actions-runner \
