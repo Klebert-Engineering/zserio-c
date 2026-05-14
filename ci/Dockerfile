@@ -64,6 +64,15 @@ RUN mkdir -p /home/runner/actions-runner \
     && tar xzf runner.tar.gz \
     && rm runner.tar.gz \
     && ./bin/installdependencies.sh \
+    # Pre-create _work so the chown below covers it. docker-compose.yml
+    # mounts a named volume here; Docker initialises a fresh named
+    # volume from the mount point's image content *and ownership*, so
+    # creating _work as runner-owned now means the volume is runner-
+    # owned too. Without this the volume defaults to root-owned and
+    # the unprivileged `runner` user can't create job workspaces in
+    # it — every job then fails during initialisation, before its
+    # first step (the `steps: []`, ~3 s failure signature).
+    && mkdir -p /home/runner/actions-runner/_work \
     && chown -R runner:runner /home/runner
 
 COPY entrypoint.sh /home/runner/entrypoint.sh
