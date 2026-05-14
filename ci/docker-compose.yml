@@ -1,0 +1,76 @@
+# Self-hosted GitHub Actions runners for zserio-c CI.
+#
+# Three runner instances on one host. A single runner process takes
+# one job at a time; running three lets GitHub dispatch the lighter
+# CI jobs in parallel, roughly halving the wall-clock of a full run
+# on the 2-core / 32 GB DS3018xs.
+#
+# Setup:
+#   1. cp ci/.env.example ci/.env  and fill in GITHUB_PAT
+#   2. docker compose -f ci/docker-compose.yml up -d --build
+#
+# The image is built once and shared by all three services.
+
+services:
+  runner-1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: zserio-ci-runner:latest
+    container_name: zserio-ci-runner-1
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      RUNNER_NAME: zserio-ci-1
+    # Persist the runner's registration + _work dir so a restart
+    # reuses the build-jars cache instead of rebuilding the upstream
+    # zserio jars from scratch.
+    volumes:
+      - runner-1-data:/home/runner/actions-runner/_work
+    # The 2-core host is shared with the NAS's own services; cap each
+    # runner so a heavy LTO build can't starve DSM. 32 GB RAM means
+    # the memory limit is generous.
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 8g
+
+  runner-2:
+    image: zserio-ci-runner:latest
+    container_name: zserio-ci-runner-2
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      RUNNER_NAME: zserio-ci-2
+    volumes:
+      - runner-2-data:/home/runner/actions-runner/_work
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 8g
+    depends_on:
+      - runner-1   # ensures the image is built once before this starts
+
+  runner-3:
+    image: zserio-ci-runner:latest
+    container_name: zserio-ci-runner-3
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      RUNNER_NAME: zserio-ci-3
+    volumes:
+      - runner-3-data:/home/runner/actions-runner/_work
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 8g
+    depends_on:
+      - runner-1
+
+volumes:
+  runner-1-data:
+  runner-2-data:
+  runner-3-data:

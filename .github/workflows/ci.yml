@@ -8,7 +8,7 @@ on:
 jobs:
   traceability:
     name: Requirements traceability
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -21,7 +21,7 @@ jobs:
 
   build-and-test:
     name: Build and test (${{ matrix.compiler }})
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     strategy:
       fail-fast: false
       matrix:
@@ -50,7 +50,7 @@ jobs:
 
   misra:
     name: MISRA C:2012 (cppcheck) + forbidden-symbols
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     permissions:
       contents: write   # for posting cppcheck output as a commit comment
     steps:
@@ -103,7 +103,7 @@ jobs:
 
   stack:
     name: Stack-budget analysis (REQ-FS-003, hazard H-09)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     permissions:
       contents: write   # for posting the stack-usage report as a commit comment
     steps:
@@ -137,7 +137,7 @@ jobs:
 
   size:
     name: Size regression (REQ-PF-002)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     permissions:
       contents: write   # for posting the size diff as a commit comment
     steps:
@@ -173,7 +173,7 @@ jobs:
 
   perf:
     name: Performance benchmark (REQ-PF-001, advisory)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     permissions:
       contents: write   # for posting the benchmark report as a commit comment
     steps:
@@ -241,7 +241,7 @@ jobs:
 
   generator:
     name: Phase 2 generator (build JAR + smoke load)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     permissions:
       contents: write   # for posting build logs as a commit comment
     steps:
@@ -297,7 +297,7 @@ jobs:
 
   discover:
     name: Test-data discovery (advisory)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     permissions:
       contents: write   # for posting the discovery summary as a commit comment
     steps:
@@ -358,7 +358,7 @@ jobs:
 
   coverage:
     name: Coverage (line / branch / function thresholds)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     permissions:
       contents: write   # for posting the coverage report as a commit comment
     steps:
@@ -409,7 +409,7 @@ jobs:
 
   xvalidation:
     name: Wire-format cross-validation (REQ-FN-001)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     permissions:
       contents: write   # for posting the harness summary as a commit comment
     steps:

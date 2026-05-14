@@ -48,6 +48,8 @@ generator/out/
 # Local convenience
 .env
 .env.local
+# Self-hosted CI runner secrets — the PAT lives here, never commit it.
+ci/.env
 
 # Conformance corpus is staged from external assets (extract.sh).
 # We don't ship the multi-MB zserio-generated C++ reference or the
