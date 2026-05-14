@@ -1,28 +1,35 @@
 # Self-hosted GitHub Actions runner image for zserio-c CI.
 #
-# Debian Bookworm base — matches the gcc 12 / glibc the project is
-# developed against, so locally-reproduced builds line up with what
-# this runner produces. The image carries the full toolchain every
-# CI job needs, so the workflow's `apt-get install` steps become
-# fast no-ops (they still run, keeping the workflow portable back to
-# GitHub-hosted runners if the minutes quota resets).
+# Ubuntu 24.04 (Noble) base — deliberately the same OS GitHub-hosted
+# `ubuntu-latest` runs. Every committed gate baseline (size, perf,
+# coverage thresholds) and every MISRA suppression was established
+# on Noble's toolchain (gcc 13, cppcheck 2.13, lcov 2.x); matching
+# the base image keeps those references valid and avoids a whole
+# class of version-skew failures.
+#
+# The image carries the full toolchain every CI job needs, so the
+# workflow's `apt-get install` steps are fast no-ops, and the
+# `actions/setup-python` / `actions/setup-java` steps are removed
+# entirely — python3 and JDK 17 are baked in here.
 #
 # Build:  docker build -t zserio-ci-runner ci/
 # Run:    see ci/docker-compose.yml
 
-FROM debian:bookworm-slim
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
 
 # --- Toolchain -------------------------------------------------------------
-# Pinned to the package set the 11 CI jobs need:
-#   build-essential, clang  -> build-and-test (gcc + clang)
-#   cmake, ninja-build      -> every build job
-#   binutils                -> size gate (`size`), perf LTO (`gcc-ar`)
-#   cppcheck                -> MISRA gate
-#   lcov                    -> coverage gate (pulls in gcov via gcc)
-#   python3                 -> size/coverage/traceability/stack checkers
-#   default-jdk-headless,
-#   ant                     -> generator + xvalidation + perf bootstrap
-#   git, curl, jq, ca-certs -> checkout, submodules, runner registration
+# Pinned to the package set the CI jobs need:
+#   build-essential, clang        -> build-and-test (gcc + clang)
+#   cmake, ninja-build            -> every build job
+#   binutils                      -> size gate (`size`), perf LTO (`gcc-ar`)
+#   cppcheck                      -> MISRA gate
+#   lcov                          -> coverage gate (gcov ships with gcc)
+#   python3                       -> size/coverage/traceability/stack/MISRA-addon
+#   openjdk-17-jdk-headless, ant  -> generator + xvalidation + perf bootstrap
+#                                    (explicit JDK 17 — Noble's default-jdk is 21)
+#   git, curl, jq, ca-certs       -> checkout, submodules, runner registration
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
         clang \
@@ -33,7 +40,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         lcov \
         python3 \
         ant \
-        default-jdk-headless \
+        ant-optional \
+        openjdk-17-jdk-headless \
         git \
         curl \
         jq \
@@ -43,11 +51,33 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         gzip \
     && rm -rf /var/lib/apt/lists/*
 
+# --- GitHub CLI ------------------------------------------------------------
+# The workflow's "Post … as commit comment" steps shell out to `gh`.
+# It's not in Ubuntu's default repos; add the official GitHub CLI apt
+# source. (curl + ca-certificates from the layer above are needed here.)
+RUN mkdir -p -m 755 /etc/apt/keyrings \
+    && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+        -o /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+    && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+        > /etc/apt/sources.list.d/github-cli.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends gh \
+    && rm -rf /var/lib/apt/lists/*
+
+# --- Java environment ------------------------------------------------------
+# `ant` and the zserio build scripts find the JDK via JAVA_HOME. Set
+# it explicitly so the workflow doesn't need `actions/setup-java`.
+# The build-time `java -version` is a sanity check: if the JDK path
+# is wrong the image fails to build instead of every Java CI job
+# failing at run time.
+ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+RUN test -d "${JAVA_HOME}" && java -version && javac -version
+
 # --- Runner user -----------------------------------------------------------
 # The Actions runner refuses to run as root. Give the `runner` user
 # passwordless sudo so the workflow's `sudo apt-get` steps succeed
-# (they're no-ops against the pre-installed toolchain, but the
-# workflow still invokes them).
+# (no-ops against the pre-installed toolchain, but still invoked).
 RUN useradd -m -s /bin/bash runner \
     && echo "runner ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/runner \
     && chmod 0440 /etc/sudoers.d/runner
@@ -64,14 +94,9 @@ RUN mkdir -p /home/runner/actions-runner \
     && tar xzf runner.tar.gz \
     && rm runner.tar.gz \
     && ./bin/installdependencies.sh \
-    # Pre-create _work so the chown below covers it. docker-compose.yml
-    # mounts a named volume here; Docker initialises a fresh named
-    # volume from the mount point's image content *and ownership*, so
-    # creating _work as runner-owned now means the volume is runner-
-    # owned too. Without this the volume defaults to root-owned and
-    # the unprivileged `runner` user can't create job workspaces in
-    # it — every job then fails during initialisation, before its
-    # first step (the `steps: []`, ~3 s failure signature).
+    # _work lives in the container's writable layer (no named volume —
+    # see docker-compose.yml). Pre-create it runner-owned anyway so the
+    # ownership is correct regardless of how it's mounted.
     && mkdir -p /home/runner/actions-runner/_work \
     && chown -R runner:runner /home/runner
 

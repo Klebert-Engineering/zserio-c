@@ -8,17 +8,17 @@ Everything needed lives in [`ci/`](../ci/):
 
 | File | Purpose |
 | --- | --- |
-| `ci/Dockerfile` | Builder image — Debian Bookworm + the full CI toolchain + the GitHub Actions runner agent |
+| `ci/Dockerfile` | Builder image — Ubuntu 24.04 (the same OS GitHub-hosted `ubuntu-latest` runs, so the committed size/perf/coverage baselines and MISRA suppressions stay valid) + the full CI toolchain + `gh` + the GitHub Actions runner agent |
 | `ci/entrypoint.sh` | Runner lifecycle — exchanges a PAT for a registration token at start, de-registers on stop |
 | `ci/docker-compose.yml` | Three runner instances on one host, sharing the image |
 | `ci/.env.example` | Template for the one secret the operator manages (a GitHub PAT) |
 
 The CI workflow (`.github/workflows/ci.yml`) targets
-`runs-on: [self-hosted, linux, x64]`. The `apt-get install` steps in
-the workflow are intentionally kept — they're fast no-ops against
-the pre-installed toolchain in the image, and keep the workflow
-portable back to GitHub-hosted runners if the quota resets and you
-want to switch back.
+`runs-on: [self-hosted, linux, x64]`. The image bakes in python3 and
+JDK 17 (with `JAVA_HOME` set), so the workflow uses no
+`actions/setup-python` or `actions/setup-java` steps — those download
+toolchains at runtime and are redundant against a purpose-built
+image. The `apt-get install` steps are kept as fast no-ops.
 
 ## Hardware
 

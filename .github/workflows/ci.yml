@@ -13,9 +13,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: false
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.x'
+      # python3 is provided by the self-hosted runner image
+      # (ci/Dockerfile) — no actions/setup-python needed.
       - name: Run traceability check
         run: python3 tools/check_traceability.py
 
@@ -184,10 +183,7 @@ jobs:
         run: git submodule update --init third_party/zserio
       - name: Install build tools
         run: sudo apt-get update && sudo apt-get install -y ant gcc g++
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
+      # JDK 17 + JAVA_HOME provided by the runner image (ci/Dockerfile).
       - name: Cache upstream zserio jars
         uses: actions/cache@v4
         with:
@@ -252,10 +248,7 @@ jobs:
         run: git submodule update --init third_party/zserio
       - name: Install build tools
         run: sudo apt-get update && sudo apt-get install -y ant
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
+      # JDK 17 + JAVA_HOME provided by the runner image (ci/Dockerfile).
       - name: Cache upstream zserio_core.jar
         uses: actions/cache@v4
         with:
@@ -312,10 +305,7 @@ jobs:
           git submodule update --init third_party/zserio-test-data
       - name: Install build tools
         run: sudo apt-get update && sudo apt-get install -y ant
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
+      # JDK 17 + JAVA_HOME provided by the runner image (ci/Dockerfile).
       - name: Cache upstream zserio_core.jar
         uses: actions/cache@v4
         with:
@@ -428,10 +418,7 @@ jobs:
         # runner image but the explicit install keeps the step
         # self-documenting.
         run: sudo apt-get update && sudo apt-get install -y ant gcc g++
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
+      # JDK 17 + JAVA_HOME provided by the runner image (ci/Dockerfile).
       - name: Cache upstream zserio jars
         # Two artifacts cached together: zserio_core.jar (drives our
         # generator) and zserio.jar (the bundle with the cpp
