@@ -104,6 +104,10 @@ verification evidence. Every commit to `main` reproduces them:
 | `Size regression (REQ-PF-002)`             | Size baseline gate.                                     |
 | `MISRA C:2012 (cppcheck) + forbidden-symbols` | Static analysis on the runtime.                      |
 | `Coverage (line / branch / function thresholds)` | Coverage gate against the runtime.                |
+| `Decode-path fuzzing (REQ-FS-006)`         | libFuzzer + ASan + UBSan over two representative schemas, 60 s each per commit, persistent corpus. |
+| `MISRA C:2012 (generator output)`          | Generator-output-MISRA gate over a 13-schema set.       |
+| `Performance benchmark (REQ-PF-001, host=primary)` | Per-host (AMD x86_64) median-of-5 encode/decode ns/op vs upstream cpp; ≥ 15 % regression fails. |
+| `Performance benchmark (REQ-PF-001, host=pi4)` | Per-host (Cortex-A72) replay of the same harness; baselines independent of primary. |
 
 ## Known integration gaps
 

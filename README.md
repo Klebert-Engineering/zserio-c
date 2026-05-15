@@ -6,13 +6,18 @@ target ASIL-B, architectural headroom toward ASIL-D).
 
 ## Status
 
-**Phase 5 substantively complete · Phase 6 active.** Every CI gate green on
-`main`. Wire compatibility with upstream `ndsev/zserio v2.18.1` is gated at
-182 schemas × 5 seeds per commit. The ISO 26262 safety case is drafted end
-to end under [`docs/safety-case/`](docs/safety-case/), pending independent
-review for `draft → accepted`. Phase 6 is now in measurement-first mode:
-the `perf` CI job runs the benchmark harness on every commit (advisory)
-while the optimisation work that closes the cpp ratio is staged.
+**Phase 5 substantively complete · Phase 6 optimisation arc landed.** Every
+CI gate green on `main`. Wire compatibility with upstream
+`ndsev/zserio v2.18.1` is gated at 182 schemas × 5 seeds per commit. The
+ISO 26262 safety case is drafted end to end under
+[`docs/safety-case/`](docs/safety-case/), pending independent review for
+`draft → accepted`. The Phase 6 perf gate runs per-commit on two self-
+hosted hosts (AMD `primary`, Raspberry-Pi 4 `pi4`); zserio-c currently
+beats or ties upstream cpp on 9 of 13 workloads at the libc-vs-libc
+default, and on the arena workload runs **1.2–2.0×** ahead of upstream
+cpp's `std::pmr` equivalent. See
+[`CHANGELOG.md`](CHANGELOG.md#phase-6--optimisation-arc-2026-05-13--2026-05-15)
+for the per-workload table and the optimisations that produced it.
 
 | Phase | Status | Marker |
 | ----- | ------ | ------ |
@@ -22,7 +27,7 @@ while the optimisation work that closes the cpp ratio is staged.
 | 3 — Full schema-language coverage | ✅ done | 391/391 grammar acceptance on upstream test corpus |
 | 4 — Conformance against upstream test corpus | ✅ done | `xvalidation` CI gate: 182 schemas × 5 seeds byte-equal vs cpp |
 | 5 — Safety case maturation | 🟢 substantively complete | 14 work products in `docs/safety-case/`, all `draft`; **all internal Open items closed**, gated only on case-wide independent reviewer sign-off. G3 — generator-output MISRA gate — closed `c13bd41`; G4 — transitive stack budget — closed via gcc `-fcallgraph-info` longest-path traversal (current max 512 B / 1024 B ceiling); G5 — decode-path fuzzing — closed via libFuzzer + ASan + UBSan, 60 s per target per commit, persistent corpus |
-| 6 — Performance benchmarks vs C++ runtime | 🟢 measurement live (advisory) | `perf` CI job: harness + cpp-ratio reporting; optimisation work to close the ratio is open |
+| 6 — Performance benchmarks vs C++ runtime | 🟢 optimisation arc landed | `perf` CI job: strict gate on AMD `primary` + Raspberry-Pi 4 `pi4`. Inline `_checked` byte-loop helpers + packed-delta steady-state inlining ("trait-devirt") + conditional zero-init of owned-element arrays. **9 / 13 workloads beat or tie cpp** at the libc default; arena workload runs 1.2–2.0× ahead of cpp pmr. Reference bump arena (`zserio_arena_t`) ships in `allocator.h` for embedded callers. |
 | 7 — C-native parser replaces Java front-end | ⬜ open | |
 
 See [`docs/architecture.md`](docs/architecture.md) for the design and
@@ -138,7 +143,8 @@ docs/safety-case.md            — entry point for the safety case
 docs/safety-case/              — 14 ISO 26262 work products
 docs/misra-deviations/         — D001..D006 with cppcheck-suppressions cross-refs
 docs/upstream-analysis/        — six deep-reads of upstream zserio
-docs/benchmarks/               — size baseline (perf baseline coming in Phase 6)
+docs/benchmarks/               — per-host perf baselines + size baseline
+                                 + methodology + per-host tuning notes
 
 requirements/                  — REQ-FN-* (functional), REQ-FS-* (safety),
                                  REQ-PF-* (performance), one .md per requirement

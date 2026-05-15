@@ -27,12 +27,27 @@ inlinable status checks), so this requirement holds us to that thesis.
 ## Verification
 
 - A benchmark harness (added in Phase 1, exercised in Phase 6) measures
-  read and write throughput for:
-  - A small flat struct (10 fixed-width fields).
-  - A medium nested struct (~100 fields, two levels of nesting).
-  - A large array-heavy schema (1 MB encoded).
-- Numbers are recorded to `docs/benchmarks/` per release. Regressions
-  greater than 5% on any case fail CI.
+  read and write throughput across a corpus of upstream-derived
+  workloads:
+  - Small flat struct (`small_flat`, 10 primitive fields, ~31 B).
+  - Medium nested struct (`medium_nested`, ~100 fields, 2 levels).
+  - Large array (`large_array`, 1 MB primitive-element auto-array).
+  - Upstream zserio benchmarks: `addressbook`, `carsales`,
+    `simpletrace` and their `_align` / `_packed` variants.
+  - Showcase: `addressbook_align_arena` exercises the bump-arena
+    deployment shape (matched against a pmr cpp_driver).
+- The harness lives in `tests/benchmarks/run_benchmark.sh` and runs
+  each workload `RUNS=5` times per host, taking the median ns/op.
+- Numbers are recorded per host at
+  `docs/benchmarks/perf.baseline.<host>.json`. The active hosts are
+  `primary` (AMD x86_64) and `pi4` (Raspberry Pi 4 Cortex-A72).
+- `tools/check_perf_regression.py` is the gate. It compares the
+  current run against the same host's baseline file and fails on a
+  zserio-c metric regression > 15% (`REGRESSION_PCT_FAIL`). It also
+  emits an advisory `↓ rebaseline?` hint at ≥ 30% improvement so
+  stale baselines get noticed. The 15% threshold is loose by design
+  to absorb runner-noise; tightening per host is a follow-up once
+  the longer-term noise floor is characterised.
 
 ## Notes
 

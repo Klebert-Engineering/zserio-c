@@ -39,16 +39,40 @@ Everything else listed below is yours to wire up.
 ### 1. Supply an allocator (H-03, REQ-FS-001)
 
 The runtime requires a `zserio_allocator_t` vtable on every
-allocating call. Two options:
+allocating call. Three options, in increasing order of automotive
+fitness:
 
-- **`runtime/src/allocator.c`** — the reference libc wrapper.
-  Suitable for development and for production where libc is
-  qualified.
-- **A fixed-pool implementation of your own.** The vtable is three
-  function pointers (`alloc`, `free`, `realloc`); see
-  `runtime/include/zserio/allocator.h` for the contract. A pool
-  allocator gives you the bounded-memory property the safety case
-  cannot guarantee on its own.
+- **`zserio_allocator_libc()`** — the reference libc wrapper in
+  `runtime/src/allocator.c`. Suitable for development and for
+  production where libc is qualified.
+- **`zserio_allocator_arena(&arena)`** — the reference bump arena
+  shipped in the runtime. The caller declares a `zserio_arena_t`
+  over a fixed-size backing buffer; `alloc` is a pointer add,
+  `free` is a no-op, `zserio_arena_reset(&arena)` reclaims the
+  whole arena in O(1) between decodes. The arena gives you the
+  bounded-memory property the safety case cannot guarantee on its
+  own AND the performance envelope the libc allocator masks (the
+  per-commit perf gate shows the arena workload running 1.2–2.0×
+  faster than upstream cpp's `std::pmr` equivalent on the same
+  payload). Typical use:
+  ```c
+  static uint8_t pool[64 * 1024];          /* fixed budget per channel */
+  zserio_arena_t arena;
+  zserio_arena_init(&arena, pool, sizeof pool);
+  const zserio_allocator_t alloc = zserio_allocator_arena(&arena);
+  /* decode using `alloc`; the arena's high_water field tells you
+   * how much of `pool` the worst case consumed. */
+  zserio_arena_reset(&arena);              /* between messages */
+  ```
+  Size `pool` from `arena.high_water` measured on representative
+  worst-case inputs. The arena returns `NULL` on exhaustion, which
+  propagates as `ZSERIO_ERR_OUT_OF_MEMORY` through every generated
+  reader — no abort.
+- **A fixed-pool / `pmr`-style implementation of your own.** The
+  vtable is three function pointers (`alloc`, `free`, `realloc`);
+  see `runtime/include/zserio/allocator.h` for the contract. Use
+  this when neither libc nor a single monotonic arena fit the
+  channel (e.g. multi-message reuse with selective free).
 
 The integrator's choice shapes the memory-bound analysis. Whichever
 allocator you supply, every `alloc` call site in the runtime

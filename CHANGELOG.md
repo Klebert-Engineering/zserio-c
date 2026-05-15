@@ -7,11 +7,119 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Phase 6 — measurement framework (2026-05-13)
+### Phase 6 — optimisation arc (2026-05-13 → 2026-05-15)
 
-`.phase` advanced from 4 to 6. Phase 5 is substantively complete
-(every work product at `draft`); Phase 6 opens with the benchmark
-infrastructure that REQ-PF-001 calls for.
+With the measurement framework live, the optimisation work that
+REQ-PF-001 calls for landed across both perf hosts (AMD `primary`,
+Raspberry-Pi 4 `pi4`). Headline outcome: **zserio-c beats or ties
+upstream cpp on 9 of 13 workloads** at the libc-vs-libc default
+allocator, and pulls ahead 1.2–2.0× on the arena workload when
+both sides use a monotonic allocator. The remaining two losses
+(`addressbook_align`, `addressbook_packed`) are documented as a
+libc-string-allocation vs `std::string` SSO difference, not an
+algorithmic gap.
+
+#### Added — runtime API
+
+- **Reference bump arena allocator** (`88550f7`). New public
+  `zserio_arena_t` state + `zserio_allocator_arena(...)` adapter
+  in `runtime/include/zserio/allocator.h`. Monotonic upward bump,
+  `zserio_arena_reset()` reclaims the whole arena in O(1), free
+  is a no-op. The runtime's allocator vtable already supported
+  this kind of plug-in; what was missing was a usable reference
+  implementation so callers don't roll their own. Unit-tested
+  for alignment-up, OOM, integer-wrap defence, reset-preserves-
+  high-water, free-is-noop. D004 / D005 MISRA deviations
+  extended to cover the new code (allocator `void*` cast +
+  buffer-byte pointer arithmetic — same patterns previously
+  accepted for the bitstream).
+- **`tests/benchmarks/workloads/addressbook_align_arena/`** — a
+  showcase workload pairing the bump arena (c_driver) against
+  `std::pmr::PropagatingPolymorphicAllocator` backed by a custom
+  `BumpMemoryResource` (cpp_driver, `b5ce535`). The cpp_driver
+  exercises upstream's `-setCppAllocator polymorphic` codegen
+  mode so the comparison is fair (arena-vs-arena, not arena-vs-
+  std::allocator).
+
+#### Added — performance infrastructure
+
+- **Multi-host perf gate.** AMD `primary` (per-commit canonical
+  x86_64 reference) plus Raspberry-Pi 4 `pi4` (per-commit
+  Cortex-A72 reference). Self-hosted runners are arch-aware
+  (`decb065`), host-namespaced (`a7c8410`), label-clean
+  (`0fa66ab`); the perf job's matrix routes per-host (`783fce7`);
+  transition guards (`continue-on-error` + 30 min timeout from
+  `7babcf5`) removed once both hosts were stable (`c57bd09`).
+- **Per-host baselines** at `docs/benchmarks/perf.baseline.<host>.json`
+  with `PERF_HOST` env-var routing through
+  `tools/check_perf_regression.py` — gate fails on ≥ 15 %
+  zserio-c regression, advises "↓ rebaseline?" on ≥ 30 % win.
+- **`docs/benchmarks/methodology.md`** — per-host comparison
+  rationale, host-label table, Pi-tuning subsection (governor /
+  swap / apt-daily timers), and an allocator-choice section that
+  calls out the arena-workload framing explicitly so a row at
+  cpp/c > 2 isn't mistaken for a wire-format advantage.
+
+#### Optimisations landed
+
+Listed in order of commit and impact:
+
+1. **Inline `_checked` byte-loop helpers** (`9aac4bd`).
+   `zserio_bitstream_read_bits_checked` and a matching signed
+   variant — keep the bit-cache state live in registers across
+   consecutive byte reads in varint / string slow paths.
+   **+13–23 %** on packed-varint workloads.
+2. **Packed-delta steady-state inlining** ("trait-devirt",
+   `6c7ce68` + dead-code cleanup `8b4b69c`).
+   `zserio_delta_read` / `_write` become `static inline`
+   wrappers in `delta.h` that open-code the packed steady-state
+   branch and defer cold first-element / unpacked-fallback to
+   out-of-line `_slow` helpers. The hot loop now drops three
+   function-call boundaries per element (state machine +
+   `read_signed_checked` + `read_bits_impl`). **−46 % / −47 %**
+   on `simpletrace_packed` (primary / pi4). cpp/c ratio: 0.58
+   → 1.116 (primary).
+3. **Conditional zero-init of owned-element arrays**
+   (`a795668` for non-packed, `8326da2` for packed-compound).
+   The generator no longer emits `memset(buffer, 0, N*sizeof)`
+   before the per-element loop. Count starts at 0, commits to
+   the full value only after the loop succeeds; on per-element
+   error, local cleanup walks the decoded slots, frees the
+   buffer at its captured alloc size, and propagates the status.
+   Wire format unchanged; xvalidation 182 / 182 pass at every
+   commit. **−7.6 %** on vanilla `addressbook` (now at cpp/c
+   1.020 — the algorithmic gap closed), −4.6 % on
+   `addressbook_align_arena`, −4.5 % / −1.4 % on
+   `addressbook_packed`, −2.7 % / −4.9 % on
+   `simpletrace_packed`.
+
+#### Current performance state (per-host CI baselines, decode)
+
+cpp/c ratio per workload — values ≥ 1.0 mean zserio-c wins.
+
+| Workload                  | primary | pi4   | Verdict                          |
+| ------------------------- | ------: | ----: | -------------------------------- |
+| `large_array`             |  2.295  | 1.592 | clear win (bulk throughput)      |
+| `addressbook_align_arena` |  1.215  | 2.039 | arena vs pmr cpp (fair)          |
+| `simpletrace_packed`      |  1.116  | 1.336 | trait-devirt + transactional     |
+| `carsales_align`          |  1.333  | 1.253 | win                              |
+| `carsales`                |  1.158  | 1.191 | win                              |
+| `carsales_packed`         |  1.088  | 1.150 | win                              |
+| `small_flat`              |  1.193  | 1.008 | parity / small win               |
+| `medium_nested`           |  0.994  | 1.023 | parity                           |
+| `apollo`                  |  0.980  | 1.012 | parity                           |
+| `addressbook`             |  0.981  | 0.990 | parity (libc-vs-libc gap closed) |
+| `simpletrace`             |  0.887  | 0.956 | narrow loss                      |
+| `addressbook_align`       |  0.747  | 0.776 | libc-string-alloc gap            |
+| `addressbook_packed`      |  0.820  | 0.860 | libc-string-alloc gap            |
+
+The two `addressbook_*` losses are dominated by per-string
+`malloc` / `free` traffic. cpp's `std::string` SSO avoids the
+malloc on short names; ours always allocates. An embedded
+caller plugs the bump arena and the gap collapses (see
+`addressbook_align_arena`).
+
+### Phase 6 — measurement framework (2026-05-13)
 
 #### Added
 

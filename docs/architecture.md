@@ -22,21 +22,40 @@ code disagrees, the code is wrong.
 
 Neither the runtime nor generated code calls `malloc`, `calloc`, `realloc`,
 or `free` directly. All allocation flows through a caller-supplied
-allocator vtable:
+allocator vtable. The vtable is a separate struct so multiple allocator
+instances can share one static-const set of function pointers while
+each carries its own state in `userdata`:
 
 ```c
+typedef struct zserio_allocator_vtable {
+    void *(*alloc)  (void *userdata, size_t size, size_t alignment);
+    void *(*realloc)(void *userdata, void *ptr,
+                     size_t old_size, size_t new_size, size_t alignment);
+    void  (*free)   (void *userdata, void *ptr, size_t size, size_t alignment);
+} zserio_allocator_vtable_t;
+
 typedef struct zserio_allocator {
-    void *(*alloc)(void *userdata, size_t size, size_t alignment);
-    void *(*realloc)(void *userdata, void *ptr, size_t old_size, size_t new_size, size_t alignment);
-    void  (*free)(void *userdata, void *ptr, size_t size);
-    void  *userdata;
+    const zserio_allocator_vtable_t *vtable;
+    void                            *userdata;
 } zserio_allocator_t;
 ```
 
-The default backend wraps `malloc`/`free`. Safety builds plug in a
-fixed-size pool allocator and pass the same handle through every call.
-This is what unblocks ASIL use cases: there is no hidden state in the
-allocator, no globals, no thread-local heap.
+Two reference backends ship in the runtime:
+
+- `zserio_allocator_libc()` wraps `malloc` / `realloc` / `free`. Right
+  for development and for production where libc is qualified.
+- `zserio_allocator_arena(&arena)` wraps a caller-owned
+  `zserio_arena_t` — a monotonic upward bump over a fixed-size byte
+  buffer. `alloc` is a pointer add, `free` is a no-op, and
+  `zserio_arena_reset()` reclaims the whole arena in O(1) between
+  decodes. Right for embedded automotive deployments where libc
+  malloc isn't viable.
+
+Safety builds may also plug a fixed-size pool or pmr-style allocator
+of their own — the vtable is three function pointers and is documented
+in `runtime/include/zserio/allocator.h`. This is what unblocks ASIL
+use cases: there is no hidden state in the allocator, no globals, no
+thread-local heap.
 
 ### 2. No exceptions, no `setjmp`
 
