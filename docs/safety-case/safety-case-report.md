@@ -151,7 +151,9 @@ The safety case has three categories of open items:
    tag.
 
 3. **Residual risks delegated to the integrator** (see
-   `item-definition.md` § Assumed system context):
+   `item-definition.md` § Assumed system context and
+   `docs/integration-guide.md` for the integrator-facing
+   checklist):
    - Payload integrity (CRC / MAC layer wraps the byte stream
      when end-to-end protection is required).
    - Schema version pinning per channel.

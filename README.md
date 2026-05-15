@@ -97,8 +97,9 @@ The four pillars are CI-gated, not aspirational:
 - **Wire-compatible** with upstream `ndsev/zserio v2.18.1` — gated for 182
   schemas × 5 seeds per commit, byte-equal in both directions.
 - **Bounded stack** — every function has a static, ≤ 256 B frame (current
-  observed max 144 B); combined with no-recursion (REQ-FS-003) this bounds
-  the worst-case call-chain total.
+  observed max 160 B); the worst transitive call-chain is gated at ≤ 1024 B
+  (current observed max 512 B), enforced via a longest-weighted-path
+  traversal of gcc's `-fcallgraph-info` graph plus no-recursion (REQ-FS-003).
 
 ## Why a port
 
@@ -130,6 +131,7 @@ third_party/zserio-test-data/  upstream test-corpus submodule
 
 docs/architecture.md           — design intent (load-bearing)
 docs/coding-rules.md           — code style + MISRA framing
+docs/integration-guide.md      — integrator-facing checklist (H-04/H-05, allocator, stack sizing, toolchain qualification)
 docs/safety-case.md            — entry point for the safety case
 docs/safety-case/              — 14 ISO 26262 work products
 docs/misra-deviations/         — D001..D006 with cppcheck-suppressions cross-refs

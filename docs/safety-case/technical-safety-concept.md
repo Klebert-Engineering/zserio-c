@@ -171,9 +171,12 @@ fails on either:
   size frame: alloca, VLA).
 
 Combined with REQ-FS-003 (no recursion), this bounds the worst-case
-total stack to `MAX_FRAME_BYTES × deepest-call-chain-depth`. The
-current observed max frame is 144 B (`zserio_read_extern`); the
-gate is set roughly 1.8× that to allow legitimate new code.
+total stack. The same gate also runs an exact longest-weighted-path
+traversal over the unioned per-TU call graph (gcc
+`-fcallgraph-info=su,da`) and rejects any chain whose summed frames
+exceed `MAX_PATH_BYTES = 1024`. Current observed max per-function
+frame is 160 B (`zserio_read_extern`); current observed max
+transitive chain is 512 B over 7 frames.
 
 | Element                              | Verifies                                                                |
 | ------------------------------------ | ----------------------------------------------------------------------- |

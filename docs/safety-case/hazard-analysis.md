@@ -27,7 +27,7 @@ Scope and conventions follow `item-definition.md`.
 | H-06  | Leakage of state between codec instances             | Hidden static state shared across encoder/decoder calls      | Any public API                  | Architectural review; tests instantiate two readers in parallel | REQ-FS-007 freedom from interference; no static mutable state                       | None — wholly inside `zserio-c`    |
 | H-07  | Reflection / dynamic dispatch surprises              | Generated code uses runtime type info that varies by build   | Generated code                  | Architectural review                                          | REQ-FS-008 no runtime reflection                                                    | None — wholly inside `zserio-c`    |
 | H-08  | Wire-format divergence from upstream zserio          | `zserio-c` encoder produces bytes that upstream cannot decode (or vice versa) | Both encode and decode | xvalidation gate (`tests/xvalidation/`) compares byte-for-byte against `v2.18.1` for 182 schemas × 5 seeds per CI run | REQ-FN-001 enforced in CI                                                            | None — wholly inside `zserio-c`    |
-| H-09  | Stack overflow on deeply nested compounds            | Schema permits arbitrary nesting; decode path's stack frames are not statically bounded | Decode path | CI gate (`stack` job) enforces per-function frame ≤ 256 B and rejects non-static (`dynamic`/`bounded`) frames | REQ-FS-003 forbids recursion; per-function ceiling enforced by `tools/measure_stack_usage.py --strict`. Current worst frame: 144 B (`zserio_read_extern`). See `stack-budget.md`. | Integrator may impose target-side stack guards |
+| H-09  | Stack overflow on deeply nested compounds            | Schema permits arbitrary nesting; decode path's stack frames are not statically bounded | Decode path | CI gate (`stack` job) enforces per-function frame ≤ 256 B AND transitive call-chain ≤ 1024 B, rejects non-static (`dynamic`/`bounded`) frames | REQ-FS-003 forbids recursion; both ceilings enforced by `tools/measure_stack_usage.py --strict`. Current worst per-function frame: 160 B (`zserio_read_extern`); current worst transitive chain: 512 B over 7 frames. See `stack-budget.md`. | Integrator may impose target-side stack guards |
 | H-10  | Toolchain miscompilation                             | Compiler or static analyzer produces incorrect code/output   | Generated runtime + codec       | Out of scope at the item level                                | Tool qualification record per tool (planned — `tool-qualification.md`)              | Integrator selects qualified toolchain |
 
 ## Classification
@@ -44,9 +44,10 @@ requirements and verification regime. Closure status:
 
 - H-01..H-08, H-10: addressed by existing requirements + CI gates.
 - H-09: closed by `stack-budget.md` + the `stack` CI gate
-  (per-function ceiling 256 B, strict static-qualifier check).
+  (per-function ceiling 256 B and transitive call-chain ceiling
+  1024 B, both with strict static-qualifier check).
 - H-04, H-05: out of scope at the item level; integrator-side
-  responsibilities recorded for the integration guide.
+  responsibilities recorded in `docs/integration-guide.md`.
 
 ## Cross-references
 
@@ -59,12 +60,13 @@ requirements and verification regime. Closure status:
 
 ## Open items
 
-1. **H-04 / H-05 integrator notes.** A short integration guide
-   under `docs/integration-guide.md` that records the assumed
-   integrator responsibilities listed in the rightmost column.
+(none)
 
 ## Closed items
 
+- **H-04 / H-05 integrator notes.** The assumed integrator
+  responsibilities listed in the rightmost column of the HARA
+  table are collected in `docs/integration-guide.md`.
 - **Transitive stack-budget calculation.** The `stack` job now
   runs a longest-weighted-path traversal over the unioned per-TU
   call graph (gcc `-fcallgraph-info=su,da`) with a cycle check

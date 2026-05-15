@@ -45,7 +45,8 @@ Draft (delivered in the Phase 5 launch commit):
       `docs/safety-case/hazard-analysis.md`.
 - [/] Stack-budget analysis — `docs/safety-case/stack-budget.md` +
       `tools/measure_stack_usage.py` + CI `stack` job. Closes hazard
-      H-09; current worst frame 144 B, gate at 256 B per function.
+      H-09; current worst per-function frame 160 B (gate 256 B) AND
+      current worst transitive call-chain 512 B (gate 1024 B).
 - [/] Failure-mode injection tests — `tests/runtime/test_failure_modes.c`.
       One test per actionable HARA row (H-01, H-02, H-03, H-06);
       remaining rows handled by other gates or out of scope.
@@ -105,5 +106,9 @@ Previously listed questions, now answered:
   xvalidation gate as the detection mechanism. See
   `safety-case/tool-qualification-generator.md`.
 - Bounded-stack analysis approach → per-function `-fstack-usage`
-  gate with a 256 B ceiling; transitive path total flagged as a
-  follow-up. See `safety-case/stack-budget.md`.
+  gate with a 256 B ceiling, plus a transitive longest-weighted-
+  path gate over the unioned `-fcallgraph-info=su,da` call graph
+  with a 1024 B ceiling. See `safety-case/stack-budget.md`.
+- Integrator responsibilities checklist → `docs/integration-guide.md`
+  (consolidates H-04/H-05 integrator notes from the HARA's
+  rightmost column).
