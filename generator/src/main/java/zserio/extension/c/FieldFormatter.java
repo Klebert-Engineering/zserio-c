@@ -1898,7 +1898,9 @@ public final class FieldFormatter
             return new ElementOps(b.cType, b.extraInclude, /* owned */ true,
                     setParamsRead  + "ZSERIO_TRY(" + prefix + "_read(&$SLOT$, bs, alloc));",
                     setParamsWrite + "ZSERIO_TRY(" + prefix + "_write(&$SLOT$, bs));",
-                    prefix + "_free(&$SLOT$, alloc);");
+                    prefix + "_free(&$SLOT$, alloc);",
+                    setParamsRead.isEmpty() ? null : setParamsRead,
+                    prefix + "_read(&$SLOT$, bs, alloc)");
         }
 
         final ZserioType under = underlyingType(direct);
@@ -1914,7 +1916,9 @@ public final class FieldFormatter
             return new ElementOps("zserio_string_t", "zserio/string.h", /* owned */ true,
                     "ZSERIO_TRY(zserio_read_string(bs, alloc, &$SLOT$));",
                     write,
-                    "zserio_string_free(&$SLOT$, alloc);");
+                    "zserio_string_free(&$SLOT$, alloc);",
+                    /* setupBefore */ null,
+                    /* bareCall */ "zserio_read_string(bs, alloc, &$SLOT$)");
         }
         if (under instanceof BytesType)
         {
@@ -1927,7 +1931,9 @@ public final class FieldFormatter
             return new ElementOps("zserio_bytes_t", "zserio/bytes.h", /* owned */ true,
                     "ZSERIO_TRY(zserio_read_bytes(bs, alloc, &$SLOT$));",
                     write,
-                    "zserio_bytes_free(&$SLOT$, alloc);");
+                    "zserio_bytes_free(&$SLOT$, alloc);",
+                    /* setupBefore */ null,
+                    /* bareCall */ "zserio_read_bytes(bs, alloc, &$SLOT$)");
         }
         if (under instanceof ExternType)
         {
@@ -1940,7 +1946,9 @@ public final class FieldFormatter
             return new ElementOps("zserio_extern_t", "zserio/extern.h", /* owned */ true,
                     "ZSERIO_TRY(zserio_read_extern(bs, alloc, &$SLOT$));",
                     write,
-                    "zserio_extern_free(&$SLOT$, alloc);");
+                    "zserio_extern_free(&$SLOT$, alloc);",
+                    /* setupBefore */ null,
+                    /* bareCall */ "zserio_read_extern(bs, alloc, &$SLOT$)");
         }
 
         // Bit-field elements: read/write per-element via the bitstream
@@ -2052,40 +2060,16 @@ public final class FieldFormatter
         final String declaration = ops.cType + " *" + name;
         final String extraMember = "size_t " + name + "_count;";
 
-        final String elementRead  = ops.readLine.replace("$SLOT$", slotExpr);
         final String elementWrite = ops.writeLine.replace("$SLOT$", slotExpr);
 
-        // Owned-element variable arrays must zero the freshly-allocated
-        // buffer so a partial-fill failure leaves the unread slots in
-        // a state where the runtime _free is a no-op (NULL bytes / 0
-        // length / zero-init compound members). Primitive elements
-        // don't need the memset — the read fully overwrites each slot
-        // and there's no per-element free that could trip on garbage.
-        final String memsetLine = ops.owned
-                ? "            (void)memset(" + ptrExpr + ", 0, "
-                        + countExpr + " * sizeof(*(" + ptrExpr + ")));\n"
-                : "";
-
+        // Read body shape depends on owned-ness. The varsize is read first
+        // either way, then the body decides allocation + per-element read.
         final String read =
                 "{\n"
                 + "        uint32_t " + name + "_size = 0u;\n"
                 + "        ZSERIO_TRY(zserio_read_varsize(bs, &" + name + "_size));\n"
-                + "        " + countExpr + " = (size_t)" + name + "_size;\n"
-                + "        " + ptrExpr   + " = NULL;\n"
-                + "        if (" + countExpr + " > 0u) {\n"
-                + "            " + ptrExpr + " = (" + ops.cType + " *)alloc->vtable->alloc(\n"
-                + "                    alloc->userdata,\n"
-                + "                    " + countExpr + " * sizeof(*(" + ptrExpr + ")),\n"
-                + "                    sizeof(*(" + ptrExpr + ")));\n"
-                + "            if (" + ptrExpr + " == NULL) {\n"
-                + "                return ZSERIO_ERR_OUT_OF_MEMORY;\n"
-                + "            }\n"
-                + memsetLine
-                + "            for (size_t " + iVar + " = 0u; " + iVar + " < "
-                + countExpr + "; ++" + iVar + ") {\n"
-                + "                " + elementRead + "\n"
-                + "            }\n"
-                + "        }\n"
+                + arrayAllocAndReadBody(ops, "(size_t)" + name + "_size",
+                        countExpr, ptrExpr, iVar, slotExpr)
                 + "    }";
         final String write =
                 "{\n"
@@ -2147,32 +2131,12 @@ public final class FieldFormatter
         final String declaration = ops.cType + " *" + name;
         final String extraMember = "size_t " + name + "_count;";
 
-        final String elementRead  = ops.readLine.replace("$SLOT$", slotExpr);
         final String elementWrite = ops.writeLine.replace("$SLOT$", slotExpr);
-
-        final String memsetLine = ops.owned
-                ? "            (void)memset(" + ptrExpr + ", 0, "
-                        + countExpr + " * sizeof(*(" + ptrExpr + ")));\n"
-                : "";
 
         final String read =
                 "{\n"
-                + "        " + countExpr + " = (size_t)(" + formattedLen + ");\n"
-                + "        " + ptrExpr   + " = NULL;\n"
-                + "        if (" + countExpr + " > 0u) {\n"
-                + "            " + ptrExpr + " = (" + ops.cType + " *)alloc->vtable->alloc(\n"
-                + "                    alloc->userdata,\n"
-                + "                    " + countExpr + " * sizeof(*(" + ptrExpr + ")),\n"
-                + "                    sizeof(*(" + ptrExpr + ")));\n"
-                + "            if (" + ptrExpr + " == NULL) {\n"
-                + "                return ZSERIO_ERR_OUT_OF_MEMORY;\n"
-                + "            }\n"
-                + memsetLine
-                + "            for (size_t " + iVar + " = 0u; " + iVar + " < "
-                + countExpr + "; ++" + iVar + ") {\n"
-                + "                " + elementRead + "\n"
-                + "            }\n"
-                + "        }\n"
+                + arrayAllocAndReadBody(ops, "(size_t)(" + formattedLen + ")",
+                        countExpr, ptrExpr, iVar, slotExpr)
                 + "    }";
 
         // Write does NOT emit a wire-length prefix — the receiver
@@ -2288,18 +2252,127 @@ public final class FieldFormatter
                 /* owned */ ops.freeLine != null, ops.extraInclude, /* extraMember */ "");
     }
 
+    /**
+     * Emit the shared "decode size + alloc buffer + run the per-element
+     * loop" body, used by both the varsize-prefixed and the
+     * expression-driven variable-array sites.
+     *
+     * For owned element types (with a non-null {@code freeLine} and
+     * {@code bareCall}) the body is the *transactional* form: count
+     * starts at zero, the buffer is allocated at the full size, and any
+     * per-element error rewinds the read by walking the already-decoded
+     * elements + freeing the buffer at its original allocation size,
+     * then propagates the error. Skipping the bulk pre-loop memset is
+     * the perf win (no zero-init across the whole array; cleanup walks
+     * only the slots actually populated, so unread slots never reach
+     * the runtime's {@code _free} helpers).
+     *
+     * For non-owned (primitive) element types the body keeps the
+     * original simple shape — count commits upfront and the loop uses
+     * the existing {@code ZSERIO_TRY(...);} read line. Primitives don't
+     * need a per-element free, so partial-fill on error has no leak
+     * exposure that would benefit from the transactional path.
+     */
+    private static String arrayAllocAndReadBody(ElementOps ops, String sizeExpr,
+            String countExpr, String ptrExpr, String iVar, String slotExpr)
+    {
+        final boolean transactional = ops.bareCall != null && ops.freeLine != null;
+
+        if (!transactional)
+        {
+            final String elementRead = ops.readLine.replace("$SLOT$", slotExpr);
+            return
+                    "        " + countExpr + " = (" + sizeExpr + ");\n"
+                  + "        " + ptrExpr + " = NULL;\n"
+                  + "        if (" + countExpr + " > 0u) {\n"
+                  + "            " + ptrExpr + " = (" + ops.cType
+                          + " *)alloc->vtable->alloc(\n"
+                  + "                    alloc->userdata,\n"
+                  + "                    " + countExpr + " * sizeof(*(" + ptrExpr + ")),\n"
+                  + "                    sizeof(*(" + ptrExpr + ")));\n"
+                  + "            if (" + ptrExpr + " == NULL) {\n"
+                  + "                return ZSERIO_ERR_OUT_OF_MEMORY;\n"
+                  + "            }\n"
+                  + "            for (size_t " + iVar + " = 0u; " + iVar + " < "
+                          + countExpr + "; ++" + iVar + ") {\n"
+                  + "                " + elementRead + "\n"
+                  + "            }\n"
+                  + "        }\n";
+        }
+
+        // Owned-element transactional form. The size is captured in a
+        // local so the cleanup path can free the buffer at the exact
+        // allocated size — count_committed reflects only successfully-
+        // read slots so the parent {@code _free} walks just those.
+        final String setup = (ops.setupBefore != null)
+                ? ops.setupBefore.replace("$SLOT$", slotExpr) : "";
+        final String bareCall = ops.bareCall.replace("$SLOT$", slotExpr);
+        final String elementFree =
+                ops.freeLine.replace("$SLOT$", ptrExpr + "[" + iVar + "_j]");
+        final String allocSize = iVar + "_alloc_size";
+        final String stVar     = iVar + "_st";
+        return
+                "        " + countExpr + " = 0u;\n"
+              + "        " + ptrExpr + " = NULL;\n"
+              + "        if ((" + sizeExpr + ") > 0u) {\n"
+              + "            const size_t " + allocSize + " = ("
+                      + sizeExpr + ") * sizeof(*(" + ptrExpr + "));\n"
+              + "            " + ptrExpr + " = (" + ops.cType
+                      + " *)alloc->vtable->alloc(\n"
+              + "                    alloc->userdata, " + allocSize
+                      + ", sizeof(*(" + ptrExpr + ")));\n"
+              + "            if (" + ptrExpr + " == NULL) {\n"
+              + "                return ZSERIO_ERR_OUT_OF_MEMORY;\n"
+              + "            }\n"
+              + "            for (size_t " + iVar + " = 0u; " + iVar + " < ("
+                      + sizeExpr + "); ++" + iVar + ") {\n"
+              + (setup.isEmpty() ? "" : "                " + setup + "\n")
+              + "                const zserio_status_t " + stVar + " = "
+                      + bareCall + ";\n"
+              + "                if (" + stVar + " != ZSERIO_OK) {\n"
+              + "                    for (size_t " + iVar + "_j = 0u; "
+                      + iVar + "_j < " + iVar + "; ++" + iVar + "_j) {\n"
+              + "                        " + elementFree + "\n"
+              + "                    }\n"
+              + "                    alloc->vtable->free(alloc->userdata, "
+                      + ptrExpr + ",\n"
+              + "                            " + allocSize
+                      + ", sizeof(*(" + ptrExpr + ")));\n"
+              + "                    " + ptrExpr + " = NULL;\n"
+              + "                    return " + stVar + ";\n"
+              + "                }\n"
+              + "            }\n"
+              + "            " + countExpr + " = (" + sizeExpr + ");\n"
+              + "        }\n";
+    }
+
     /** Per-element ops descriptor used by both variable and fixed arrays. */
     private static final class ElementOps
     {
         final String cType;
         final String extraInclude;
-        final boolean owned;     // true → memset alloc + per-element free loop
-        final String readLine;   // template with $SLOT$
+        final boolean owned;     // true → per-element free loop (was: memset alloc)
+        final String readLine;   // template with $SLOT$ — the {@code ZSERIO_TRY(call);} form
         final String writeLine;
         final String freeLine;   // null = no per-element free needed
+        // Transactional read pieces. Only populated for {@code owned} element
+        // types — variable-length owned-element arrays use these to emit local
+        // cleanup on per-element error (and so avoid the bulk pre-loop
+        // memset). null on non-owned types where the upfront memset isn't
+        // emitted anyway. Both have $SLOT$ placeholders for the per-slot
+        // expression.
+        final String setupBefore;  // statements that run before {@code bareCall}; may be null/empty
+        final String bareCall;     // expression returning zserio_status_t; may be null
 
         ElementOps(String cType, String extraInclude, boolean owned,
                 String readLine, String writeLine, String freeLine)
+        {
+            this(cType, extraInclude, owned, readLine, writeLine, freeLine, null, null);
+        }
+
+        ElementOps(String cType, String extraInclude, boolean owned,
+                String readLine, String writeLine, String freeLine,
+                String setupBefore, String bareCall)
         {
             this.cType = cType;
             this.extraInclude = extraInclude;
@@ -2307,6 +2380,8 @@ public final class FieldFormatter
             this.readLine = readLine;
             this.writeLine = writeLine;
             this.freeLine = freeLine;
+            this.setupBefore = setupBefore;
+            this.bareCall = bareCall;
         }
     }
 
