@@ -2,8 +2,14 @@
 #
 # Three runner instances on one host. A single runner process takes
 # one job at a time; running three lets GitHub dispatch the lighter
-# CI jobs in parallel, roughly halving the wall-clock of a full run
-# on the 2-core / 32 GB DS3018xs.
+# CI jobs in parallel.
+#
+# Each runner's name comes from `${RUNNER_NAME_PREFIX:-zserio-ci}-N`.
+# Default (prefix unset) gives zserio-ci-1/2/3. To host multiple
+# runner pools (e.g. one AMD primary + one Pi 4 perf runner), set
+# RUNNER_NAME_PREFIX in each host's `.env` to something host-unique
+# (e.g. RUNNER_NAME_PREFIX=pi4-zserio-ci) so registrations don't
+# collide on GitHub.
 #
 # Setup:
 #   1. cp ci/.env.example ci/.env  and fill in GITHUB_PAT
@@ -29,7 +35,7 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
-      RUNNER_NAME: zserio-ci-1
+      RUNNER_NAME: ${RUNNER_NAME_PREFIX:-zserio-ci}-1
     # Cap each runner's memory so a heavy LTO build can't starve DSM.
     # No `cpus:` limit — the Synology DSM kernel is built without CPU
     # CFS quota support, so Docker rejects NanoCPUs ("kernel does not
@@ -46,7 +52,7 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
-      RUNNER_NAME: zserio-ci-2
+      RUNNER_NAME: ${RUNNER_NAME_PREFIX:-zserio-ci}-2
     deploy:
       resources:
         limits:
@@ -60,7 +66,7 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
-      RUNNER_NAME: zserio-ci-3
+      RUNNER_NAME: ${RUNNER_NAME_PREFIX:-zserio-ci}-3
     deploy:
       resources:
         limits:
