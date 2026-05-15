@@ -114,6 +114,35 @@ CPPCHECK_ARGS_BASE=(
     # Match the runtime gate: trace facility off, builtin_expect transparent.
     -UZSERIO_TRACE_ENABLED
     '-D__builtin_expect(x,y)=(x)'
+    # Generator-output-only suppressions (kept out of the shared
+    # suppressions file so the runtime gate stays strict on them):
+    #
+    # - unmatchedSuppression: the shared file is scoped to runtime
+    #   paths (`*float.c`, `*string.c`, …) that don't appear in
+    #   generated code, producing ~120 cosmetic "Unmatched
+    #   suppression" notices per run.
+    # - constParameterPointer: a cppcheck style, not MISRA. Generated
+    #   `_free` may or may not write to `self` depending on whether
+    #   the type has nested allocations; the template emits the same
+    #   signature either way. Marking `_write` / `_observe` as const
+    #   is an API-quality follow-up, not a safety gap.
+    # - misra-c2012-2.5: unused macro. Triggered by the public
+    #   `*_TAG_CASE*_FIELD` discriminator constants the generator
+    #   emits per union arm — they're consumed by user code that
+    #   cppcheck can't see, same justification as `unusedFunction`.
+    # - misra-c2012-11.5: cast from `void *` to a typed pointer.
+    #   Same accepted pattern as runtime D004 — the allocator
+    #   vtable returns `void *` and generated `_read` code casts to
+    #   the array element type. Scoped here (vs `*string.c/...` in
+    #   the runtime list) because generated file names are
+    #   schema-dependent.
+    # - misra-c2012-19.2: union usage. Zserio choice/union types
+    #   map to a tagged C union by design; see deviation D006.
+    --suppress=unmatchedSuppression
+    --suppress=constParameterPointer
+    --suppress=misra-c2012-2.5
+    --suppress=misra-c2012-11.5
+    --suppress=misra-c2012-19.2
     -I"${REPO_ROOT}/runtime/include"
 )
 

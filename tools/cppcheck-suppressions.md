@@ -37,6 +37,21 @@ and the suppression entry MUST cite each other.
 | `misra-c2012-21.15:runtime/src/float.c` (+ `runtime/include/zserio/float.h`) | IEEE 754 bit-pattern memcpy | [D003](../docs/misra-deviations/D003-rule-21.15-memcpy-float-bits.md) |
 | `misra-c2012-11.5:runtime/src/string.c` (+bytes.c, extern.c) | allocator `void *` cast  | [D004](../docs/misra-deviations/D004-rule-11.5-allocator-void-cast.md) |
 | `misra-c2012-18.4:runtime/src/bitstream.c` (+ string.c, bytes.c, extern.c) | byte-offset pointer arithmetic on the bitstream buffer | [D005](../docs/misra-deviations/D005-rule-18.4-buffer-pointer-arithmetic.md) |
+| `misra-c2012-19.2` (generator output only, via `run_misra_generated.sh`) | tagged C union for zserio `choice` / `union` types | [D006](../docs/misra-deviations/D006-rule-19.2-tagged-union.md) |
+
+### Generator-output-only suppressions (in `tools/run_misra_generated.sh` CLI)
+
+These are passed as `--suppress=...` flags by the misra-generator
+CI job and are deliberately kept out of the shared
+`cppcheck-suppressions.txt` so the runtime gate stays strict on them.
+
+| Suppression                 | Why                                                                                            |
+|-----------------------------|------------------------------------------------------------------------------------------------|
+| `unmatchedSuppression`      | The shared suppressions file scopes entries to runtime paths (`*float.c`, `*string.c`, …) that don't exist in generated code, producing ~120 informational "Unmatched suppression" notices per generator-output run. |
+| `constParameterPointer`     | cppcheck style, not MISRA. Generated `_free` may or may not write to `self` depending on whether the type has nested allocations; the template emits the same signature either way. Marking `_write` / `_observe` as const is an API-quality follow-up. |
+| `misra-c2012-2.5`           | Unused macro. Triggered by the public `*_TAG_CASE*_FIELD` discriminator constants the generator emits per union arm — consumed by user code that cppcheck can't see. Same justification as `unusedFunction`. |
+| `misra-c2012-11.5`          | Same accepted pattern as D004 (allocator `void *` cast). Applied via CLI rather than a file-scoped entry because generated file names are schema-dependent. |
+| `misra-c2012-19.2`          | Tagged C union for zserio `choice` / `union` types — see D006. |
 
 ### Style / arithmetic categorical accepts
 

@@ -31,7 +31,7 @@ void ${funcPrefix}_set_parameters(${typeName} *self<#list parameters as p>,
 zserio_status_t ${funcPrefix}_read(${typeName} *self,
         zserio_bitstream_reader_t *bs, const zserio_allocator_t *alloc)
 {
-    if (self == NULL || bs == NULL) {
+    if ((self == NULL) || (bs == NULL)) {
         return ZSERIO_ERR_INVALID_ARGUMENT;
     }
 <#if !hasOwnedFields>
@@ -46,7 +46,7 @@ zserio_status_t ${funcPrefix}_read(${typeName} *self,
 zserio_status_t ${funcPrefix}_write(${typeName} *self,
         zserio_bitstream_writer_t *bs)
 {
-    if (self == NULL || bs == NULL) {
+    if ((self == NULL) || (bs == NULL)) {
         return ZSERIO_ERR_INVALID_ARGUMENT;
     }
 <#list fields as field>
@@ -74,7 +74,7 @@ void ${funcPrefix}_free(${typeName} *self, const zserio_allocator_t *alloc)
 zserio_status_t ${funcPrefix}_init_packing_context(${typeName} *self,
         ${funcPrefix}_packing_ctx_t *ctx)
 {
-    if (self == NULL || ctx == NULL) {
+    if ((self == NULL) || (ctx == NULL)) {
         return ZSERIO_ERR_INVALID_ARGUMENT;
     }
     /* The bit-width expressions baked into init may or may not reference
@@ -95,7 +95,7 @@ zserio_status_t ${funcPrefix}_init_packing_context(${typeName} *self,
 zserio_status_t ${funcPrefix}_observe_packing_context(${typeName} *self,
         ${funcPrefix}_packing_ctx_t *ctx)
 {
-    if (self == NULL || ctx == NULL) {
+    if ((self == NULL) || (ctx == NULL)) {
         return ZSERIO_ERR_INVALID_ARGUMENT;
     }
 <#if !hasPackingContextMembers>
@@ -114,7 +114,7 @@ zserio_status_t ${funcPrefix}_read_packed(${typeName} *self,
         zserio_bitstream_reader_t *bs, const zserio_allocator_t *alloc,
         ${funcPrefix}_packing_ctx_t *ctx)
 {
-    if (self == NULL || bs == NULL || ctx == NULL) {
+    if ((self == NULL) || (bs == NULL) || (ctx == NULL)) {
         return ZSERIO_ERR_INVALID_ARGUMENT;
     }
 <#if !hasOwnedFields>
@@ -133,7 +133,7 @@ zserio_status_t ${funcPrefix}_write_packed(${typeName} *self,
         zserio_bitstream_writer_t *bs,
         ${funcPrefix}_packing_ctx_t *ctx)
 {
-    if (self == NULL || bs == NULL || ctx == NULL) {
+    if ((self == NULL) || (bs == NULL) || (ctx == NULL)) {
         return ZSERIO_ERR_INVALID_ARGUMENT;
     }
 <#if !hasPackingContextMembers>

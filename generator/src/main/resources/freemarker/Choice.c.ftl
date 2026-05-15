@@ -29,7 +29,7 @@ void ${funcPrefix}_set_parameters(${typeName} *self<#list parameters as p>,
 zserio_status_t ${funcPrefix}_read(${typeName} *self,
         zserio_bitstream_reader_t *bs, const zserio_allocator_t *alloc)
 {
-    if (self == NULL || bs == NULL) {
+    if ((self == NULL) || (bs == NULL)) {
         return ZSERIO_ERR_INVALID_ARGUMENT;
     }
 <#if !hasOwnedCases>
@@ -64,7 +64,7 @@ zserio_status_t ${funcPrefix}_read(${typeName} *self,
 zserio_status_t ${funcPrefix}_write(${typeName} *self,
         zserio_bitstream_writer_t *bs)
 {
-    if (self == NULL || bs == NULL) {
+    if ((self == NULL) || (bs == NULL)) {
         return ZSERIO_ERR_INVALID_ARGUMENT;
     }
     switch ((int)(${selectorExpr})) {
@@ -100,7 +100,7 @@ void ${funcPrefix}_free(${typeName} *self, const zserio_allocator_t *alloc)
     }
 <#if !hasOwnedCases>
     (void)alloc;
-</#if>
+<#else>
     switch ((int)(${selectorExpr})) {
 <#list cases as case>
 <#if case.hasField && case.field.freeStmt?has_content>
@@ -120,13 +120,14 @@ void ${funcPrefix}_free(${typeName} *self, const zserio_allocator_t *alloc)
         break;
     }
     }
+</#if>
 }
 
 <#if hasPackingContext>
 zserio_status_t ${funcPrefix}_init_packing_context(${typeName} *self,
         ${funcPrefix}_packing_ctx_t *ctx)
 {
-    if (self == NULL || ctx == NULL) {
+    if ((self == NULL) || (ctx == NULL)) {
         return ZSERIO_ERR_INVALID_ARGUMENT;
     }
     /* Choice packing context: dispatch the active arm's init by
@@ -158,7 +159,7 @@ zserio_status_t ${funcPrefix}_init_packing_context(${typeName} *self,
 zserio_status_t ${funcPrefix}_observe_packing_context(${typeName} *self,
         ${funcPrefix}_packing_ctx_t *ctx)
 {
-    if (self == NULL || ctx == NULL) {
+    if ((self == NULL) || (ctx == NULL)) {
         return ZSERIO_ERR_INVALID_ARGUMENT;
     }
     /* Re-init: a Choice's active arm depends on the per-element
@@ -196,7 +197,7 @@ zserio_status_t ${funcPrefix}_read_packed(${typeName} *self,
         zserio_bitstream_reader_t *bs, const zserio_allocator_t *alloc,
         ${funcPrefix}_packing_ctx_t *ctx)
 {
-    if (self == NULL || bs == NULL || ctx == NULL) {
+    if ((self == NULL) || (bs == NULL) || (ctx == NULL)) {
         return ZSERIO_ERR_INVALID_ARGUMENT;
     }
 <#if !hasOwnedCases>
@@ -242,7 +243,7 @@ zserio_status_t ${funcPrefix}_write_packed(${typeName} *self,
         zserio_bitstream_writer_t *bs,
         ${funcPrefix}_packing_ctx_t *ctx)
 {
-    if (self == NULL || bs == NULL || ctx == NULL) {
+    if ((self == NULL) || (bs == NULL) || (ctx == NULL)) {
         return ZSERIO_ERR_INVALID_ARGUMENT;
     }
     /* Re-init: see the comment in _observe_packing_context. */
