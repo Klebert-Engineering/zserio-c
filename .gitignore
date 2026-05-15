@@ -60,3 +60,7 @@ conformance/ndslive/cpp/
 conformance/ndslive/tile.bin
 conformance/ndslive/tile.yaml
 
+# Fuzz corpus is built up by libFuzzer across CI runs; the actions/cache
+# entry in the `fuzz` job is the authoritative store.
+tests/fuzz/corpus/
+

@@ -1,0 +1,17 @@
+# Fuzz targets for the runtime decode path. Each line:
+#   <name>  <src_root>                                              <rel_schema>                          <driver>
+#
+# `src_root` is the path passed to ZserioTool's `-src`; `rel_schema`
+# is the schema's path relative to that root. The driver is the C
+# file containing `LLVMFuzzerTestOneInput`.
+#
+# Add a new target by appending one line + a driver file. The
+# runner regenerates the target's codec into build-fuzz/<name>/c_out
+# and recompiles the runtime + generated code + driver with the same
+# clang sanitizer flags.
+#
+# Closes the Phase 5 Open item "Random-input fuzzing of the decode
+# path" recorded in safety-case-report.md / integration-verification.md.
+
+builtin_types     third_party/zserio-test-data/language/builtin_types/zs  builtin_types/all_builtin_types.zs  tests/fuzz/fuzz_builtin_types.c
+structure_string  third_party/zserio-test-data/language/functions/zs      functions/structure_string.zs       tests/fuzz/fuzz_structure_string.c
