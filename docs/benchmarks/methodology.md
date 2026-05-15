@@ -160,6 +160,71 @@ For Docker-hosted runners on Linux:
 For macOS / Jetson hosts: the host-specific notes go in this
 section as they're added.
 
+### Raspberry Pi (host label: `pi5`)
+
+A Pi runs benchmarks 4–10× slower than a desktop x86 box, and is
+much more sensitive to thermal / governor / background-process
+contention. The tuning below is required, not optional, for the
+numbers to be useful:
+
+- **OS:** Raspberry Pi OS Lite (64-bit, Debian 12 Bookworm) or
+  Ubuntu Server 24.04 LTS for arm64. Lite, not Desktop — the
+  desktop session brings in services we don't need and which jitter
+  measurements.
+- **Cooling:** active cooler mandatory. Without it, sustained
+  perf workloads thermal-throttle within 30–60 s and the clocks
+  drop ~25 %. With the official Pi 5 active cooler, sustained
+  100 % CPU keeps the SoC around 55–60 °C — well clear of the
+  85 °C throttle threshold.
+- **Storage:** boot from NVMe (via the Pi 5 PCIe HAT) or a fast
+  A2-rated SD card. SD wear-levelling adds tens of milliseconds
+  of variable I/O latency that shows up in the build phase (less
+  so in the in-process benchmark loop itself, which runs from
+  RAM).
+- **Memory:** 8 GB minimum (LTO link of the `ndslive_tile` perf
+  workload can spike to ~4 GB transient). 16 GB is comfortable.
+- **CPU governor:** **must** be set to `performance` and made
+  persistent. Default is `ondemand` (Pi 4) / `schedutil` (Pi 5);
+  both scale the clock with load and add a startup ramp-up
+  artefact to every short-lived measurement. To pin:
+
+  ```bash
+  sudo apt install -y cpufrequtils
+  echo 'GOVERNOR="performance"' | sudo tee /etc/default/cpufrequtils
+  sudo systemctl enable cpufrequtils
+  sudo systemctl start cpufrequtils
+
+  # Verify (should print 'performance' for every CPU)
+  cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
+  ```
+
+- **Disable apt-daily timers** so a background `unattended-upgrades`
+  run doesn't land mid-measurement:
+
+  ```bash
+  sudo systemctl disable --now apt-daily.timer apt-daily-upgrade.timer
+  ```
+
+  (Run `sudo apt update && sudo apt upgrade -y` manually on a
+  schedule you control instead.)
+
+- **Disable Bluetooth / wifi** if not using them — they wake the
+  CPU at unpredictable intervals:
+
+  ```bash
+  sudo systemctl disable --now bluetooth.service hciuart.service
+  # Leave wpa_supplicant alone if you're on wifi; disable if Ethernet only.
+  ```
+
+- **Network:** Ethernet preferred. The runner pulls multi-MB jars
+  and submodule snapshots; wifi works, just adds wall-clock to
+  the build phase.
+
+The first-seed run on a Pi typically lands the corpus baseline
+3–8× higher `ns/op` than the AMD primary — that's hardware, not a
+regression. The 15 % threshold is on the *same host's* numbers
+over time, never cross-host.
+
 ## Cross-references
 
 - `tests/benchmarks/run_benchmark.sh` — the harness.

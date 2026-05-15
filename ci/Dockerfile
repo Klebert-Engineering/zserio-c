@@ -66,12 +66,12 @@ RUN mkdir -p -m 755 /etc/apt/keyrings \
     && rm -rf /var/lib/apt/lists/*
 
 # --- Java environment ------------------------------------------------------
-# `ant` and the zserio build scripts find the JDK via JAVA_HOME. Set
-# it explicitly so the workflow doesn't need `actions/setup-java`.
-# The build-time `java -version` is a sanity check: if the JDK path
-# is wrong the image fails to build instead of every Java CI job
-# failing at run time.
-ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+# `ant` and the zserio build scripts find the JDK via JAVA_HOME. The
+# Ubuntu openjdk package installs to /usr/lib/jvm/java-17-openjdk-<arch>
+# (`amd64` on x86, `arm64` on aarch64). Symlink to a stable path so
+# JAVA_HOME stays portable across architectures.
+RUN ln -s "/usr/lib/jvm/java-17-openjdk-$(dpkg --print-architecture)" /opt/java-17
+ENV JAVA_HOME=/opt/java-17
 RUN test -d "${JAVA_HOME}" && java -version && javac -version
 
 # --- Runner user -----------------------------------------------------------
@@ -85,12 +85,24 @@ RUN useradd -m -s /bin/bash runner \
 # --- GitHub Actions runner -------------------------------------------------
 # RUNNER_VERSION is overridable at build time; bump it when GitHub
 # deprecates older runner releases.
+#
+# Runner agent URL is arch-specific. GitHub publishes
+#   linux-x64 / linux-arm64 / linux-arm
+# tarballs; we map dpkg's amd64 -> x64 and pass arm64/arm through.
+# A Pi 5 (aarch64) and an x86 server build from the same Dockerfile
+# and get the right tarball each.
 ARG RUNNER_VERSION=2.334.0
-ARG TARGETARCH=x64
 RUN mkdir -p /home/runner/actions-runner \
     && cd /home/runner/actions-runner \
+    && deb_arch="$(dpkg --print-architecture)" \
+    && case "${deb_arch}" in \
+         amd64) runner_arch=x64 ;; \
+         arm64) runner_arch=arm64 ;; \
+         armhf) runner_arch=arm ;; \
+         *) echo "unsupported architecture: ${deb_arch}" >&2; exit 1 ;; \
+       esac \
     && curl -fsSL -o runner.tar.gz \
-        "https://github.com/actions/runner/releases/download/v${RUNNER_VERSION}/actions-runner-linux-${TARGETARCH}-${RUNNER_VERSION}.tar.gz" \
+        "https://github.com/actions/runner/releases/download/v${RUNNER_VERSION}/actions-runner-linux-${runner_arch}-${RUNNER_VERSION}.tar.gz" \
     && tar xzf runner.tar.gz \
     && rm runner.tar.gz \
     && ./bin/installdependencies.sh \
