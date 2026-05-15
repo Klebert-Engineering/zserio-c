@@ -336,15 +336,6 @@ jobs:
     concurrency:
       group: perf-${{ matrix.host }}
       cancel-in-progress: false
-    # While the primary perf runner is being brought up, a queued
-    # perf job mustn't block the rest of CI — it sits waiting for a
-    # `[self-hosted, perf, primary]` runner that doesn't exist yet.
-    # Once the runner is verified (a few green per-commit runs), this
-    # comes off and perf becomes a strict gate again. Time-bound the
-    # wait so the job fails fast (yellow) rather than sitting queued
-    # for the default 6-hour job timeout.
-    continue-on-error: true
-    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
