@@ -4,16 +4,16 @@
       "bytes": 305838,
       "inner_iters": 500,
       "ratio_cpp_to_c": {
-        "decode": 1.02,
+        "decode": 0.981,
         "encode": 0
       },
       "runs": 5,
       "zserio_c": {
-        "decode_ns_per_op": 1424256.38,
+        "decode_ns_per_op": 1444117.94,
         "encode_ns_per_op": 0.0
       },
       "zserio_cpp": {
-        "decode_ns_per_op": 1452043.37,
+        "decode_ns_per_op": 1417296.65,
         "encode_ns_per_op": 0.0
       }
     },
@@ -21,16 +21,16 @@
       "bytes": 311424,
       "inner_iters": 500,
       "ratio_cpp_to_c": {
-        "decode": 0.759,
+        "decode": 0.747,
         "encode": 0
       },
       "runs": 5,
       "zserio_c": {
-        "decode_ns_per_op": 1189424.54,
+        "decode_ns_per_op": 1205941.14,
         "encode_ns_per_op": 0.0
       },
       "zserio_cpp": {
-        "decode_ns_per_op": 903135.74,
+        "decode_ns_per_op": 900534.68,
         "encode_ns_per_op": 0.0
       }
     },
@@ -38,16 +38,16 @@
       "bytes": 311424,
       "inner_iters": 500,
       "ratio_cpp_to_c": {
-        "decode": 1.226,
+        "decode": 1.215,
         "encode": 0
       },
       "runs": 5,
       "zserio_c": {
-        "decode_ns_per_op": 341949.28,
+        "decode_ns_per_op": 349458.67,
         "encode_ns_per_op": 0.0
       },
       "zserio_cpp": {
-        "decode_ns_per_op": 419266.63,
+        "decode_ns_per_op": 424507.57,
         "encode_ns_per_op": 0.0
       }
     },
@@ -55,16 +55,16 @@
       "bytes": 297619,
       "inner_iters": 500,
       "ratio_cpp_to_c": {
-        "decode": 0.798,
+        "decode": 0.82,
         "encode": 0
       },
       "runs": 5,
       "zserio_c": {
-        "decode_ns_per_op": 1538350.16,
+        "decode_ns_per_op": 1516110.88,
         "encode_ns_per_op": 0.0
       },
       "zserio_cpp": {
-        "decode_ns_per_op": 1227618.2,
+        "decode_ns_per_op": 1242625.7,
         "encode_ns_per_op": 0.0
       }
     },
@@ -72,16 +72,16 @@
       "bytes": 226507,
       "inner_iters": 100,
       "ratio_cpp_to_c": {
-        "decode": 0.911,
+        "decode": 0.98,
         "encode": 0
       },
       "runs": 5,
       "zserio_c": {
-        "decode_ns_per_op": 130991.05,
+        "decode_ns_per_op": 121505.15,
         "encode_ns_per_op": 0.0
       },
       "zserio_cpp": {
-        "decode_ns_per_op": 119356.08,
+        "decode_ns_per_op": 119063.64,
         "encode_ns_per_op": 0.0
       }
     },
@@ -89,16 +89,16 @@
       "bytes": 280340,
       "inner_iters": 200,
       "ratio_cpp_to_c": {
-        "decode": 1.129,
+        "decode": 1.158,
         "encode": 0
       },
       "runs": 5,
       "zserio_c": {
-        "decode_ns_per_op": 1074937.51,
+        "decode_ns_per_op": 1078447.7,
         "encode_ns_per_op": 0.0
       },
       "zserio_cpp": {
-        "decode_ns_per_op": 1213683.16,
+        "decode_ns_per_op": 1249273.79,
         "encode_ns_per_op": 0.0
       }
     },
@@ -106,16 +106,16 @@
       "bytes": 295965,
       "inner_iters": 200,
       "ratio_cpp_to_c": {
-        "decode": 1.296,
+        "decode": 1.333,
         "encode": 0
       },
       "runs": 5,
       "zserio_c": {
-        "decode_ns_per_op": 875881.93,
+        "decode_ns_per_op": 879503.61,
         "encode_ns_per_op": 0.0
       },
       "zserio_cpp": {
-        "decode_ns_per_op": 1135239.48,
+        "decode_ns_per_op": 1172654.95,
         "encode_ns_per_op": 0.0
       }
     },
@@ -123,16 +123,16 @@
       "bytes": 273909,
       "inner_iters": 200,
       "ratio_cpp_to_c": {
-        "decode": 1.077,
+        "decode": 1.088,
         "encode": 0
       },
       "runs": 5,
       "zserio_c": {
-        "decode_ns_per_op": 1177044.41,
+        "decode_ns_per_op": 1184796.17,
         "encode_ns_per_op": 0.0
       },
       "zserio_cpp": {
-        "decode_ns_per_op": 1267911.5,
+        "decode_ns_per_op": 1289179.94,
         "encode_ns_per_op": 0.0
       }
     },
@@ -140,50 +140,50 @@
       "bytes": 1048579,
       "inner_iters": 200,
       "ratio_cpp_to_c": {
-        "decode": 2.253,
-        "encode": 0.945
+        "decode": 2.295,
+        "encode": 0.956
       },
       "runs": 5,
       "zserio_c": {
-        "decode_ns_per_op": 278918.23,
-        "encode_ns_per_op": 1017152.19
+        "decode_ns_per_op": 280613.36,
+        "encode_ns_per_op": 1010050.08
       },
       "zserio_cpp": {
-        "decode_ns_per_op": 628335.48,
-        "encode_ns_per_op": 961615.02
+        "decode_ns_per_op": 644068.6,
+        "encode_ns_per_op": 966023.99
       }
     },
     "medium_nested": {
       "bytes": 307,
       "inner_iters": 50000,
       "ratio_cpp_to_c": {
-        "decode": 0.938,
-        "encode": 1.354
+        "decode": 0.994,
+        "encode": 1.267
       },
       "runs": 5,
       "zserio_c": {
-        "decode_ns_per_op": 174.38,
-        "encode_ns_per_op": 405.78
+        "decode_ns_per_op": 174.01,
+        "encode_ns_per_op": 425.19
       },
       "zserio_cpp": {
-        "decode_ns_per_op": 163.6,
-        "encode_ns_per_op": 549.49
+        "decode_ns_per_op": 173.02,
+        "encode_ns_per_op": 538.87
       }
     },
     "simpletrace": {
       "bytes": 87042,
       "inner_iters": 500,
       "ratio_cpp_to_c": {
-        "decode": 0.875,
+        "decode": 0.887,
         "encode": 0
       },
       "runs": 5,
       "zserio_c": {
-        "decode_ns_per_op": 130929.63,
+        "decode_ns_per_op": 131078.71,
         "encode_ns_per_op": 0.0
       },
       "zserio_cpp": {
-        "decode_ns_per_op": 114587.44,
+        "decode_ns_per_op": 116306.17,
         "encode_ns_per_op": 0.0
       }
     },
@@ -191,16 +191,16 @@
       "bytes": 40266,
       "inner_iters": 500,
       "ratio_cpp_to_c": {
-        "decode": 1.07,
+        "decode": 1.116,
         "encode": 0
       },
       "runs": 5,
       "zserio_c": {
-        "decode_ns_per_op": 51179.04,
+        "decode_ns_per_op": 49821.38,
         "encode_ns_per_op": 0.0
       },
       "zserio_cpp": {
-        "decode_ns_per_op": 54738.0,
+        "decode_ns_per_op": 55599.79,
         "encode_ns_per_op": 0.0
       }
     },
@@ -208,17 +208,17 @@
       "bytes": 31,
       "inner_iters": 200000,
       "ratio_cpp_to_c": {
-        "decode": 0.948,
-        "encode": 1.319
+        "decode": 1.193,
+        "encode": 1.484
       },
       "runs": 5,
       "zserio_c": {
-        "decode_ns_per_op": 9.54,
-        "encode_ns_per_op": 35.87
+        "decode_ns_per_op": 9.44,
+        "encode_ns_per_op": 37.18
       },
       "zserio_cpp": {
-        "decode_ns_per_op": 9.04,
-        "encode_ns_per_op": 47.3
+        "decode_ns_per_op": 11.26,
+        "encode_ns_per_op": 55.17
       }
     }
   }
