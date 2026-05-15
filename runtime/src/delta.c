@@ -224,7 +224,14 @@ zserio_status_t zserio_delta_write_slow(zserio_delta_context_t *ctx,
                                         uint64_t element)
 {
     /* NULL-arg validation is handled in the inline {@code zserio_delta_write}
-     * wrapper. The slow path's only callers come through there. */
+     * wrapper. The slow path's only callers come through there.
+     *
+     * Reachable states (set by the wrapper's fast-path check failing):
+     *  - !USE_STARTED: very first write — finalise, write descriptor,
+     *    write the first full element through the trait callback.
+     *  - USE_STARTED + FINALISED + !IS_PACKED: unpacked steady state.
+     * The "USE_STARTED + IS_PACKED + FINALISED" case is handled inline
+     * by {@code zserio_delta_write} and is unreachable here. */
     delta_finalise(ctx);
 
     if ((ctx->flags & DELTA_FLAG_USE_STARTED) == 0U) {
@@ -240,19 +247,9 @@ zserio_status_t zserio_delta_write_slow(zserio_delta_context_t *ctx,
         return ZSERIO_OK;
     }
 
-    if ((ctx->flags & DELTA_FLAG_IS_PACKED) != 0U) {
-        if (ctx->max_bit_number > 0U) {
-            /* Wrap-arithmetic delta. Width is max_bit_number + 1
-             * (one extra for the sign bit). */
-            const uint64_t delta_bits = element - ctx->previous;
-            ZSERIO_TRY(zserio_bitstream_write_signed(bs,
-                (uint8_t)(ctx->max_bit_number + 1U), (int64_t)delta_bits));
-        }
-        /* max_bit_number == 0: all observed deltas were zero, so the
-         * encoder writes no bits per element — matches upstream. */
-    } else {
-        ZSERIO_TRY(write_full_element(ctx, bs, element));
-    }
+    /* USE_STARTED is set and the fast path was bypassed, so this is the
+     * unpacked steady state. */
+    ZSERIO_TRY(write_full_element(ctx, bs, element));
     ctx->previous = element;
     return ZSERIO_OK;
 }
@@ -262,7 +259,15 @@ zserio_status_t zserio_delta_read_slow(zserio_delta_context_t *ctx,
                                        uint64_t *out)
 {
     /* NULL-arg validation is handled in the inline {@code zserio_delta_read}
-     * wrapper. The slow path's only callers come through there. */
+     * wrapper. The slow path's only callers come through there.
+     *
+     * Reachable states (set by the wrapper's fast-path check failing):
+     *  - !USE_STARTED: very first read — consume the packing descriptor
+     *    + (optional) max_bit_number + the first full element via the
+     *    trait callback.
+     *  - USE_STARTED + !IS_PACKED: unpacked steady state.
+     * The "USE_STARTED + IS_PACKED" case is handled inline by
+     * {@code zserio_delta_read} and is unreachable here. */
 
     if ((ctx->flags & DELTA_FLAG_USE_STARTED) == 0U) {
         ctx->flags |= DELTA_FLAG_USE_STARTED;
@@ -283,21 +288,11 @@ zserio_status_t zserio_delta_read_slow(zserio_delta_context_t *ctx,
         return ZSERIO_OK;
     }
 
-    if ((ctx->flags & DELTA_FLAG_IS_PACKED) != 0U) {
-        if (ctx->max_bit_number > 0U) {
-            int64_t delta = 0;
-            ZSERIO_TRY(zserio_bitstream_read_signed(bs,
-                (uint8_t)(ctx->max_bit_number + 1U), &delta));
-            ctx->previous = ctx->previous + (uint64_t)delta;
-        }
-        /* max_bit_number == 0 means every observed delta was zero, so
-         * the encoder wrote no bits — match upstream by skipping. The
-         * value stays equal to `previous`, which is what we want. */
-    } else {
-        uint64_t v = 0U;
-        ZSERIO_TRY(read_full_element(ctx, bs, &v));
-        ctx->previous = v;
-    }
+    /* USE_STARTED is set and the fast path was bypassed, so this is the
+     * unpacked steady state. */
+    uint64_t v = 0U;
+    ZSERIO_TRY(read_full_element(ctx, bs, &v));
+    ctx->previous = v;
     *out = ctx->previous;
     return ZSERIO_OK;
 }
