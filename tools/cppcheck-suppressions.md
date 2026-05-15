@@ -35,8 +35,8 @@ and the suppression entry MUST cite each other.
 | `misra-c2012-15.5`                   | project-wide (early returns)   | [D001](../docs/misra-deviations/D001-rule-15.5-multiple-returns.md) |
 | `misra-c2012-21.3:runtime/src/allocator.c`  | libc-backed allocator wrapper  | [D002](../docs/misra-deviations/D002-rule-21.3-allocator-libc.md) |
 | `misra-c2012-21.15:runtime/src/float.c` (+ `runtime/include/zserio/float.h`) | IEEE 754 bit-pattern memcpy | [D003](../docs/misra-deviations/D003-rule-21.15-memcpy-float-bits.md) |
-| `misra-c2012-11.5:runtime/src/string.c` (+bytes.c, extern.c) | allocator `void *` cast  | [D004](../docs/misra-deviations/D004-rule-11.5-allocator-void-cast.md) |
-| `misra-c2012-18.4:runtime/src/bitstream.c` (+ string.c, bytes.c, extern.c) | byte-offset pointer arithmetic on the bitstream buffer | [D005](../docs/misra-deviations/D005-rule-18.4-buffer-pointer-arithmetic.md) |
+| `misra-c2012-11.5:runtime/src/string.c` (+bytes.c, extern.c, allocator.c) | allocator `void *` cast  | [D004](../docs/misra-deviations/D004-rule-11.5-allocator-void-cast.md) |
+| `misra-c2012-18.4:runtime/src/bitstream.c` (+ string.c, bytes.c, extern.c, allocator.c) | byte-offset pointer arithmetic on the bitstream buffer | [D005](../docs/misra-deviations/D005-rule-18.4-buffer-pointer-arithmetic.md) |
 | `misra-c2012-19.2` (generator output only, via `run_misra_generated.sh`) | tagged C union for zserio `choice` / `union` types | [D006](../docs/misra-deviations/D006-rule-19.2-tagged-union.md) |
 
 ### Generator-output-only suppressions (in `tools/run_misra_generated.sh` CLI)
