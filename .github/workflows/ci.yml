@@ -348,7 +348,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        host: [primary]
+        host: [primary, pi4]
     permissions:
       contents: write   # for posting the benchmark report as a commit comment
     steps:
