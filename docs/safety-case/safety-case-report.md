@@ -127,11 +127,7 @@ Four tools sit on the safety path. Each has a TQ record under
 
 The safety case has three categories of open items:
 
-1. **Open items already inside this case** (tracked in the
-   relevant work product):
-   - Random-input fuzzing of the decode path: structured
-     property-style testing currently substitutes (see
-     `integration-verification.md` § Known integration gaps).
+1. **Open items already inside this case** — all closed:
    - *Closed:* cppcheck MISRA gate now runs strictly on
      generator output via the `misra-generator` CI job over a
      representative 13-schema set (see
@@ -141,14 +137,24 @@ The safety case has three categories of open items:
      unioned per-TU call graph (gcc `-fcallgraph-info=su,da`)
      with a cycle check and a 1024 B ceiling (current observed
      max 512 B). See `stack-budget.md` § Method.
+   - *Closed:* Random-input fuzzing of the decode path — the
+     `fuzz` job runs libFuzzer + ASan + UBSan against two
+     representative schemas (primitives / varints / bitfields
+     via `all_builtin_types`; the string allocator + nested-
+     compound dispatch via `functions/structure_string`) for
+     60 s each per commit. Crashes, leaks, sanitizer trips and
+     per-input timeouts fail the build; the corpus persists
+     across CI runs via `actions/cache`. See
+     `integration-verification.md` § How decode-path fuzzing
+     runs in CI.
 
 2. **Documents in `draft` status awaiting acceptance.** Every
    document in `docs/safety-case/` is currently at `draft`. The
    acceptance criterion for each is recorded in the document's
-   own front matter. The case moves to `accepted` as a whole
-   when the one remaining open item above is closed and the
-   integration verification is replayed against the next release
-   tag.
+   own front matter. With all internal Open items now closed,
+   the case moves to `accepted` as a whole once the integration
+   verification is replayed against the next release tag and
+   the independent reviewer sign-off below is recorded.
 
 3. **Residual risks delegated to the integrator** (see
    `item-definition.md` § Assumed system context and

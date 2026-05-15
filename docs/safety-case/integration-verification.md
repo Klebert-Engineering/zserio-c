@@ -107,16 +107,35 @@ verification evidence. Every commit to `main` reproduces them:
 
 ## Known integration gaps
 
-One integration-level gap remains (the MISRA-on-generator-output
-gap closed in commit `c13bd41`; see
-`tool-qualification-generator.md` § Known limitations):
+(none — all previously-recorded gaps closed; see § How decode-path
+fuzzing runs in CI for the most recent closure.)
 
-1. **Decode-path fuzzing.** Random-input fuzzing is not currently
-   in CI. The xvalidation seeds are structured (the c_driver
-   constructs valid values), so the wire path is exercised; the
-   parse path's robustness against deliberately malformed bytes
-   is partially exercised by the `test_failure_modes.c` H-02
-   tests and by the `read_*` LCOV_EXCL "unreachable" paths.
+## How decode-path fuzzing runs in CI
+
+The `fuzz` job builds two libFuzzer targets, one per representative
+schema, with clang `-fsanitize=fuzzer,address,undefined`:
+
+- `tests/fuzz/fuzz_builtin_types.c` — exercises every fixed-width
+  primitive, every varint family, and every `bit:N` width via the
+  `builtin_types/all_builtin_types` schema.
+- `tests/fuzz/fuzz_structure_string.c` — exercises the string
+  allocator path (varsize length-prefix + heap allocation + the
+  byte-aligned / bit-misaligned read variants) and nested-compound
+  dispatch via `functions/structure_string`.
+
+Each target runs for 60 s per commit with a 10 s per-input
+timeout. Any crash, memory leak, ASan / UBSan trip, or
+per-input timeout fails the build (`tools/run_fuzz.sh`,
+`Verifies: REQ-FS-006`). The corpus is persisted across CI runs
+via `actions/cache` (keyed on `tests/fuzz/targets.txt` so a target
+set change starts the corpus fresh), so each commit's run extends
+the inputs the next run starts from. The first clean run on
+commit `04d2e4a` executed 5.1 million iterations in 60 s across
+both targets and built up 33 unique-coverage inputs.
+
+Adding more targets is a one-line change to
+`tests/fuzz/targets.txt` plus a sibling driver file under
+`tests/fuzz/`.
 
 ## How to reproduce this report
 

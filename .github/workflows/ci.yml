@@ -168,7 +168,7 @@ jobs:
             -H 'Accept: application/vnd.github+json'
 
   fuzz:
-    name: Decode-path fuzzing (REQ-FS-006, advisory)
+    name: Decode-path fuzzing (REQ-FS-006)
     runs-on: [self-hosted, linux, x64]
     permissions:
       contents: write   # for posting the fuzz log as a commit comment
@@ -215,16 +215,16 @@ jobs:
           restore-keys: |
             fuzz-corpus-${{ hashFiles('tests/fuzz/targets.txt') }}-
             fuzz-corpus-
-      - name: Run fuzzers (advisory)
-        # Advisory until the first runs are stable; flips to strict
-        # (drop the `|| true`) once the corpus warms up and the
-        # baseline run is clean. Each target gets FUZZ_SECONDS=60 of
-        # libFuzzer time + a 10 s per-input timeout — any crash,
-        # leak, or sanitizer trip surfaces as a finding.
+      - name: Run fuzzers
+        # Strict: each target gets FUZZ_SECONDS=60 of libFuzzer time +
+        # a 10 s per-input timeout — any crash, leak, or sanitizer trip
+        # fails the build. The corpus is persisted across runs via
+        # actions/cache so subsequent runs build on the inputs the
+        # previous one discovered.
         shell: bash
         run: |
           set -o pipefail
-          FUZZ_SECONDS=60 tools/run_fuzz.sh 2>&1 | tee fuzz.log || true
+          FUZZ_SECONDS=60 tools/run_fuzz.sh 2>&1 | tee fuzz.log
       - name: Post fuzz log as commit comment
         if: always()
         env:
@@ -235,10 +235,10 @@ jobs:
             LOG_LINES="$(wc -l < fuzz.log | tr -d ' ')"
             LOG_BYTES="$(wc -c < fuzz.log | tr -d ' ')"
             LOG_BODY="$(tail -c 60000 fuzz.log)"
-            HEADER="Decode-path fuzz log (advisory) for commit ${GITHUB_SHA} — ${LOG_LINES} lines, ${LOG_BYTES} bytes (tail of run)"
+            HEADER="Decode-path fuzz log for commit ${GITHUB_SHA} — ${LOG_LINES} lines, ${LOG_BYTES} bytes (tail of run)"
           else
             LOG_BODY="(empty)"
-            HEADER="Decode-path fuzz log (advisory) for commit ${GITHUB_SHA}"
+            HEADER="Decode-path fuzz log for commit ${GITHUB_SHA}"
           fi
           {
             printf '%s\n\n```\n' "${HEADER}"

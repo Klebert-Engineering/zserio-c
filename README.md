@@ -21,7 +21,7 @@ while the optimisation work that closes the cpp ratio is staged.
 | 2 — Java generator extension | ✅ done | `generator/zserio_c.jar` builds end to end |
 | 3 — Full schema-language coverage | ✅ done | 391/391 grammar acceptance on upstream test corpus |
 | 4 — Conformance against upstream test corpus | ✅ done | `xvalidation` CI gate: 182 schemas × 5 seeds byte-equal vs cpp |
-| 5 — Safety case maturation | 🟢 substantively complete | 14 work products in `docs/safety-case/`, all `draft`; one Open item remaining (decode-path fuzzing). G3 — generator-output MISRA gate — closed `c13bd41`; G4 — transitive stack budget — closed via gcc `-fcallgraph-info` longest-path traversal (current max 512 B / 1024 B ceiling) |
+| 5 — Safety case maturation | 🟢 substantively complete | 14 work products in `docs/safety-case/`, all `draft`; **all internal Open items closed**, gated only on case-wide independent reviewer sign-off. G3 — generator-output MISRA gate — closed `c13bd41`; G4 — transitive stack budget — closed via gcc `-fcallgraph-info` longest-path traversal (current max 512 B / 1024 B ceiling); G5 — decode-path fuzzing — closed via libFuzzer + ASan + UBSan, 60 s per target per commit, persistent corpus |
 | 6 — Performance benchmarks vs C++ runtime | 🟢 measurement live (advisory) | `perf` CI job: harness + cpp-ratio reporting; optimisation work to close the ratio is open |
 | 7 — C-native parser replaces Java front-end | ⬜ open | |
 
@@ -38,10 +38,12 @@ Every commit to `main` runs the following gates. All currently pass:
 | Build and test (gcc) | Runtime compiles and 11 Unity test suites pass | gcc + ctest |
 | Build and test (clang) | Independent toolchain catches gcc-specific miscompilation | clang + ctest |
 | Wire-format cross-validation (REQ-FN-001) | 182 schemas × 5 seeds × byte-equal vs upstream cpp | `tests/xvalidation/run_xvalidation.sh` |
-| MISRA C:2012 (strict) + forbidden-symbol grep | Zero MISRA findings; no banned-libc calls | `tools/run_misra.sh --strict` |
+| MISRA C:2012 (strict) + forbidden-symbol grep | Zero MISRA findings on the runtime; no banned-libc calls | `tools/run_misra.sh --strict` |
+| MISRA C:2012 (generator output) | Zero cppcheck/MISRA findings on the C the generator emits for a 13-schema representative set | `tools/run_misra_generated.sh --strict` |
 | Coverage (line ≥ 99% / branch ≥ 85% / function = 100%) | Snapshot: 99.89% / 88.03% / 100% | gcov + lcov + `tools/check_coverage.py` |
 | Size regression (REQ-PF-002) | ≤ 5% growth on any of `.text` / `.rodata` / `.data` / `.bss` | `tools/measure_size.py` + `tools/check_size_regression.py` |
-| Stack-budget analysis (REQ-FS-003, hazard H-09) | Every function has a static, ≤ 256 B frame | `tools/measure_stack_usage.py --strict` |
+| Stack-budget analysis (REQ-FS-003, hazard H-09) | Every function has a static frame ≤ 256 B AND every call chain ≤ 1024 B (longest-weighted-path traversal of gcc's `-fcallgraph-info` graph) | `tools/measure_stack_usage.py --strict` |
+| Decode-path fuzzing (REQ-FS-006) | libFuzzer + ASan + UBSan over the runtime decode path for two representative schemas (primitives/varints/bitfields; strings + nested compound), 60 s each per commit, persistent corpus | `tools/run_fuzz.sh` |
 | Requirements traceability | Every accepted in-phase requirement has a `Verifies:` marker | `tools/check_traceability.py` |
 | Phase 2 generator | The generator jar builds and loads end to end | ant |
 | Performance benchmark (REQ-PF-001, advisory) | Median-of-5 encode/decode ns/op for each benchmark workload, side-by-side vs upstream cpp | `tests/benchmarks/run_benchmark.sh` |

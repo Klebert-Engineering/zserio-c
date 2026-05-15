@@ -95,10 +95,7 @@ and are not negotiable without an explicit waiver process:
 
 ## Open questions
 
-- Random-input fuzzing vs. structured property-based testing for the
-  decode path's robustness against malformed inputs. (The seeded
-  xvalidation runs are property-style; broader fuzzing remains an
-  open Phase 5/6 question.)
+(none — all previously-listed open questions closed; see below.)
 
 Previously listed questions, now answered:
 
@@ -112,3 +109,7 @@ Previously listed questions, now answered:
 - Integrator responsibilities checklist → `docs/integration-guide.md`
   (consolidates H-04/H-05 integrator notes from the HARA's
   rightmost column).
+- Random-input fuzzing of the decode path → libFuzzer + ASan +
+  UBSan, two representative schemas, 60 s per target per commit,
+  persistent corpus. See `safety-case/integration-verification.md`
+  § How decode-path fuzzing runs in CI.

@@ -52,8 +52,9 @@ sibling files in this directory and in `requirements/`.
 | done   | Tool qualification — cppcheck                 | `docs/safety-case/tool-qualification-cppcheck.md`   | Fritz       | TCL2; method (3) validation per rule category; one off-CI sanity check (Rule 17.2 recursive program) noted for follow-up |
 | done   | Tool qualification — lcov / gcov              | `docs/safety-case/tool-qualification-coverage.md`   | Fritz       | TCL2; method (1) + (3); gate uses raw .info so summary bugs cannot affect outcome |
 | done   | Tool qualification — zserio-c generator       | `docs/safety-case/tool-qualification-generator.md`  | Fritz       | TCL1 (TI2 × TD1 due to xvalidation's strong detection); MISRA gate on generator output landed in the `misra-generator` CI job (commit `c13bd41`) |
-| done   | Stack-budget analysis                         | `tools/measure_stack_usage.py` + `docs/safety-case/stack-budget.md` + `stack` CI job | Fritz | Closes hazard H-09; per-function ≤ 256 B + static-qualifier strict mode |
+| done   | Stack-budget analysis                         | `tools/measure_stack_usage.py` + `docs/safety-case/stack-budget.md` + `stack` CI job | Fritz | Closes hazard H-09; per-function ≤ 256 B AND transitive call-chain ≤ 1024 B, plus the static-qualifier strict check |
 | done   | Failure-mode injection tests                  | `tests/runtime/test_failure_modes.c`                | Fritz       | One test per actionable HARA row (H-01, H-02, H-03, H-06); others handled by other gates or out of scope |
+| done   | Decode-path fuzzing (REQ-FS-006)              | `tools/run_fuzz.sh` + `tests/fuzz/` + `fuzz` CI job | Fritz       | libFuzzer + ASan + UBSan, two representative targets, 60 s each per commit, persistent corpus via actions/cache |
 | done   | Safety case report                            | `docs/safety-case/safety-case-report.md`            | Fritz       | Single entry document for a reviewer. Assembles the argument from item definition through HARA → SG/FSC/TSC → verification → TQ. |
 
 ## Sequencing
@@ -90,9 +91,9 @@ Phase 5 deliverables, in dependency order:
    per-release versions replace the snapshot tables.
 7. **Done after that:** the safety case report — `safety-case-report.md`.
    Phase 5 is structurally complete; every work product is at
-   `draft`. Acceptance is gated on independent review and on
-   closing the one remaining Open item in
-   `safety-case-report.md` § Open items.
+   `draft`. With every internal Open item in
+   `safety-case-report.md` § Open items now closed, acceptance is
+   gated only on the case-wide independent reviewer sign-off.
 
 The Phase 5 → Phase 6 transition gate is: every row in the work
 product table above is at status `done` or has an explicit
