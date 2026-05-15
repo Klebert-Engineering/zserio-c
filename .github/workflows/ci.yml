@@ -100,6 +100,71 @@ jobs:
             -F body=@/tmp/comment_body.md \
             -H 'Accept: application/vnd.github+json'
 
+  misra-generator:
+    name: MISRA C:2012 (generator output, advisory)
+    runs-on: [self-hosted, linux, x64]
+    permissions:
+      contents: write   # for posting cppcheck output as a commit comment
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - name: Init upstream + test-data submodules
+        # third_party/zserio          — ZserioTool + upstream ant jars
+        # third_party/zserio-test-data — corpus the representative set
+        #   is drawn from (see tools/run_misra_generated.sh)
+        run: git submodule update --init third_party/zserio third_party/zserio-test-data
+      - name: Install build + analysis tools
+        run: sudo apt-get update && sudo apt-get install -y ant cppcheck
+      - name: Cache upstream zserio jars
+        uses: actions/cache@v4
+        with:
+          path: build-jars
+          key: zserio-bundle-${{ hashFiles('third_party/zserio/compiler/**') }}
+      - name: Build upstream zserio bundle
+        shell: bash
+        run: |
+          set -o pipefail
+          tools/build_zserio_core_jar.sh
+          tools/build_zserio_bundle_jar.sh
+      - name: Build zserio_c.jar
+        shell: bash
+        run: tools/build_generator_jar.sh
+      - name: Run MISRA on generator output (advisory)
+        # Advisory while the first runs' findings are triaged into
+        # either template fixes or deviations; flips to --strict and
+        # drops the `|| true` once it lands clean. Closes the Phase 5
+        # Open item recorded in
+        # docs/safety-case/tool-qualification-generator.md.
+        shell: bash
+        run: |
+          set -o pipefail
+          tools/run_misra_generated.sh 2>&1 | tee misra-generated.log || true
+      - name: Post cppcheck output as commit comment
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -u
+          if [[ -s misra-generated.log ]]; then
+            LOG_LINES="$(wc -l < misra-generated.log | tr -d ' ')"
+            LOG_BYTES="$(wc -c < misra-generated.log | tr -d ' ')"
+            LOG_BODY="$(head -c 60000 misra-generated.log)"
+            HEADER="MISRA on generator output (advisory) for commit ${GITHUB_SHA} — ${LOG_LINES} lines, ${LOG_BYTES} bytes"
+          else
+            LOG_BODY="(empty)"
+            HEADER="MISRA on generator output (advisory) for commit ${GITHUB_SHA}"
+          fi
+          {
+            printf '%s\n\n```\n' "${HEADER}"
+            printf '%s' "${LOG_BODY}"
+            printf '\n```\n'
+          } > /tmp/comment_body.md
+          gh api -X POST \
+            "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
+            -F body=@/tmp/comment_body.md \
+            -H 'Accept: application/vnd.github+json'
+
   stack:
     name: Stack-budget analysis (REQ-FS-003, hazard H-09)
     runs-on: [self-hosted, linux, x64]
