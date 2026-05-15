@@ -18,8 +18,15 @@
 #   GITHUB_REPO   owner/name, e.g. ke-fritz/zserio-c-shadow
 # Optional env:
 #   RUNNER_NAME   defaults to the container hostname
-#   RUNNER_LABELS extra comma-separated labels (the default set is
-#                 always self-hosted,linux,x64)
+#   RUNNER_LABELS extra comma-separated labels added to the agent's
+#                 automatic set. The agent already self-reports
+#                 `self-hosted`, `linux`, and the host arch
+#                 (`x64`/`arm64`/`arm`), so RUNNER_LABELS carries only
+#                 the application-specific ones (`perf,primary`,
+#                 `perf,pi4`, ...). Hardcoding the auto labels here
+#                 broke the Pi setup — the Pi ended up tagged both
+#                 `x64` (forced) and `arm64` (auto-detected), matching
+#                 jobs it can't actually build.
 
 set -euo pipefail
 
@@ -62,14 +69,21 @@ trap deregister SIGTERM SIGINT
 if [[ ! -f "${RUNNER_DIR}/.runner" ]]; then
     echo "entrypoint: registering runner ${RUNNER_NAME} for ${GITHUB_REPO}"
     reg_token="$(get_registration_token)"
-    ./config.sh \
-        --unattended \
-        --url "https://github.com/${GITHUB_REPO}" \
-        --token "${reg_token}" \
-        --name "${RUNNER_NAME}" \
-        --labels "self-hosted,linux,x64${RUNNER_LABELS:+,${RUNNER_LABELS}}" \
-        --work "_work" \
+    # `--labels` carries ONLY our custom labels. The agent auto-adds
+    # `self-hosted`, `linux`, and the host arch, so we don't repeat
+    # those (and don't lie about the arch).
+    config_args=(
+        --unattended
+        --url "https://github.com/${GITHUB_REPO}"
+        --token "${reg_token}"
+        --name "${RUNNER_NAME}"
+        --work "_work"
         --replace
+    )
+    if [[ -n "${RUNNER_LABELS}" ]]; then
+        config_args+=(--labels "${RUNNER_LABELS}")
+    fi
+    ./config.sh "${config_args[@]}"
 else
     echo "entrypoint: reusing existing runner registration for ${RUNNER_NAME}"
 fi
