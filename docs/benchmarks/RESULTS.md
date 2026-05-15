@@ -12,22 +12,22 @@ the `_arena` workloads use a bump arena vs cpp's `std::pmr`).
 
 | Workload | `pi4` | `primary` |
 | -------- | ---: | ---: |
-| `addressbook` | 0.990 | 0.971 |
-| `addressbook_align` | 0.776 | 0.775 |
-| `addressbook_align_arena` | 2.039 | 1.212 |
-| `addressbook_packed` | 0.860 | 0.767 |
-| `apollo` | 1.012 | 0.888 |
-| `carsales` | 1.191 | 1.157 |
-| `carsales_align` | 1.253 | 1.274 |
-| `carsales_packed` | 1.150 | 1.088 |
-| `large_array` | 1.592 | 2.285 |
-| `medium_nested` | 1.023 | 0.942 |
+| `addressbook` | 0.975 | 0.971 |
+| `addressbook_align` | 0.790 | 0.775 |
+| `addressbook_align_arena` | 2.075 | 1.212 |
+| `addressbook_packed` | 0.867 | 0.767 |
+| `apollo` | 1.010 | 0.888 |
+| `carsales` | 1.189 | 1.157 |
+| `carsales_align` | 1.290 | 1.274 |
+| `carsales_packed` | 1.124 | 1.088 |
+| `large_array` | 1.584 | 2.285 |
+| `medium_nested` | 1.022 | 0.942 |
 | `simpletrace` | 0.956 | 0.883 |
-| `simpletrace_packed` | 1.336 | 1.160 |
-| `simpletrace_packed_arena` | — | 1.169 |
-| `small_flat` | 1.008 | 0.988 |
+| `simpletrace_packed` | 1.340 | 1.160 |
+| `simpletrace_packed_arena` | 1.332 | 1.169 |
+| `small_flat` | 1.012 | 0.988 |
 
-**Headline:** `pi4` beats or ties cpp on 9 / 14 workloads; `primary` beats or ties cpp on 7 / 14 workloads.
+**Headline:** `pi4` beats or ties cpp on 10 / 14 workloads; `primary` beats or ties cpp on 7 / 14 workloads.
 
 ### Host `primary`
 
@@ -56,16 +56,17 @@ Decode `ns/op` per workload (median of 5 runs, sorted by ratio).
 
 | Workload | zserio_c ns | zserio_cpp ns | cpp/c | Verdict |
 | -------- | ----------: | ------------: | ----: | ------- |
-| `addressbook_align_arena` | 1,297,363 | 2,645,757 | 2.039 | clear win |
-| `large_array` | 1,637,114 | 2,606,328 | 1.592 | clear win |
-| `simpletrace_packed` | 203,984 | 272,503 | 1.336 | win |
-| `carsales_align` | 3,905,947 | 4,895,971 | 1.253 | win |
-| `carsales` | 4,704,686 | 5,601,008 | 1.191 | win |
-| `carsales_packed` | 5,150,222 | 5,921,101 | 1.150 | win |
-| `medium_nested` | 620 | 634 | 1.023 | parity |
-| `apollo` | 452,008 | 457,262 | 1.012 | parity |
-| `small_flat` | 44 | 44 | 1.008 | parity |
-| `addressbook` | 5,786,320 | 5,729,813 | 0.990 | parity |
-| `simpletrace` | 525,738 | 502,357 | 0.956 | parity |
-| `addressbook_packed` | 6,130,372 | 5,270,570 | 0.860 | narrow loss |
-| `addressbook_align` | 4,964,167 | 3,852,091 | 0.776 | loss |
+| `addressbook_align_arena` | 1,287,797 | 2,672,095 | 2.075 | clear win |
+| `large_array` | 1,640,669 | 2,599,548 | 1.584 | clear win |
+| `simpletrace_packed` | 204,234 | 273,596 | 1.340 | win |
+| `simpletrace_packed_arena` | 203,952 | 271,589 | 1.332 | win |
+| `carsales_align` | 3,840,053 | 4,952,682 | 1.290 | win |
+| `carsales` | 4,690,249 | 5,575,878 | 1.189 | win |
+| `carsales_packed` | 5,190,316 | 5,832,858 | 1.124 | win |
+| `medium_nested` | 621 | 635 | 1.022 | parity |
+| `small_flat` | 44 | 44 | 1.012 | parity |
+| `apollo` | 449,681 | 454,392 | 1.010 | parity |
+| `addressbook` | 5,860,196 | 5,715,078 | 0.975 | parity |
+| `simpletrace` | 525,903 | 502,567 | 0.956 | parity |
+| `addressbook_packed` | 6,120,604 | 5,305,752 | 0.867 | narrow loss |
+| `addressbook_align` | 4,872,713 | 3,848,954 | 0.790 | loss |
