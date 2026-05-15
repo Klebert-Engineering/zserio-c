@@ -50,7 +50,7 @@ CI job and are deliberately kept out of the shared
 | `unmatchedSuppression`      | The shared suppressions file scopes entries to runtime paths (`*float.c`, `*string.c`, …) that don't exist in generated code, producing ~120 informational "Unmatched suppression" notices per generator-output run. |
 | `constParameterPointer`     | cppcheck style, not MISRA. Generated `_free` may or may not write to `self` depending on whether the type has nested allocations; the template emits the same signature either way. Marking `_write` / `_observe` as const is an API-quality follow-up. |
 | `misra-c2012-2.5`           | Unused macro. Triggered by the public `*_TAG_CASE*_FIELD` discriminator constants the generator emits per union arm — consumed by user code that cppcheck can't see. Same justification as `unusedFunction`. |
-| `misra-c2012-11.5`          | Same accepted pattern as D004 (allocator `void *` cast). Applied via CLI rather than a file-scoped entry because generated file names are schema-dependent. |
+| `misra-c2012-11.5` / `-11.8` | Same accepted pattern as D004 (allocator `void *` cast). D004 explicitly covers the overlapping 11.8 finding. Applied via CLI rather than a file-scoped entry because generated file names are schema-dependent. |
 | `misra-c2012-19.2`          | Tagged C union for zserio `choice` / `union` types — see D006. |
 
 ### Style / arithmetic categorical accepts

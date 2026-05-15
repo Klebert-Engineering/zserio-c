@@ -130,18 +130,20 @@ CPPCHECK_ARGS_BASE=(
     #   `*_TAG_CASE*_FIELD` discriminator constants the generator
     #   emits per union arm — they're consumed by user code that
     #   cppcheck can't see, same justification as `unusedFunction`.
-    # - misra-c2012-11.5: cast from `void *` to a typed pointer.
-    #   Same accepted pattern as runtime D004 — the allocator
-    #   vtable returns `void *` and generated `_read` code casts to
-    #   the array element type. Scoped here (vs `*string.c/...` in
-    #   the runtime list) because generated file names are
-    #   schema-dependent.
+    # - misra-c2012-11.5 / -11.8: cast from `void *` to a typed
+    #   pointer. Same accepted pattern as runtime D004 (which
+    #   explicitly covers the overlapping 11.8 finding) — the
+    #   allocator vtable returns `void *` and generated `_read`
+    #   code casts to the array element type. Scoped here (vs
+    #   `*string.c/...` in the runtime list) because generated file
+    #   names are schema-dependent.
     # - misra-c2012-19.2: union usage. Zserio choice/union types
     #   map to a tagged C union by design; see deviation D006.
     --suppress=unmatchedSuppression
     --suppress=constParameterPointer
     --suppress=misra-c2012-2.5
     --suppress=misra-c2012-11.5
+    --suppress=misra-c2012-11.8
     --suppress=misra-c2012-19.2
     -I"${REPO_ROOT}/runtime/include"
 )

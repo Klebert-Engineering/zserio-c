@@ -493,6 +493,30 @@ public final class CExpressionFormattingPolicy extends DefaultExpressionFormatti
         return currentOwner;
     }
 
+    /* -------- additional paren-wrapped binary operators -------- *
+     *
+     * Rule 12.1 (advisory) "The precedence of operators within
+     * expressions should be made explicit." `getAnd / getOr / getXor
+     * / getLeftShift / getRightShift / getPlus / getMinus` are
+     * already paren-wrapped below; this block fills in the operators
+     * that previously inherited the default-policy flat emit, so
+     * arithmetic expressions like `(a + 1) / 16 + 4 * 2 - 2` no
+     * longer emit a flat `* /` `% / +` mix that cppcheck-MISRA flags.
+     * Logical / comparison operators get the same treatment for the
+     * same reason (`(a == 0) || (b == 1)` style, not `a == 0 || b == 1`).
+     */
+    @Override public BinaryExpressionFormatting getMultiply(Expression expr)   { return new BinaryExpressionFormatting("(", " * ", ")"); }
+    @Override public BinaryExpressionFormatting getDivide(Expression expr)     { return new BinaryExpressionFormatting("(", " / ", ")"); }
+    @Override public BinaryExpressionFormatting getModulo(Expression expr)     { return new BinaryExpressionFormatting("(", " % ", ")"); }
+    @Override public BinaryExpressionFormatting getLogicalOr(Expression expr)  { return new BinaryExpressionFormatting("(", " || ", ")"); }
+    @Override public BinaryExpressionFormatting getLogicalAnd(Expression expr) { return new BinaryExpressionFormatting("(", " && ", ")"); }
+    @Override public BinaryExpressionFormatting getEq(Expression expr)         { return new BinaryExpressionFormatting("(", " == ", ")"); }
+    @Override public BinaryExpressionFormatting getNe(Expression expr)         { return new BinaryExpressionFormatting("(", " != ", ")"); }
+    @Override public BinaryExpressionFormatting getLt(Expression expr)         { return new BinaryExpressionFormatting("(", " < ",  ")"); }
+    @Override public BinaryExpressionFormatting getLe(Expression expr)         { return new BinaryExpressionFormatting("(", " <= ", ")"); }
+    @Override public BinaryExpressionFormatting getGt(Expression expr)         { return new BinaryExpressionFormatting("(", " > ",  ")"); }
+    @Override public BinaryExpressionFormatting getGe(Expression expr)         { return new BinaryExpressionFormatting("(", " >= ", ")"); }
+
     /* -------- built-in expression functions -------- */
 
     @Override
