@@ -24,10 +24,14 @@
  *  [-2^62, 2^62-1].)
  */
 
-#define DELTA_FLAG_INIT_STARTED  ((uint8_t)0x01U)
-#define DELTA_FLAG_IS_PACKED     ((uint8_t)0x02U)
-#define DELTA_FLAG_USE_STARTED   ((uint8_t)0x04U)
-#define DELTA_FLAG_FINALISED     ((uint8_t)0x08U)
+/* Local aliases for the public lifecycle flags so existing references
+ * below read the same as before. The {@code ZSERIO_DELTA_FLAG_*}
+ * names are visible through {@code delta.h} for the inline fast
+ * paths and remain the canonical spelling. */
+#define DELTA_FLAG_INIT_STARTED  ZSERIO_DELTA_FLAG_INIT_STARTED
+#define DELTA_FLAG_IS_PACKED     ZSERIO_DELTA_FLAG_IS_PACKED
+#define DELTA_FLAG_USE_STARTED   ZSERIO_DELTA_FLAG_USE_STARTED
+#define DELTA_FLAG_FINALISED     ZSERIO_DELTA_FLAG_FINALISED
 
 #define DELTA_MAX_BIT_NUMBER_LIMIT  ((uint8_t)62U)
 #define DELTA_MAX_BIT_NUMBER_BITS   ((uint8_t)6U)
@@ -215,13 +219,12 @@ zserio_status_t zserio_delta_observe(zserio_delta_context_t *ctx,
     return ZSERIO_OK;
 }
 
-zserio_status_t zserio_delta_write(zserio_delta_context_t *ctx,
-                                   zserio_bitstream_writer_t *bs,
-                                   uint64_t element)
+zserio_status_t zserio_delta_write_slow(zserio_delta_context_t *ctx,
+                                        zserio_bitstream_writer_t *bs,
+                                        uint64_t element)
 {
-    if ((ctx == NULL) || (bs == NULL)) {
-        return ZSERIO_ERR_INVALID_ARGUMENT;
-    }
+    /* NULL-arg validation is handled in the inline {@code zserio_delta_write}
+     * wrapper. The slow path's only callers come through there. */
     delta_finalise(ctx);
 
     if ((ctx->flags & DELTA_FLAG_USE_STARTED) == 0U) {
@@ -254,13 +257,12 @@ zserio_status_t zserio_delta_write(zserio_delta_context_t *ctx,
     return ZSERIO_OK;
 }
 
-zserio_status_t zserio_delta_read(zserio_delta_context_t *ctx,
-                                  zserio_bitstream_reader_t *bs,
-                                  uint64_t *out)
+zserio_status_t zserio_delta_read_slow(zserio_delta_context_t *ctx,
+                                       zserio_bitstream_reader_t *bs,
+                                       uint64_t *out)
 {
-    if ((ctx == NULL) || (bs == NULL) || (out == NULL)) {
-        return ZSERIO_ERR_INVALID_ARGUMENT;
-    }
+    /* NULL-arg validation is handled in the inline {@code zserio_delta_read}
+     * wrapper. The slow path's only callers come through there. */
 
     if ((ctx->flags & DELTA_FLAG_USE_STARTED) == 0U) {
         ctx->flags |= DELTA_FLAG_USE_STARTED;

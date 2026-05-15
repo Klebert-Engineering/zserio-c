@@ -9,6 +9,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 #include "zserio/status.h"
 
@@ -235,6 +236,41 @@ static inline zserio_status_t zserio_bitstream_read_bits_checked(
 zserio_status_t zserio_bitstream_read_signed(zserio_bitstream_reader_t *bs,
                                              uint8_t num_bits,
                                              int64_t *out);
+
+/**
+ * Inline bounds-checked signed read. Same shape and contract as
+ * `zserio_bitstream_read_bits_checked` (preconditions: `bs` / `out`
+ * non-NULL, `num_bits` in [1, 64]) — designed for the packed-delta
+ * steady-state path where the surrounding `zserio_delta_read` inline
+ * has already validated arguments and the per-element read is the
+ * inner hot operation. Skipping the call boundary keeps the bit-cache
+ * state in registers across consecutive calls.
+ *
+ * Implementation detail. Calling without the preconditions is UB.
+ */
+static inline zserio_status_t zserio_bitstream_read_signed_checked(
+    zserio_bitstream_reader_t *bs, uint8_t num_bits, int64_t *out)
+{
+#ifdef ZSERIO_TRACE_ENABLED
+    return zserio_bitstream_read_signed(bs, num_bits, out);
+#else
+    if ((bs->bit_index + num_bits) > bs->buffer_bit_size) {
+        return ZSERIO_ERR_END_OF_STREAM;
+    }
+    uint64_t raw = zserio_bitstream_read_bits_impl(bs, num_bits);
+    if (num_bits < 64U) {
+        const uint64_t sign_bit = (uint64_t)1U << (uint64_t)(num_bits - 1U);
+        if ((raw & sign_bit) != 0U) {
+            const uint64_t high_mask = ~(((uint64_t)1U << (uint64_t)num_bits) - 1U);
+            raw |= high_mask;
+        }
+    }
+    int64_t signed_value;
+    (void)memcpy(&signed_value, &raw, sizeof(signed_value));
+    *out = signed_value;
+    return ZSERIO_OK;
+#endif
+}
 
 /**
  * Advance the read position to the next multiple of `alignment` bits.

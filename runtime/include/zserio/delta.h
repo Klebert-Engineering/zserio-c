@@ -114,28 +114,106 @@ zserio_status_t zserio_delta_observe(zserio_delta_context_t *ctx,
                                      uint64_t element);
 
 /**
- * Write one element during the use pass. The first call also writes
- * the packing descriptor and the first element's full encoding;
- * subsequent calls write either the signed delta (when packed) or
- * the full element (when unpacked). Call once per array element,
- * in the same order as the init pass.
- *
- * Returns `ZSERIO_ERR_INVALID_ARGUMENT` for NULL `ctx` or NULL `bs`.
- * Underlying buffer / value-out-of-range errors propagate from the
- * `bitstream` calls.
+ * Lifecycle flags. Exposed here only so the `zserio_delta_read` /
+ * `zserio_delta_write` inline fast paths below can test them — the
+ * bit values are an implementation detail and not part of the public
+ * ABI contract.
  */
-zserio_status_t zserio_delta_write(zserio_delta_context_t *ctx,
-                                   zserio_bitstream_writer_t *bs,
-                                   uint64_t element);
+#define ZSERIO_DELTA_FLAG_INIT_STARTED  ((uint8_t)0x01U)
+#define ZSERIO_DELTA_FLAG_IS_PACKED     ((uint8_t)0x02U)
+#define ZSERIO_DELTA_FLAG_USE_STARTED   ((uint8_t)0x04U)
+#define ZSERIO_DELTA_FLAG_FINALISED     ((uint8_t)0x08U)
+
+/**
+ * Out-of-line slow path that handles every state of the read state
+ * machine. The {@link zserio_delta_read} inline wrapper short-
+ * circuits the packed steady-state hot loop and only calls this for
+ * the first element and for unpacked-fallback reads, where the
+ * function-pointer trait dispatch is unavoidable. Not for direct
+ * caller use — go through {@link zserio_delta_read}.
+ */
+zserio_status_t zserio_delta_read_slow(zserio_delta_context_t *ctx,
+                                       zserio_bitstream_reader_t *bs,
+                                       uint64_t *out);
+
+/**
+ * Same shape as {@link zserio_delta_read_slow} for the write path:
+ * handles first-element descriptor write + first element + unpacked
+ * fallback. Steady-state packed delta writes go inline via
+ * {@link zserio_delta_write}.
+ */
+zserio_status_t zserio_delta_write_slow(zserio_delta_context_t *ctx,
+                                        zserio_bitstream_writer_t *bs,
+                                        uint64_t element);
 
 /**
  * Read one element during the use pass. The first call also reads
  * the packing descriptor and the first element. `*out` receives the
  * element bit pattern as a `uint64_t`; for signed types the caller
  * casts back through `int64_t`.
+ *
+ * The packed steady-state branch is open-coded here so the per-
+ * element decode in a long packed array is a tight inline sequence:
+ * argument check, flag test, signed bit-cache read, sign-extend,
+ * accumulate. The cold paths (very first element of any array, plus
+ * the unpacked fallback that has to invoke the trait callback) defer
+ * to the out-of-line {@link zserio_delta_read_slow} so the call site
+ * doesn't pay code-size for paths it rarely takes.
  */
-zserio_status_t zserio_delta_read(zserio_delta_context_t *ctx,
-                                  zserio_bitstream_reader_t *bs,
-                                  uint64_t *out);
+static inline zserio_status_t zserio_delta_read(zserio_delta_context_t *ctx,
+                                                zserio_bitstream_reader_t *bs,
+                                                uint64_t *out)
+{
+    if ((ctx == NULL) || (bs == NULL) || (out == NULL)) {
+        return ZSERIO_ERR_INVALID_ARGUMENT;
+    }
+    /* Fast path: USE_STARTED is set (not the very first call) AND
+     * IS_PACKED is set (packed encoding was chosen). Anything else —
+     * first call, unpacked steady state — falls to the slow path. */
+    const uint8_t fast_mask = ZSERIO_DELTA_FLAG_USE_STARTED | ZSERIO_DELTA_FLAG_IS_PACKED;
+    if ((ctx->flags & fast_mask) == fast_mask) {
+        if (ctx->max_bit_number > 0U) {
+            int64_t delta = 0;
+            ZSERIO_TRY(zserio_bitstream_read_signed_checked(
+                bs, (uint8_t)(ctx->max_bit_number + 1U), &delta));
+            ctx->previous = ctx->previous + (uint64_t)delta;
+        }
+        /* max_bit_number == 0 → all observed deltas were zero, no
+         * bits per element on the wire; value stays at `previous`. */
+        *out = ctx->previous;
+        return ZSERIO_OK;
+    }
+    return zserio_delta_read_slow(ctx, bs, out);
+}
+
+/**
+ * Write one element during the use pass. The fast path (packed
+ * steady-state, finalised) is inlined to mirror the read shape; cold
+ * paths defer to {@link zserio_delta_write_slow}. The first write()
+ * call has to write the packing descriptor AND finalise the
+ * decision, so it always takes the slow path; subsequent calls on
+ * the same context can hit the inlined branch.
+ */
+static inline zserio_status_t zserio_delta_write(zserio_delta_context_t *ctx,
+                                                 zserio_bitstream_writer_t *bs,
+                                                 uint64_t element)
+{
+    if ((ctx == NULL) || (bs == NULL)) {
+        return ZSERIO_ERR_INVALID_ARGUMENT;
+    }
+    const uint8_t fast_mask = ZSERIO_DELTA_FLAG_USE_STARTED
+                            | ZSERIO_DELTA_FLAG_IS_PACKED
+                            | ZSERIO_DELTA_FLAG_FINALISED;
+    if ((ctx->flags & fast_mask) == fast_mask) {
+        if (ctx->max_bit_number > 0U) {
+            const uint64_t delta_bits = element - ctx->previous;
+            ZSERIO_TRY(zserio_bitstream_write_signed(bs,
+                (uint8_t)(ctx->max_bit_number + 1U), (int64_t)delta_bits));
+        }
+        ctx->previous = element;
+        return ZSERIO_OK;
+    }
+    return zserio_delta_write_slow(ctx, bs, element);
+}
 
 #endif /* ZSERIO_DELTA_H_ */
