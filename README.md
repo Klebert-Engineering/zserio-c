@@ -143,8 +143,9 @@ docs/safety-case.md            — entry point for the safety case
 docs/safety-case/              — 14 ISO 26262 work products
 docs/misra-deviations/         — D001..D006 with cppcheck-suppressions cross-refs
 docs/upstream-analysis/        — six deep-reads of upstream zserio
-docs/benchmarks/               — per-host perf baselines + size baseline
-                                 + methodology + per-host tuning notes
+docs/benchmarks/               — per-host perf baselines + RESULTS.md
+                                 (auto-rendered ratio table) + size
+                                 baseline + methodology + tuning notes
 
 requirements/                  — REQ-FN-* (functional), REQ-FS-* (safety),
                                  REQ-PF-* (performance), one .md per requirement
@@ -155,11 +156,17 @@ tests/benchmarks/              — REQ-PF-001 throughput harness (median-of-5
                                  encode/decode vs upstream cpp)
 conformance/ndslive/           — NDS Live SmartLayerTile end-to-end fixture
 
+examples/embedded_decode/      — recommended embedded deployment pattern:
+                                 static arena pool + decode + error
+                                 handling + watermark sizing. Builds
+                                 standalone via CMake.
+
 tools/                         — measure_size, check_size_regression,
                                  measure_stack_usage, check_coverage,
                                  check_perf_regression, check_traceability,
-                                 run_misra, build_zserio_core_jar,
-                                 build_generator_jar, build_zserio_bundle_jar
+                                 render_perf_results, run_misra,
+                                 build_zserio_core_jar, build_generator_jar,
+                                 build_zserio_bundle_jar
 .github/workflows/ci.yml       — the 11 gates listed above
 ```
 
