@@ -196,6 +196,35 @@ static inline uint64_t zserio_bitstream_read_bits_impl(
 }
 
 /**
+ * Inline bounds-checked read for runtime byte-loops (varint, string slow
+ * path, ...) that already validated `bs` and `out` and pass a constant
+ * `num_bits` in [1, 64]. The end-of-stream bound check stays; the
+ * redundant NULL / range checks the public `zserio_bitstream_read_bits`
+ * does are skipped, and crucially the call boundary is removed so
+ * `bs->bit_cache` / `cache_bits` / `bit_index` can stay in registers
+ * across consecutive byte reads in a tight varint loop.
+ *
+ * The `ZSERIO_TRACE_ENABLED` debug build falls through to the out-of-
+ * line public function so the per-read trace hook still fires for the
+ * conformance wire-format diff (see bitstream.c's trace facility).
+ *
+ * Implementation detail. Calling without the preconditions is UB.
+ */
+static inline zserio_status_t zserio_bitstream_read_bits_checked(
+    zserio_bitstream_reader_t *bs, uint8_t num_bits, uint64_t *out)
+{
+#ifdef ZSERIO_TRACE_ENABLED
+    return zserio_bitstream_read_bits(bs, num_bits, out);
+#else
+    if ((bs->bit_index + num_bits) > bs->buffer_bit_size) {
+        return ZSERIO_ERR_END_OF_STREAM;
+    }
+    *out = zserio_bitstream_read_bits_impl(bs, num_bits);
+    return ZSERIO_OK;
+#endif
+}
+
+/**
  * Read `num_bits` bits as a signed integer (two's complement, sign-extended).
  *
  * `num_bits` MUST be in [1, 64]. Output is written to `*out` only on

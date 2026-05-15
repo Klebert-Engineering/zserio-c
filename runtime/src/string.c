@@ -133,10 +133,14 @@ zserio_status_t zserio_read_string(zserio_bitstream_reader_t *bs,
             bs->bit_index += to_copy * 8U;
         }
     } else {
-        /* Slow path: byte-by-byte for bit-misaligned starts. */
+        /* Slow path: byte-by-byte for bit-misaligned starts. Uses
+         * the inline `_checked` helper so the cache state stays in
+         * registers across consecutive byte reads; the whole-string
+         * bound check above already guarantees in-range, so the
+         * helper's per-byte bound check never trips here. */
         for (size_t i = 0U; i < (size_t)length; i++) {
             uint64_t byte = 0U;
-            const zserio_status_t st = zserio_bitstream_read_bits(bs, 8U, &byte);
+            const zserio_status_t st = zserio_bitstream_read_bits_checked(bs, 8U, &byte);
             if (st != ZSERIO_OK) { /* LCOV_EXCL_START — unreachable: the
                                     * bound check above guarantees the loop
                                     * stays within buffer_bit_size. */

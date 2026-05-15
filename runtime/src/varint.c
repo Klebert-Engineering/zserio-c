@@ -115,10 +115,17 @@ static zserio_status_t read_varuint_impl(zserio_bitstream_reader_t *bs,
                                          uint64_t cap_value,   /* 0 means no extra cap */
                                          uint64_t *out)
 {
+    /* `out` is validated by every public wrapper; `bs` was implicitly
+     * NULL-checked by the heavy `zserio_bitstream_read_bits` we used to
+     * call. The inline `_checked` helper trusts `bs`, so the guard
+     * moves here. */
+    if (bs == NULL) {
+        return ZSERIO_ERR_INVALID_ARGUMENT;
+    }
     uint64_t result = 0U;
     for (uint8_t i = 0U; i < max_bytes; i++) {
         uint64_t byte = 0U;
-        ZSERIO_TRY(zserio_bitstream_read_bits(bs, 8U, &byte));
+        ZSERIO_TRY(zserio_bitstream_read_bits_checked(bs, 8U, &byte));
 
         const bool is_last = (i == (uint8_t)(max_bytes - 1U));
         if (is_last) {
@@ -165,8 +172,11 @@ static zserio_status_t read_varint_impl(zserio_bitstream_reader_t *bs,
                                         bool support_int64_min,
                                         int64_t *out)
 {
+    if (bs == NULL) {
+        return ZSERIO_ERR_INVALID_ARGUMENT;
+    }
     uint64_t byte = 0U;
-    ZSERIO_TRY(zserio_bitstream_read_bits(bs, 8U, &byte));
+    ZSERIO_TRY(zserio_bitstream_read_bits_checked(bs, 8U, &byte));
 
     const bool sign = (byte & SIGN_BIT) != 0U;
     const bool has_next = (byte & HAS_NEXT_6) != 0U;
@@ -189,7 +199,7 @@ static zserio_status_t read_varint_impl(zserio_bitstream_reader_t *bs,
 
     /* Continue reading bytes 1..(max_bytes - 1). */
     for (uint8_t i = 1U; i < max_bytes; i++) {
-        ZSERIO_TRY(zserio_bitstream_read_bits(bs, 8U, &byte));
+        ZSERIO_TRY(zserio_bitstream_read_bits_checked(bs, 8U, &byte));
 
         const bool is_last = (i == (uint8_t)(max_bytes - 1U));
         if (is_last) {
