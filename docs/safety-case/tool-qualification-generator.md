@@ -102,6 +102,20 @@ Combination of **(1) — increased confidence from use** and
   rationale or a sibling deviation document in
   `docs/misra-deviations/`. The gate fails the build on any
   unsuppressed finding.
+- **Cross-compound offset directives with `@index` skip wire-side
+  enforcement.** Offset directives of the shape
+  `path.through.compound[@index].field:` (a path through a `choice`
+  arm, recursive `union` arm, or packed holder, terminated by an
+  indexed array-element reference) now generate cleanly (matched by
+  the discovery gate's 391/391 schemas) but the generator does NOT
+  emit the offset back-patch on write nor the offset-position check
+  on read for these shapes — single-pass back-patch through a
+  choice / union arm isn't supported. The schema compiles, the
+  field reads and writes correctly, the integrator must compute the
+  offset value externally if the channel relies on it. See
+  `FieldFormatter.java` § "isDottedFieldRef" / "wrapDottedOffset"
+  for the dispatch and the three upstream schemas that exercise the
+  pattern.
 - **No upstream cpp ground truth for `packages/zs/index.zs`.**
   This schema requires the `-setTopLevelPackage` workaround on
   the cpp side; the workaround is applied uniformly in our

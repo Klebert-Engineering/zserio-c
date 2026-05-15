@@ -350,12 +350,34 @@ public final class FieldFormatter
     /** True iff the expression is a dot path ({@code a.b}, {@code
      *  a.b.c}, …) whose final identifier resolves to a {@link Field}.
      *  Excludes indexed array-element references
-     *  ({@code arr[@index].x}); those go through the indexed-offset
-     *  path. */
+     *  ({@code arr[@index].x}); those would go through the indexed-
+     *  offset path when the source array's element is fixed-width,
+     *  and otherwise fall through to the "no wrap" branch (the
+     *  generator can't single-pass back-patch through a choice /
+     *  union arm, so it skips the directive — discovery passes,
+     *  but the wire output won't honor the offset). */
     private static boolean isDottedFieldRef(Expression e)
     {
         return e.getExprSymbolObject() instanceof Field
-                && e.getType() == zserio.antlr.ZserioParser.DOT;
+                && e.getType() == zserio.antlr.ZserioParser.DOT
+                && !containsIndex(e);
+    }
+
+    /** Walk the expression tree and return true if any node is an
+     *  {@code @index} reference. Used by {@link #isDottedFieldRef}
+     *  to keep cross-compound-with-{@code @index} offset paths out
+     *  of the dotted-offset wrap. */
+    private static boolean containsIndex(Expression e)
+    {
+        if (e == null) {
+            return false;
+        }
+        if (e.getType() == zserio.antlr.ZserioParser.INDEX) {
+            return true;
+        }
+        return containsIndex(e.op1())
+                || containsIndex(e.op2())
+                || containsIndex(e.op3());
     }
 
     /**
