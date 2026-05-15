@@ -225,6 +225,40 @@ The first-seed run on a Pi typically lands the corpus baseline
 regression. The 15 % threshold is on the *same host's* numbers
 over time, never cross-host.
 
+## Allocator choice in the perf gate
+
+The default workload drivers all call `zserio_allocator_libc()` so
+the comparison against upstream cpp (which uses `std::allocator`) is
+apples-to-apples at the libc-malloc level. This is the conservative
+default — every embedded toolchain ships some kind of `malloc`, so
+it's the right floor for the gate.
+
+It is *not* the deployment shape an automotive caller would pick.
+The runtime's `zserio_allocator_t` vtable (REQ-FS-007) was designed
+so callers can plug in a static pool / arena / pmr resource and skip
+libc entirely. The reference bump arena
+(`zserio_arena_init` + `zserio_allocator_arena`) is shipped in the
+runtime as the canonical example.
+
+The `addressbook_align_arena` workload exercises this path: same
+schema and blob as `addressbook_align`, but the c_driver uses the
+bump arena and skips per-iteration `_free` calls (the arena's reset
+reclaims everything). On the dev-box aarch64 baseline the arena
+variant decodes in **~333 µs vs ~780 µs libc and ~555 µs cpp** — a
+~57 % reduction on top of the libc number, putting us **~40 %
+ahead of cpp**.
+
+The cpp/c ratio reported on the arena workload therefore measures
+**arena vs std::allocator**, not a wire-format or generator
+advantage. Treat it as the *available* embedded performance
+envelope, not a regression-comparable number against cpp. The libc-
+vs-cpp ratio on `addressbook_align` remains the honest like-for-like
+gate.
+
+To add more arena variants for other workloads, copy
+`tests/benchmarks/workloads/addressbook_align_arena/` and adjust
+the `schema.config` + the include path in the new `c_driver.c`.
+
 ## Cross-references
 
 - `tests/benchmarks/run_benchmark.sh` — the harness.
@@ -232,3 +266,5 @@ over time, never cross-host.
 - `.github/workflows/ci.yml` § `perf` — the matrix.
 - `docs/ci-self-hosted.md` — runner setup (Docker compose).
 - `requirements/performance/REQ-PF-001.md` — the requirement.
+- `runtime/include/zserio/allocator.h` — the allocator vtable +
+  reference bump arena (`zserio_allocator_arena`).
