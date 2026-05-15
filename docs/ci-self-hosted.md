@@ -13,34 +13,53 @@ Everything needed lives in [`ci/`](../ci/):
 | `ci/docker-compose.yml` | Three runner instances on one host, sharing the image |
 | `ci/.env.example` | Template for the one secret the operator manages (a GitHub PAT) |
 
-The CI workflow (`.github/workflows/ci.yml`) targets
-`runs-on: [self-hosted, linux, x64]`. The image bakes in python3 and
-JDK 17 (with `JAVA_HOME` set), so the workflow uses no
-`actions/setup-python` or `actions/setup-java` steps — those download
-toolchains at runtime and are redundant against a purpose-built
-image. The `apt-get install` steps are kept as fast no-ops.
+Most CI jobs target `runs-on: [self-hosted, linux, x64]` — any
+runner with those base labels picks them up. The `perf` job is
+the exception: it targets `[self-hosted, perf, <host>]` so it
+routes only to runners that have explicitly opted in via
+`RUNNER_LABELS=perf,<host>` in `ci/.env`. The full multi-host
+policy is in `docs/benchmarks/methodology.md`; in short, the
+canonical x86_64 perf box gets `RUNNER_LABELS=perf,primary`,
+and additional hosts (Pi, Mac mini, Jetson, ...) come in as
+`perf,pi5` / `perf,macmini` / `perf,jetson`.
+
+The image bakes in python3 and JDK 17 (with `JAVA_HOME` set), so
+the workflow uses no `actions/setup-python` or `actions/setup-java`
+steps — those download toolchains at runtime and are redundant
+against a purpose-built image. The `apt-get install` steps are
+kept as fast no-ops.
 
 ## Hardware
 
-Reference target: a Synology DS3018xs (Pentium D1508, 2 cores / 4
-threads, 32 GB RAM, x86-64, always-on, runs Container Manager).
+Reference target: a Linux x86_64 server with 16 cores / 128 GB
+RAM, always-on, dedicated. (Earlier history: a Synology DS3018xs
+with Pentium D1508 / 2 cores / 32 GB. Retired — the noise floor
+was too high for stable perf measurements; see
+`docs/benchmarks/methodology.md` § Thresholds.)
 
 The constraints that actually matter:
 
-- **x86-64** — keeps the `size` and `perf` baselines comparable to
-  the values already committed under `docs/benchmarks/`. An ARM host
-  works too but needs a one-time rebaseline of those two gates.
+- **x86-64 for the `primary` perf box.** The `size` baseline is
+  measured on x86_64; the `perf` baseline is per-host so a non-
+  x86 host just seeds its own `perf.baseline.<host>.json` on
+  first run. Non-`primary` perf hosts (Pi, Mac, Jetson) can be
+  any architecture.
 - **RAM** — the Java/ant jar builds want ~2 GB headroom; the LTO
   link of the `ndslive_tile` perf workload can spike to ~4 GB
   transient. 8 GB is the floor, more is comfortable. 32 GB is
-  generous.
+  generous; the 128 GB on the reference Linux x86_64 server has
+  abundant headroom.
 - **Cores** — 2 is enough; jobs just serialise more. Three runner
   instances (the compose default) let GitHub dispatch the lighter
-  jobs in parallel, roughly halving a full run's wall-clock.
-  Note: the DSM kernel ships without CPU CFS quota support, so the
-  compose file deliberately sets **no `cpus:` limit** — Docker
-  rejects it ("kernel does not support CPU CFS scheduler"). Memory
-  cgroups do work, so the `memory:` cap is kept.
+  jobs in parallel, roughly halving a full run's wall-clock. On a
+  16-core box, duplicate the `runner-2` block in
+  `ci/docker-compose.yml` up to `runner-6` for more parallelism;
+  the image is shared, the resource overhead is small.
+  *Historical note:* on the retired Synology, the DSM kernel
+  shipped without CPU CFS quota support, so the compose file sets
+  no `cpus:` limit (Docker would reject it). Memory cgroups work,
+  so the `memory:` cap is kept. Both are no-ops on a Linux x86_64
+  server with a normal kernel.
 - **Disk** — the xvalidation and perf jobs generate large trees
   (`build-xvalidation/`, `build-benchmarks/`, 1500+ files for the
   ndslive schema). Budget ~20 GB of working space.
@@ -61,78 +80,74 @@ The PAT is exchanged for a short-lived *registration* token at
 container start (`entrypoint.sh`); it is never baked into the image
 or the compose file. It lives only in `ci/.env`, which is gitignored.
 
-## Deploying to the Synology NAS
+## Deploying a runner (Linux x86_64 host, terminal-only)
 
-DSM 7.x ships **Container Manager** (the rebranded Docker package).
-Two ways to deploy — pick whichever you're more comfortable with.
+The canonical path for the `primary` perf box and other Linux
+runners is `docker compose` from a checkout of the repo on the
+host. No GUI required.
 
-### Option A — Container Manager GUI (Projects)
+```bash
+git clone https://github.com/ke-fritz/zserio-c-shadow.git /opt/zserio-ci
+cd /opt/zserio-ci/ci
 
-1. **Get the files onto the NAS.** Either:
-   - clone the repo on the NAS (`git clone ... /volume1/docker/zserio-ci`), or
-   - via File Station, upload the `ci/` directory to e.g.
-     `/volume1/docker/zserio-ci/`.
-2. **Create `ci/.env`** next to `docker-compose.yml`:
-   `cp ci/.env.example ci/.env`, then edit it and paste your PAT.
-3. In **Container Manager → Project → Create**:
-   - Project name: `zserio-ci`
-   - Path: the folder containing `docker-compose.yml`
-   - It detects the compose file; click through to build + start.
-4. Container Manager builds the image (a few minutes — it's
-   downloading the toolchain and the runner agent) and starts the
-   three runner containers.
+cp .env.example .env
+$EDITOR .env       # GITHUB_PAT=<your PAT>; GITHUB_REPO already defaults
+                   # to ke-fritz/zserio-c-shadow.
+                   #
+                   # On the primary perf box, also set:
+                   #   RUNNER_LABELS=perf,primary
+                   # Other perf hosts use perf,<their-label> (pi5 / macmini /
+                   # jetson, ...). Non-perf hosts leave RUNNER_LABELS unset.
 
-### Option B — SSH + docker compose CLI
+docker compose up -d --build   # ~5 min first time (toolchain + runner agent)
+docker compose logs -f          # tail to watch registration
+```
 
-1. Enable SSH on the NAS (Control Panel → Terminal & SNMP).
-2. `ssh your-admin@nas-host`
-3. Stage the files (clone or scp the `ci/` directory).
-4. Create `ci/.env` from the example, paste the PAT.
-5. Build and start:
-   ```
-   cd /volume1/docker/zserio-ci
-   sudo docker compose -f ci/docker-compose.yml up -d --build
-   ```
-   (`docker compose` is the bundled v2 plugin in current DSM; older
-   DSM uses `docker-compose`.)
+Within ~30 s of containers starting, three runners (default
+`zserio-ci-1/2/3`) appear under **Settings → Actions → Runners**
+showing **Idle**. To run more concurrent CI jobs on a beefier host
+(e.g. the 16-core / 128 GB primary), duplicate the `runner-2`
+block in `ci/docker-compose.yml` up to `runner-6` before the first
+`docker compose up`.
 
-### Verify
+### Historical: Synology Container Manager GUI
 
-Within ~30 s of the containers starting, three runners named
-`zserio-ci-1/2/3` should appear under the repo's
-**Settings → Actions → Runners**, each showing **Idle**. Push any
-commit (or open a PR) and the jobs route to them.
-
-## Updating after an `ci/` change (Container Manager UI)
+The earlier reference host was a Synology DS3018xs; the deployment
+flow there was the Container Manager → Project UI rather than
+direct `docker compose` CLI. Documented for the record — the
+Synology is retired in favour of a dedicated Linux x86_64 host
+(better noise floor for perf measurements). If you need the GUI
+flow, the steps are: File Station upload of `ci/`, create `ci/.env`
+next to `docker-compose.yml` (paste the PAT and any
+`RUNNER_LABELS`), then Container Manager → Project → Create with
+the folder containing `docker-compose.yml` and click through
+build + start.
+## Updating after a `ci/` change
 
 When `ci/Dockerfile`, `ci/docker-compose.yml`, or `ci/entrypoint.sh`
-changes, the running project needs a rebuild:
+changes, the running project needs a rebuild. From the runner host:
 
-1. Copy the updated `ci/` folder contents into the project folder
-   on the NAS — **keep your existing `ci/.env`**, don't overwrite it.
-2. In **Container Manager → Project → `zserio-ci`**:
-   - **Stop** the project.
-   - **Build** — rebuilds the image from the updated `Dockerfile`
-     (Docker layer cache makes unchanged layers instant).
-   - **Start** — recreates the three containers from the new image.
-3. `entrypoint.sh` re-registers each runner on start (`--replace`
-   keeps the same names), so within ~30 s they're back to **Idle**.
+```bash
+cd /opt/zserio-ci
+git pull                              # keep ci/.env in place — it's gitignored
+cd ci
+docker compose up -d --build          # stops, rebuilds, restarts in one step
+docker compose logs -f                # confirm re-registration
+```
 
-The CLI equivalent is `docker compose -f ci/docker-compose.yml up -d
---build`.
+`entrypoint.sh` re-registers each runner on start (`--replace` keeps
+the same names), so within ~30 s they're back to **Idle**.
 
 ## Operations
 
-- **Logs**: `docker logs -f zserio-ci-runner-1` (or the per-container
-  log view in Container Manager) shows registration + each job's
-  runner-side output.
-- **Restart**: Container Manager → project → Stop then Start, or
-  `docker compose -f ci/docker-compose.yml restart`. The runner
-  re-registers cleanly each time.
-- **Stop / remove**: `docker compose -f ci/docker-compose.yml down`
-  (or the project's Stop). `entrypoint.sh` traps the stop signal and
-  de-registers each runner so it doesn't linger as an offline entry
-  in the repo's runner list.
+- **Logs**: `docker logs -f zserio-ci-runner-1` shows registration +
+  each job's runner-side output. `docker compose logs -f` tails all
+  three.
+- **Restart**: `docker compose -f ci/docker-compose.yml restart`.
+  The runner re-registers cleanly each time.
+- **Stop / remove**: `docker compose -f ci/docker-compose.yml down`.
+  `entrypoint.sh` traps the stop signal and de-registers each runner
+  so it doesn't linger as an offline entry in the repo's runner list.
 - **Bump the runner agent**: GitHub deprecates old runner releases
   periodically. Edit `RUNNER_VERSION` in `ci/Dockerfile`, then
   rebuild (see "Updating" above).
@@ -149,10 +164,10 @@ Self-hosted runners on a **private** repository are safe — only
 collaborators can push code that runs on them.
 
 If `zserio-c-shadow` is ever made **public**, this changes: a fork
-pull request could run arbitrary code on the NAS. Before going
-public, either disable self-hosted runners for fork PRs or restrict
-them under **Settings → Actions → Fork pull request workflows**.
-The runner containers run as a non-root `runner` user with
-passwordless sudo scoped to the container — a compromised job is
-contained to the container, but the container still shares the NAS
-kernel, so the public-repo caveat stands.
+pull request could run arbitrary code on the runner host. Before
+going public, either disable self-hosted runners for fork PRs or
+restrict them under **Settings → Actions → Fork pull request
+workflows**. The runner containers run as a non-root `runner` user
+with passwordless sudo scoped to the container — a compromised job
+is contained to the container, but the container still shares the
+host kernel, so the public-repo caveat stands.

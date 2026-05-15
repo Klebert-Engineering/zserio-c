@@ -64,3 +64,4 @@ conformance/ndslive/tile.yaml
 # entry in the `fuzz` job is the authoritative store.
 tests/fuzz/corpus/
 
+__pycache__/

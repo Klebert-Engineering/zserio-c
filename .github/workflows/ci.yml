@@ -321,8 +321,25 @@ jobs:
             -H 'Accept: application/vnd.github+json'
 
   perf:
-    name: Performance benchmark (REQ-PF-001, advisory)
-    runs-on: [self-hosted, linux, x64]
+    name: Performance benchmark (REQ-PF-001, host=${{ matrix.host }})
+    # Routed to runners labelled `[self-hosted, perf, <host>]`. The
+    # matrix's single entry today (`primary`) is the canonical per-
+    # commit perf box; new hosts (pi5, macmini, jetson, ...) join the
+    # list as their runners come online. See
+    # docs/benchmarks/methodology.md for the multi-host policy.
+    runs-on: [self-hosted, perf, "${{ matrix.host }}"]
+    # One perf run per host at a time — running two on the same host
+    # in parallel destroys the measurement (cache contention, jitter).
+    # Different hosts (different matrix entries) run independently.
+    # cancel-in-progress: false so a new commit doesn't kill an
+    # in-flight measurement; we'd rather wait and get clean numbers.
+    concurrency:
+      group: perf-${{ matrix.host }}
+      cancel-in-progress: false
+    strategy:
+      fail-fast: false
+      matrix:
+        host: [primary]
     permissions:
       contents: write   # for posting the benchmark report as a commit comment
     steps:
@@ -333,7 +350,8 @@ jobs:
         # third_party/zserio        — upstream schemas + cpp runtime
         # zserio-benchmarks-datasets — JSON datasets the corpus workloads
         #   bootstrap from; without it the harness skips apollo /
-        #   addressbook / carsales / simpletrace.
+        #   addressbook (and its _align/_packed variants) /
+        #   carsales (+ variants) / simpletrace (+ variant).
         run: git submodule update --init third_party/zserio third_party/zserio-benchmarks-datasets
       - name: Install build tools
         run: sudo apt-get update && sudo apt-get install -y ant gcc g++
@@ -357,24 +375,28 @@ jobs:
         run: |
           set -o pipefail
           RUNS=5 INNER_ITERS=200000 bash tests/benchmarks/run_benchmark.sh > perf.json
-      - name: Report regression (advisory — does not fail the build yet)
+      - name: Report regression against this host's baseline
         shell: bash
-        # The gate is advisory in this phase. Public CI runner noise is
-        # significant, and we do not yet have stable baseline numbers
-        # measured on the runner. Once 2–3 green runs have produced
-        # comparable numbers, the baseline gets bumped to a CI-measured
-        # value and `|| true` is removed.
+        # Per-host baseline at docs/benchmarks/perf.baseline.<host>.json.
+        # First run on a new host seeds the file and exits OK; subsequent
+        # runs compare against it. Each host has its own noise floor;
+        # cross-host comparison is a *reporting* artefact, never a gate.
+        # See docs/benchmarks/methodology.md.
+        env:
+          PERF_HOST: ${{ matrix.host }}
         run: |
           set -o pipefail
-          python3 tools/check_perf_regression.py perf.json | tee perf-report.txt || true
+          python3 tools/check_perf_regression.py perf.json | tee perf-report.txt
       - name: Post benchmark report as commit comment
         if: always()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PERF_HOST: ${{ matrix.host }}
         run: |
           set -u
           {
-            printf 'performance benchmark (REQ-PF-001, advisory) for commit %s:\n\n```\n' "${GITHUB_SHA}"
+            printf 'performance benchmark (REQ-PF-001) — host **%s** — for commit %s:\n\n```\n' \
+                   "${PERF_HOST}" "${GITHUB_SHA}"
             if [[ -s perf-report.txt ]]; then
               cat perf-report.txt
               printf '\n--- raw JSON ---\n'

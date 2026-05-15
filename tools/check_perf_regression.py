@@ -1,23 +1,29 @@
 #!/usr/bin/env python3
 """
-Compare a benchmark JSON against the committed baseline.
+Compare a benchmark JSON against the per-host baseline.
 
-Reads `docs/benchmarks/perf.baseline.json` (last accepted numbers)
-and a current measurement file (positional argument), prints a per-
-workload diff, and fails when any zserio-c metric has regressed by
-more than `REGRESSION_PCT_FAIL` percent or has improved/regressed
-by more than `REGRESSION_PCT_REBASELINE` (the larger threshold is
-informational — the gate only fails on regressions).
+Reads `docs/benchmarks/perf.baseline.<host>.json` (last accepted
+numbers for the host the current run measured on) and a current
+measurement file (positional argument), prints a per-workload diff,
+and fails when any zserio-c metric has regressed by more than
+`REGRESSION_PCT_FAIL` percent.
 
-The regression check is **us vs. our own baseline**, not us vs.
-upstream cpp. The cpp ratio is reported for visibility but is not
-itself a gate; bringing the ratio above 1.0 is the Phase 6
+The host identifier comes from the `PERF_HOST` env var, set by the
+CI step from the runner's host label. Cross-host comparison is
+nonsense (different ISA / microarch / noise floor); each host
+compares only against its own history. The set of known baselines
+under `docs/benchmarks/perf.baseline.*.json` is the multi-host
+record. See `docs/benchmarks/methodology.md` for the full policy.
+
+If `docs/benchmarks/perf.baseline.<host>.json` doesn't exist (new
+host, or first run after a workload-set change), the script seeds
+it from the current run's JSON and exits OK — same seed-on-miss
+as the initial baseline behavior.
+
+The regression check is **us vs. our own per-host baseline**, not
+us vs. upstream cpp. The cpp ratio is reported for visibility but
+is not itself a gate; bringing the ratio above 1.0 is the Phase 6
 optimisation work that this gate measures the progress of.
-
-Public CI runner noise on the ubuntu-latest image is significant.
-The default threshold is intentionally loose (15%); a stricter
-gate is a Phase 6 follow-up once we have noise data from real
-runs.
 
 Verifies: REQ-PF-001
 """
@@ -25,14 +31,28 @@ Verifies: REQ-PF-001
 from __future__ import annotations
 
 import json
+import os
+import re
 import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-BASELINE = REPO / "docs" / "benchmarks" / "perf.baseline.json"
+BASELINE_DIR = REPO / "docs" / "benchmarks"
 
+# A clear, slightly loose threshold. Each host's noise floor is
+# documented in methodology.md; if a future host runs noisier than
+# this, the gate should be widened with a justification rather than
+# silently rebaselined.
 REGRESSION_PCT_FAIL = 15.0      # fail CI on a slowdown > this
-REGRESSION_PCT_REBASELINE = 30.0  # informational warning
+REGRESSION_PCT_REBASELINE = 30.0  # informational rebaseline hint
+
+
+# Host identifiers must be filename-safe and stable.
+_HOST_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
+
+
+def baseline_path_for(host: str) -> Path:
+    return BASELINE_DIR / f"perf.baseline.{host}.json"
 
 
 def fmt_pct(pct: float) -> str:
@@ -42,21 +62,39 @@ def fmt_pct(pct: float) -> str:
 
 def main(argv: list[str]) -> int:
     if len(argv) < 2:
-        print("usage: check_perf_regression.py <current.json>", file=sys.stderr)
+        print("usage: PERF_HOST=<host> check_perf_regression.py <current.json>",
+              file=sys.stderr)
+        return 2
+
+    host = os.environ.get("PERF_HOST", "").strip()
+    if not host:
+        print("PERF_HOST env var is required (e.g., 'primary' / 'pi5' / 'jetson').",
+              file=sys.stderr)
+        print("It identifies which perf.baseline.<host>.json the current run is "
+              "compared against. See docs/benchmarks/methodology.md.",
+              file=sys.stderr)
+        return 2
+    if not _HOST_PATTERN.match(host):
+        print(f"PERF_HOST='{host}' is not a valid host identifier "
+              f"(must match {_HOST_PATTERN.pattern}).", file=sys.stderr)
         return 2
 
     current = json.loads(Path(argv[1]).read_text())
+    baseline_file = baseline_path_for(host)
 
-    if not BASELINE.exists():
-        BASELINE.parent.mkdir(parents=True, exist_ok=True)
-        BASELINE.write_text(json.dumps(current, indent=2, sort_keys=True) + "\n")
-        print(f"Initial baseline seeded at {BASELINE.relative_to(REPO)}.")
+    if not baseline_file.exists():
+        baseline_file.parent.mkdir(parents=True, exist_ok=True)
+        baseline_file.write_text(json.dumps(current, indent=2, sort_keys=True) + "\n")
+        print(f"Initial baseline for host '{host}' seeded at "
+              f"{baseline_file.relative_to(REPO)}.")
         return 0
 
-    baseline = json.loads(BASELINE.read_text())
+    baseline = json.loads(baseline_file.read_text())
 
-    print(f"{'workload':18s}  {'metric':18s}  {'baseline ns':>12s}  {'current ns':>12s}  "
-          f"{'Δ %':>8s}  {'cpp ratio':>10s}")
+    print(f"host: {host}   (baseline: {baseline_file.relative_to(REPO)})")
+    print()
+    print(f"{'workload':18s}  {'metric':18s}  {'baseline ns':>12s}  "
+          f"{'current ns':>12s}  {'Δ %':>8s}  {'cpp ratio':>10s}")
     print("-" * 92)
 
     failed = False
@@ -90,11 +128,14 @@ def main(argv: list[str]) -> int:
 
     if failed:
         print(f"\nFAIL: at least one zserio_c metric regressed by more than "
-              f"{REGRESSION_PCT_FAIL:.0f}%.")
-        print("To accept the change, run the benchmark and replace the baseline:")
-        print("  bash tests/benchmarks/run_benchmark.sh > docs/benchmarks/perf.baseline.json")
+              f"{REGRESSION_PCT_FAIL:.0f}% on host '{host}'.")
+        print("To accept the change, run the benchmark on this host and replace "
+              "its baseline:")
+        print(f"  PERF_HOST={host} tests/benchmarks/run_benchmark.sh "
+              f"> {baseline_file.relative_to(REPO)}")
         return 1
-    print(f"\nOK: no zserio_c metric regressed by more than {REGRESSION_PCT_FAIL:.0f}%.")
+    print(f"\nOK: no zserio_c metric regressed by more than "
+          f"{REGRESSION_PCT_FAIL:.0f}% on host '{host}'.")
     return 0
 
 
