@@ -101,7 +101,7 @@ jobs:
             -H 'Accept: application/vnd.github+json'
 
   misra-generator:
-    name: MISRA C:2012 (generator output, advisory)
+    name: MISRA C:2012 (generator output)
     runs-on: [self-hosted, linux, x64]
     permissions:
       contents: write   # for posting cppcheck output as a commit comment
@@ -130,16 +130,18 @@ jobs:
       - name: Build zserio_c.jar
         shell: bash
         run: tools/build_generator_jar.sh
-      - name: Run MISRA on generator output (advisory)
-        # Advisory while the first runs' findings are triaged into
-        # either template fixes or deviations; flips to --strict and
-        # drops the `|| true` once it lands clean. Closes the Phase 5
-        # Open item recorded in
-        # docs/safety-case/tool-qualification-generator.md.
+      - name: Run MISRA on generator output (strict)
+        # Strict mode: any cppcheck finding fails the build. Findings
+        # are either fixed in the generator templates or covered by an
+        # entry in `tools/cppcheck-suppressions.txt` (shared with the
+        # runtime gate) or by a `--suppress=...` flag in
+        # `tools/run_misra_generated.sh` (generator-only suppressions
+        # — documented in `tools/cppcheck-suppressions.md` and in the
+        # relevant `docs/misra-deviations/D*.md`).
         shell: bash
         run: |
           set -o pipefail
-          tools/run_misra_generated.sh 2>&1 | tee misra-generated.log || true
+          tools/run_misra_generated.sh --strict 2>&1 | tee misra-generated.log
       - name: Post cppcheck output as commit comment
         if: always()
         env:
@@ -150,10 +152,10 @@ jobs:
             LOG_LINES="$(wc -l < misra-generated.log | tr -d ' ')"
             LOG_BYTES="$(wc -c < misra-generated.log | tr -d ' ')"
             LOG_BODY="$(head -c 60000 misra-generated.log)"
-            HEADER="MISRA on generator output (advisory) for commit ${GITHUB_SHA} — ${LOG_LINES} lines, ${LOG_BYTES} bytes"
+            HEADER="MISRA on generator output for commit ${GITHUB_SHA} — ${LOG_LINES} lines, ${LOG_BYTES} bytes"
           else
             LOG_BODY="(empty)"
-            HEADER="MISRA on generator output (advisory) for commit ${GITHUB_SHA}"
+            HEADER="MISRA on generator output for commit ${GITHUB_SHA}"
           fi
           {
             printf '%s\n\n```\n' "${HEADER}"

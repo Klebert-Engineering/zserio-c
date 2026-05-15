@@ -121,7 +121,7 @@ Four tools sit on the safety path. Each has a TQ record under
 | gcc          | TCL2 | Validated via build-and-test (gcc + clang independent), xvalidation, stack, coverage gates      |
 | cppcheck     | TCL2 | Validated per rule category; one off-CI sanity exercise (Rule 17.2 recursion check) noted       |
 | lcov / gcov  | TCL2 | Validated via spot-check of measured properties; gate uses raw `.info` data                     |
-| Generator    | TCL1 | Strong detection (TD1) via xvalidation; one Open gap: MISRA gate not run on generator output    |
+| Generator    | TCL1 | Strong detection (TD1) via xvalidation; MISRA gate on generator output landed in the `misra-generator` CI job (commit `c13bd41`) |
 
 ## Open items and residual risks
 
@@ -129,19 +129,21 @@ The safety case has three categories of open items:
 
 1. **Open items already inside this case** (tracked in the
    relevant work product):
-   - cppcheck MISRA gate not run on generator output (see
-     `tool-qualification-generator.md`).
    - Transitive worst-case stack total: current gate is
      per-function only (see `stack-budget.md` § Limitations).
    - Random-input fuzzing of the decode path: structured
      property-style testing currently substitutes (see
      `integration-verification.md` § Known integration gaps).
+   - *Closed:* cppcheck MISRA gate now runs strictly on
+     generator output via the `misra-generator` CI job over a
+     representative 13-schema set (see
+     `tool-qualification-generator.md`).
 
 2. **Documents in `draft` status awaiting acceptance.** Every
    document in `docs/safety-case/` is currently at `draft`. The
    acceptance criterion for each is recorded in the document's
    own front matter. The case moves to `accepted` as a whole
-   when the three open items above are closed and the
+   when the two open items above are closed and the
    integration verification is replayed against the next release
    tag.
 

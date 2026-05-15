@@ -64,7 +64,7 @@ Combination of **(1) — increased confidence from use** and
   | ----------------------------------------------- | ------------------------------------------------------------------------------------------- |
   | Correct C identifier mapping                    | `generator/src/main/java/zserio/extension/c/CIdentifierFormatter.java` is unit-tested under `generator/src/test/`. |
   | Correct codec output for every supported construct | `xvalidation` job: 182 schemas, byte-equal round-trip against upstream                  |
-  | No use of forbidden symbols (REQ-FS-001/002)    | `tools/run_misra.sh` forbidden-symbol grep runs on the runtime, NOT yet on generator output. **Gap** — see "Known limitations". |
+  | No use of forbidden symbols (REQ-FS-001/002)    | `tools/run_misra.sh` forbidden-symbol grep runs on the runtime, AND `tools/run_misra_generated.sh` (the `misra-generator` CI job) runs cppcheck + MISRA addon on the generator's output for a 13-schema representative set. |
   | No runtime reflection (REQ-FS-008)              | Architectural review: the generator templates contain no reflection scaffolding. **Smoke-checked** by REQ-FS-008's traceability marker in `tools/run_misra.sh`. |
   | Correct cross-compound offset patching          | xvalidation; the `offsets_compound_field_array` and related schemas exercise it.            |
 
@@ -87,15 +87,21 @@ Combination of **(1) — increased confidence from use** and
 
 ## Known limitations
 
-- **Generator output not subject to MISRA gate.** The MISRA CI
-  job runs only against `runtime/src` and `runtime/include`. The
-  generator's output is not exercised by cppcheck on every
-  commit. Mitigations: (a) the templates are written to emit
-  code structurally identical to the hand-written runtime style;
-  (b) any integrator running cppcheck against their generated
-  output will catch a violation locally. **Gap to close:** add a
-  CI step that runs cppcheck against the xvalidation work-dir
-  c_out for a small representative schema set.
+- **Generator output now subject to a strict MISRA gate** *(closed
+  2026-05-15, commit `c13bd41`)*. The `misra-generator` CI job
+  (`.github/workflows/ci.yml`) runs `tools/run_misra_generated.sh
+  --strict` against a 13-schema representative set chosen to cover
+  the major emission paths (every primitive width, varint, bitfield,
+  struct, choice, union, packed array, optional, parameterised,
+  template, string, float, offset, function-typed). Findings are
+  either fixed in the generator's FreeMarker templates / Java
+  policy, or covered by an explicit entry in
+  `tools/cppcheck-suppressions.txt` (shared with the runtime) /
+  `tools/run_misra_generated.sh` CLI suppressions (generator-only),
+  every category indexed in `tools/cppcheck-suppressions.md` with a
+  rationale or a sibling deviation document in
+  `docs/misra-deviations/`. The gate fails the build on any
+  unsuppressed finding.
 - **No upstream cpp ground truth for `packages/zs/index.zs`.**
   This schema requires the `-setTopLevelPackage` workaround on
   the cpp side; the workaround is applied uniformly in our
@@ -110,9 +116,10 @@ Combination of **(1) — increased confidence from use** and
 
 1. Adding support for a new schema construct triggers the need
    for at least one new entry in the xvalidation corpus.
-2. Closing the "generator output MISRA gate" gap (see Known
-   limitations) is required before the generator's TQ record can
-   move from `draft` to `accepted`.
+2. The "generator output MISRA gate" gap is closed (see Known
+   limitations); the TQ record's `draft → accepted` transition is
+   now blocked only on the case-wide independent reviewer sign-off
+   tracked in `safety-case-report.md` § Sign-off.
 3. A change to `CIdentifierFormatter.java` or to any FreeMarker
    template under `generator/src/main/resources/c99/` requires a
    re-run of the full xvalidation corpus.

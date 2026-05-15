@@ -107,15 +107,11 @@ verification evidence. Every commit to `main` reproduces them:
 
 ## Known integration gaps
 
-Same as the per-tool TQ records' Known Limitations sections, the
-two integration-level gaps are:
+One integration-level gap remains (the MISRA-on-generator-output
+gap closed in commit `c13bd41`; see
+`tool-qualification-generator.md` § Known limitations):
 
-1. **cppcheck MISRA gate not run on generator output.** Recorded
-   in `tool-qualification-generator.md`. Integrators running
-   cppcheck against their own generated output catch any
-   violation locally; the gap is closed by adding a CI step that
-   does the same for a representative subset.
-2. **Decode-path fuzzing.** Random-input fuzzing is not currently
+1. **Decode-path fuzzing.** Random-input fuzzing is not currently
    in CI. The xvalidation seeds are structured (the c_driver
    constructs valid values), so the wire path is exercised; the
    parse path's robustness against deliberately malformed bytes
