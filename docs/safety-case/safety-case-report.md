@@ -129,8 +129,6 @@ The safety case has three categories of open items:
 
 1. **Open items already inside this case** (tracked in the
    relevant work product):
-   - Transitive worst-case stack total: current gate is
-     per-function only (see `stack-budget.md` § Limitations).
    - Random-input fuzzing of the decode path: structured
      property-style testing currently substitutes (see
      `integration-verification.md` § Known integration gaps).
@@ -138,12 +136,17 @@ The safety case has three categories of open items:
      generator output via the `misra-generator` CI job over a
      representative 13-schema set (see
      `tool-qualification-generator.md`).
+   - *Closed:* Transitive worst-case stack total — the `stack`
+     job now runs a longest-weighted-path traversal over the
+     unioned per-TU call graph (gcc `-fcallgraph-info=su,da`)
+     with a cycle check and a 1024 B ceiling (current observed
+     max 512 B). See `stack-budget.md` § Method.
 
 2. **Documents in `draft` status awaiting acceptance.** Every
    document in `docs/safety-case/` is currently at `draft`. The
    acceptance criterion for each is recorded in the document's
    own front matter. The case moves to `accepted` as a whole
-   when the two open items above are closed and the
+   when the one remaining open item above is closed and the
    integration verification is replayed against the next release
    tag.
 

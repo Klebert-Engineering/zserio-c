@@ -21,7 +21,7 @@ while the optimisation work that closes the cpp ratio is staged.
 | 2 — Java generator extension | ✅ done | `generator/zserio_c.jar` builds end to end |
 | 3 — Full schema-language coverage | ✅ done | 391/391 grammar acceptance on upstream test corpus |
 | 4 — Conformance against upstream test corpus | ✅ done | `xvalidation` CI gate: 182 schemas × 5 seeds byte-equal vs cpp |
-| 5 — Safety case maturation | 🟢 substantively complete | 14 work products in `docs/safety-case/`, all `draft`; two Open items recorded (G3 — generator-output MISRA gate — closed `c13bd41`) |
+| 5 — Safety case maturation | 🟢 substantively complete | 14 work products in `docs/safety-case/`, all `draft`; one Open item remaining (decode-path fuzzing). G3 — generator-output MISRA gate — closed `c13bd41`; G4 — transitive stack budget — closed via gcc `-fcallgraph-info` longest-path traversal (current max 512 B / 1024 B ceiling) |
 | 6 — Performance benchmarks vs C++ runtime | 🟢 measurement live (advisory) | `perf` CI job: harness + cpp-ratio reporting; optimisation work to close the ratio is open |
 | 7 — C-native parser replaces Java front-end | ⬜ open | |
 

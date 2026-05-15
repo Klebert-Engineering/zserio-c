@@ -62,14 +62,14 @@ requirements and verification regime. Closure status:
 1. **H-04 / H-05 integrator notes.** A short integration guide
    under `docs/integration-guide.md` that records the assumed
    integrator responsibilities listed in the rightmost column.
-2. **Transitive stack-budget calculation.** The current gate enforces
-   a per-function ceiling but does not compute the worst-case path
-   total. A cflow/call-graph traversal would tighten the analysis
-   from "≤ 256 B × depth" to an exact upper bound. Tracked in
-   `stack-budget.md` § Limitations.
 
 ## Closed items
 
+- **Transitive stack-budget calculation.** The `stack` job now
+  runs a longest-weighted-path traversal over the unioned per-TU
+  call graph (gcc `-fcallgraph-info=su,da`) with a cycle check
+  and a 1024 B ceiling — current observed worst case is 512 B
+  over a 7-frame chain. See `stack-budget.md` § Method.
 - **Failure-mode injection tests** for H-01 (buffer over/underrun),
   H-02 (unbounded execution on malformed input), H-03 (allocator
   misbehavior), and H-06 (freedom from interference) landed in

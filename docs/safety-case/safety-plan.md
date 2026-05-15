@@ -91,7 +91,7 @@ Phase 5 deliverables, in dependency order:
 7. **Done after that:** the safety case report — `safety-case-report.md`.
    Phase 5 is structurally complete; every work product is at
    `draft`. Acceptance is gated on independent review and on
-   closing the two Open items in
+   closing the one remaining Open item in
    `safety-case-report.md` § Open items.
 
 The Phase 5 → Phase 6 transition gate is: every row in the work

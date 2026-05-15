@@ -10,9 +10,9 @@ the safety case is *for*; this directory is what the safety case
 Phase 5 (safety-case maturation) is structurally complete: every
 work product listed in `safety-plan.md` § Work products is at
 `draft` status. The case as a whole moves to `accepted` when the
-two open items recorded in `safety-case-report.md` § Open items
-close and the integration verification is replayed against the
-next release tag.
+one remaining open item recorded in `safety-case-report.md` § Open
+items closes and the integration verification is replayed against
+the next release tag.
 
 | Document | Status | Purpose |
 | --- | --- | --- |
