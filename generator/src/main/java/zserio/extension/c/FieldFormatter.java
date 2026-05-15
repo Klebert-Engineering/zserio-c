@@ -1614,18 +1614,24 @@ public final class FieldFormatter
         final String declaration = b.cType + " *" + name;
         final String extraMember = "size_t " + name + "_count;";
 
-        final String readCountSetup;
+        // Bring the array length into scope as `<name>_size`. The
+        // transactional read uses this local for both the alloc-size
+        // capture and the loop bound so the count itself stays at 0
+        // until the loop fully succeeds.
+        final String sizeLocal = name + "_size";
+        final String readSizeLocal;
+        final String sizeRef;
         if (formattedLen == null)
         {
-            readCountSetup =
-                    "        uint32_t " + name + "_size = 0u;\n"
-                    + "        ZSERIO_TRY(zserio_read_varsize(bs, &" + name + "_size));\n"
-                    + "        " + countExpr + " = (size_t)" + name + "_size;\n";
+            readSizeLocal =
+                    "        uint32_t " + sizeLocal + " = 0u;\n"
+                    + "        ZSERIO_TRY(zserio_read_varsize(bs, &" + sizeLocal + "));\n";
+            sizeRef = "(size_t)" + sizeLocal;
         }
         else
         {
-            readCountSetup = "        " + countExpr + " = (size_t)("
-                    + formattedLen + ");\n";
+            readSizeLocal = "";
+            sizeRef = "(size_t)(" + formattedLen + ")";
         }
 
         // The slot expression for $SLOT$ substitution within
@@ -1645,37 +1651,68 @@ public final class FieldFormatter
         final String firstParamSetup = paramSetupLine.isEmpty() ? ""
                 : paramSetupLine.replace("$SLOT$", firstSlotExpr).replace("$INDEX$", "0u");
 
-        // Zero-init the packing context: a Choice's init dispatches by
-        // selector and only configures the active arm's sub-context.
-        // Per-element re-init (emitted in Choice._read_packed) relies
-        // on uninitialised sub-contexts reading as zero so the
-        // idempotent delta_init treats them as "not yet configured" and
-        // configures them on first touch.
+        // Read shape: count starts at 0, allocates the buffer at the
+        // full size, runs the per-element packed read loop with local
+        // cleanup on error (drops the upfront memset that previously
+        // existed only so a partial-fill _free could safely walk
+        // every slot), commits the count to its full value only after
+        // the loop succeeds.
+        //
+        // Zero-init of the packing context itself is preserved: a
+        // Choice's init dispatches by selector and configures only the
+        // active arm's sub-context, so per-element Choice re-init
+        // relies on uninitialised sub-contexts reading as zero. That
+        // memset is small (one `_packing_ctx_t`) and orthogonal to the
+        // array-buffer memset.
+        final String allocSize = iVar + "_alloc_size";
+        final String stVar     = iVar + "_st";
         final String read =
                 "{\n"
-                + readCountSetup
+                + readSizeLocal
+                + "        " + countExpr + " = 0u;\n"
                 + "        " + ptrExpr + " = NULL;\n"
-                + "        if (" + countExpr + " > 0u) {\n"
+                + "        if ((" + sizeRef + ") > 0u) {\n"
+                + "            const size_t " + allocSize + " = ("
+                        + sizeRef + ") * sizeof(*(" + ptrExpr + "));\n"
                 + "            " + ptrExpr + " = (" + b.cType + " *)alloc->vtable->alloc(\n"
-                + "                    alloc->userdata,\n"
-                + "                    " + countExpr + " * sizeof(*(" + ptrExpr + ")),\n"
-                + "                    sizeof(*(" + ptrExpr + ")));\n"
+                + "                    alloc->userdata, " + allocSize
+                        + ", sizeof(*(" + ptrExpr + ")));\n"
                 + "            if (" + ptrExpr + " == NULL) {\n"
                 + "                return ZSERIO_ERR_OUT_OF_MEMORY;\n"
                 + "            }\n"
-                + "            (void)memset(" + ptrExpr + ", 0, "
-                + countExpr + " * sizeof(*(" + ptrExpr + ")));\n"
                 + "            " + prefix + "_packing_ctx_t " + ctxVar + ";\n"
                 + "            (void)memset(&" + ctxVar + ", 0, sizeof(" + ctxVar + "));\n"
                 + "            " + firstParamSetup
-                + "ZSERIO_TRY(" + prefix + "_init_packing_context(&"
-                + firstSlotExpr + ", &" + ctxVar + "));\n"
-                + "            for (size_t " + iVar + " = 0u; " + iVar + " < "
-                + countExpr + "; ++" + iVar + ") {\n"
-                + "                " + paramSetupRead
-                + "ZSERIO_TRY(" + prefix + "_read_packed(&"
-                + slotExpr + ", bs, alloc, &" + ctxVar + "));\n"
+                + "{\n"
+                + "                const zserio_status_t _ctx_st = " + prefix
+                        + "_init_packing_context(&" + firstSlotExpr + ", &" + ctxVar + ");\n"
+                + "                if (_ctx_st != ZSERIO_OK) {\n"
+                + "                    alloc->vtable->free(alloc->userdata, "
+                        + ptrExpr + ",\n"
+                + "                            " + allocSize + ", sizeof(*(" + ptrExpr + ")));\n"
+                + "                    " + ptrExpr + " = NULL;\n"
+                + "                    return _ctx_st;\n"
+                + "                }\n"
                 + "            }\n"
+                + "            for (size_t " + iVar + " = 0u; " + iVar + " < ("
+                        + sizeRef + "); ++" + iVar + ") {\n"
+                + "                " + paramSetupRead
+                + "const zserio_status_t " + stVar + " = " + prefix
+                        + "_read_packed(&" + slotExpr + ", bs, alloc, &" + ctxVar + ");\n"
+                + "                if (" + stVar + " != ZSERIO_OK) {\n"
+                + "                    for (size_t " + iVar + "_j = 0u; "
+                        + iVar + "_j < " + iVar + "; ++" + iVar + "_j) {\n"
+                + "                        " + prefix + "_free(&" + ptrExpr
+                        + "[" + iVar + "_j], alloc);\n"
+                + "                    }\n"
+                + "                    alloc->vtable->free(alloc->userdata, "
+                        + ptrExpr + ",\n"
+                + "                            " + allocSize + ", sizeof(*(" + ptrExpr + ")));\n"
+                + "                    " + ptrExpr + " = NULL;\n"
+                + "                    return " + stVar + ";\n"
+                + "                }\n"
+                + "            }\n"
+                + "            " + countExpr + " = (" + sizeRef + ");\n"
                 + "        }\n"
                 + "    }";
 
