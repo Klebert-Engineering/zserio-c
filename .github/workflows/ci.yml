@@ -182,7 +182,12 @@ jobs:
         #   schemas are drawn from (matched by tests/fuzz/targets.txt)
         run: git submodule update --init third_party/zserio third_party/zserio-test-data
       - name: Install build + analysis tools
-        run: sudo apt-get update && sudo apt-get install -y ant clang
+        # `clang` on Ubuntu 24.04 is clang-18 (a meta-package). The
+        # libFuzzer + ASan + UBSan runtime archives ship in a separate
+        # `libclang-rt-18-dev` package — without it, the link step
+        # fails with `cannot find libclang_rt.fuzzer-x86_64.a`. If the
+        # image upgrades to a newer clang, bump the version number.
+        run: sudo apt-get update && sudo apt-get install -y ant clang libclang-rt-18-dev
       - name: Cache upstream zserio jars
         uses: actions/cache@v4
         with:
