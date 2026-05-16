@@ -286,7 +286,7 @@ static void test_template_struct(void)
     fixture_t f;
     static const uint8_t INPUT[] =
             "package x;\n"
-            "<T> struct Wrapper {\n"
+            "struct Wrapper<T> {\n"
             "    T value;\n"
             "};\n";
     fixture_parse(&f, INPUT, sizeof(INPUT) - 1U);
@@ -330,11 +330,74 @@ static void test_error_recovery(void)
     fixture_dispose(&f);
 }
 
+static void test_service(void)
+{
+    fixture_t f;
+    static const uint8_t INPUT[] =
+            "package x;\n"
+            "struct Req { uint32 id; };\n"
+            "struct Resp { uint32 value; };\n"
+            "service Calculator {\n"
+            "    Resp compute(Req);\n"
+            "};\n";
+    fixture_parse(&f, INPUT, sizeof(INPUT) - 1U);
+    assert_no_errors(&f);
+    TEST_ASSERT_EQUAL_size_t(3U, f.unit->u.unit.n_decls);
+    zsp_ast_node_t *const svc = f.unit->u.unit.decls[2];
+    TEST_ASSERT_EQUAL_INT(ZSP_AST_SERVICE, svc->kind);
+    TEST_ASSERT_EQUAL_size_t(1U, svc->u.service.n_methods);
+    fixture_dispose(&f);
+}
+
+static void test_pubsub(void)
+{
+    fixture_t f;
+    static const uint8_t INPUT[] =
+            "package x;\n"
+            "struct Msg { uint32 v; };\n"
+            "pubsub Bus {\n"
+            "    topic(\"x/y\") publish Msg send;\n"
+            "    topic(\"a/b\") subscribe Msg recv;\n"
+            "};\n";
+    fixture_parse(&f, INPUT, sizeof(INPUT) - 1U);
+    assert_no_errors(&f);
+    zsp_ast_node_t *const ps = f.unit->u.unit.decls[1];
+    TEST_ASSERT_EQUAL_INT(ZSP_AST_PUBSUB, ps->kind);
+    TEST_ASSERT_EQUAL_size_t(2U, ps->u.pubsub.n_messages);
+    TEST_ASSERT_TRUE(ps->u.pubsub.messages[0]->u.pubsub_message.publish);
+    TEST_ASSERT_TRUE(ps->u.pubsub.messages[1]->u.pubsub_message.subscribe);
+    fixture_dispose(&f);
+}
+
+static void test_sql_table_and_database(void)
+{
+    fixture_t f;
+    static const uint8_t INPUT[] =
+            "package x;\n"
+            "sql_table Stops {\n"
+            "    uint32 id;\n"
+            "    string name;\n"
+            "};\n"
+            "sql_database TransitDb {\n"
+            "    Stops stops;\n"
+            "};\n";
+    fixture_parse(&f, INPUT, sizeof(INPUT) - 1U);
+    assert_no_errors(&f);
+    TEST_ASSERT_EQUAL_size_t(2U, f.unit->u.unit.n_decls);
+    zsp_ast_node_t *const t = f.unit->u.unit.decls[0];
+    TEST_ASSERT_EQUAL_INT(ZSP_AST_SQL_TABLE, t->kind);
+    TEST_ASSERT_EQUAL_size_t(2U, t->u.sql_table.n_fields);
+    zsp_ast_node_t *const db = f.unit->u.unit.decls[1];
+    TEST_ASSERT_EQUAL_INT(ZSP_AST_SQL_DATABASE, db->kind);
+    TEST_ASSERT_EQUAL_size_t(1U, db->u.sql_database.n_table_refs);
+    fixture_dispose(&f);
+}
+
 static void test_compatibility_version(void)
 {
     fixture_t f;
     static const uint8_t INPUT[] =
-            "zserio_compatibility_version \"2.18.1\";\n"
+            "zserio_compatibility_version(\"2.18.1\");\n"
             "package x;\n"
             "struct Empty {};\n";
     fixture_parse(&f, INPUT, sizeof(INPUT) - 1U);
@@ -362,6 +425,9 @@ int main(void)
     RUN_TEST(test_template_struct);
     RUN_TEST(test_function_inside_compound);
     RUN_TEST(test_error_recovery);
+    RUN_TEST(test_service);
+    RUN_TEST(test_pubsub);
+    RUN_TEST(test_sql_table_and_database);
     RUN_TEST(test_compatibility_version);
     return UNITY_END();
 }

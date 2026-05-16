@@ -87,6 +87,70 @@ static void emit_error_at_cur(parser_t *p, const char *msg)
                             p->cur.file_id, p->cur.offset, msg);
 }
 
+/* ----- Speculative-parse snapshot/restore --------------------- */
+
+typedef struct parser_snapshot {
+    size_t      lexer_pos;
+    zsp_token_t cur;
+    zsp_token_t peek;
+    size_t      diag_count;
+    size_t      diag_error_count;
+    bool        diag_truncated;
+    bool        oom;
+} parser_snapshot_t;
+
+static parser_snapshot_t save_state(const parser_t *p)
+{
+    parser_snapshot_t s;
+    s.lexer_pos        = p->lexer.pos;
+    s.cur              = p->cur;
+    s.peek             = p->peek;
+    s.diag_count       = p->diag->count;
+    s.diag_error_count = p->diag->error_count;
+    s.diag_truncated   = p->diag->truncated;
+    s.oom              = p->oom;
+    return s;
+}
+
+static void restore_state(parser_t *p, parser_snapshot_t s)
+{
+    p->lexer.pos        = s.lexer_pos;
+    p->cur              = s.cur;
+    p->peek             = s.peek;
+    /* Trim any diagnostics that were emitted speculatively. The
+     * `count` is the visible record count; over-cap emits were
+     * counted in error_count without recording, so resetting
+     * both is sufficient. Owned-message memory remains in the
+     * collector's allocator until dispose — a minor leak we
+     * accept for speculative parsing simplicity. */
+    p->diag->count        = s.diag_count;
+    p->diag->error_count  = s.diag_error_count;
+    p->diag->truncated    = s.diag_truncated;
+    p->oom                = s.oom;
+}
+
+static bool is_type_starter(zsp_token_kind_t k)
+{
+    switch (k) {
+    case ZSP_TOK_IDENT:
+    case ZSP_TOK_KW_BOOL:
+    case ZSP_TOK_KW_STRING:
+    case ZSP_TOK_KW_BYTES:
+    case ZSP_TOK_KW_EXTERN:
+    case ZSP_TOK_KW_VARINT:
+    case ZSP_TOK_KW_VARUINT:
+    case ZSP_TOK_KW_VARSIZE:
+    case ZSP_TOK_KW_BIT:
+    case ZSP_TOK_KW_INT:
+    case ZSP_TOK_KW_PACKED:
+    case ZSP_TOK_KW_OPTIONAL:
+    case ZSP_TOK_KW_IMPLICIT:
+        return true;
+    default:
+        return false;
+    }
+}
+
 static bool expect(parser_t *p, zsp_token_kind_t k, const char *msg)
 {
     if (eat(p, k)) {
@@ -163,6 +227,9 @@ static zsp_ast_node_t *parse_dotted_name(parser_t *p);
 static zsp_ast_node_t *parse_type(parser_t *p);
 static zsp_ast_node_t *parse_expression(parser_t *p);
 static zsp_ast_node_t *parse_ternary(parser_t *p);
+static zsp_ast_node_t *parse_primary(parser_t *p);
+static zsp_ast_node_t *parse_binop_rhs(parser_t *p, int min_prec,
+                                       zsp_ast_node_t *lhs);
 static zsp_ast_node_t *parse_decl(parser_t *p, zsp_ast_node_t **opt_anno);
 static zsp_ast_node_t *parse_struct_or_union(parser_t *p,
                                              zsp_ast_node_t **template_params,
@@ -179,6 +246,10 @@ static zsp_ast_node_t *parse_subtype(parser_t *p,
 static zsp_ast_node_t *parse_const(parser_t *p);
 static zsp_ast_node_t *parse_instantiate(parser_t *p);
 static zsp_ast_node_t *parse_rule_group(parser_t *p);
+static zsp_ast_node_t *parse_service(parser_t *p);
+static zsp_ast_node_t *parse_pubsub(parser_t *p);
+static zsp_ast_node_t *parse_sql_table(parser_t *p);
+static zsp_ast_node_t *parse_sql_database(parser_t *p);
 static zsp_ast_node_t *parse_field(parser_t *p);
 static zsp_ast_node_t *parse_choice_case_or_default(parser_t *p);
 static bool            parse_template_params(parser_t *p,
@@ -326,32 +397,46 @@ static const uint8_t *file_bytes(const parser_t *p)
 
 static zsp_ast_node_t *parse_bitfield(parser_t *p, zsp_builtin_code_t code)
 {
-    /* current is 'bit' or 'int' — advance past it then expect ':' */
+    /* current is 'bit' or 'int' — advance past it then accept one
+     * of three width forms:
+     *   bit:N            (fixed width literal)
+     *   bit:(expr)       (parenthesised expression, fixed at compile time)
+     *   bit<expr>        (angle-bracket form for dynamic-width bitfields)
+     */
     const uint32_t start = p->cur.offset;
     advance(p);
-    if (!expect(p, ZSP_TOK_COLON, "expected ':' after 'bit' or 'int'")) {
-        return NULL;
-    }
-    /* Bitfield width: either INT literal, or '(' expr ')'. For
-     * simplicity we accept an integer literal directly; the more
-     * general expression form lands in a follow-up slice. */
+
     uint32_t width = 0U;
-    if (check(p, ZSP_TOK_INT_LIT)) {
-        width = (uint32_t)p->cur.value.u64;
-        advance(p);
-    }
-    else if (eat(p, ZSP_TOK_LPAREN)) {
-        zsp_ast_node_t *const e = parse_expression(p);
-        (void)e;
-        if (!expect(p, ZSP_TOK_RPAREN, "expected ')' to close bit width")) {
+    if (eat(p, ZSP_TOK_COLON)) {
+        if (check(p, ZSP_TOK_INT_LIT)) {
+            width = (uint32_t)p->cur.value.u64;
+            advance(p);
+        }
+        else if (eat(p, ZSP_TOK_LPAREN)) {
+            (void)parse_expression(p);
+            (void)expect(p, ZSP_TOK_RPAREN, "expected ')' to close bit width");
+        }
+        else {
+            emit_error_at_cur(p, "expected bit-field width");
             return NULL;
         }
-        /* Width-from-expression: width left as 0 sentinel — the
-         * analyser will pick it up from the (unattached) expr in
-         * a future slice. */
+    }
+    else if (eat(p, ZSP_TOK_LT)) {
+        /* Parse the bit-width expression at a precedence level
+         * that excludes relational operators (`<`, `>`, `<=`,
+         * `>=` are precedence 7); otherwise the closing `>`
+         * would be eaten as a comparison operator. Shift-left
+         * and shift-right (precedence 8) still bind normally. */
+        zsp_ast_node_t *const lhs = parse_primary(p);
+        if (lhs != NULL) {
+            (void)parse_binop_rhs(p, 8, lhs);
+        }
+        if (!expect(p, ZSP_TOK_GT, "expected '>' to close bit width")) {
+            return NULL;
+        }
     }
     else {
-        emit_error_at_cur(p, "expected bit-field width");
+        emit_error_at_cur(p, "expected ':' or '<' after 'bit' or 'int'");
         return NULL;
     }
     zsp_ast_node_t *const n = new_node(p, ZSP_AST_TYPE_BUILTIN, start);
@@ -634,6 +719,20 @@ static zsp_ast_node_t *parse_primary(parser_t *p)
         }
         return n;
     }
+    /* @index pseudo-identifier: appears in array-element type
+     * parameter contexts (e.g. `Block(headers[@index])`). The
+     * keyword is lexed as ZSP_TOK_KW_INDEX; in an expression
+     * context it acts as an identifier that the analyser
+     * resolves to the surrounding loop's iteration index. */
+    if (check(p, ZSP_TOK_KW_INDEX)) {
+        zsp_ast_node_t *const n = new_node_from_tok(p, ZSP_AST_EXPR_IDENT, &p->cur);
+        if (n != NULL) {
+            n->u.ident.span_off = p->cur.offset;
+            n->u.ident.span_len = p->cur.length;
+        }
+        advance(p);
+        return n;
+    }
     /* Identifier (potentially compounded with `.`, `[]`, `()`). */
     if (check(p, ZSP_TOK_IDENT)) {
         zsp_ast_node_t *const id = parse_ident(p);
@@ -912,19 +1011,48 @@ static zsp_ast_node_t *parse_field(parser_t *p)
         }
     }
 
-    /* offsets: 'offsets' '(' expr ')'? — upstream uses a single
-     * identifier "OFFSETS" or a NAME ':' syntax. Skip for now;
-     * field-level offsets land via the `: EXPR` shape after type. */
+    /* Leading field offset: an expression followed by ':' before
+     * the type, e.g. `header.offset: int64 items[...];`. Detected
+     * speculatively because there is no syntactic prefix that
+     * distinguishes it from the type that would normally appear
+     * here. We snapshot, try to parse an expression up to ':',
+     * verify a type-starter follows, and either commit or rewind. */
+    zsp_ast_node_t *offset_expr = NULL;
+    if (check(p, ZSP_TOK_IDENT) || check(p, ZSP_TOK_KW_INDEX)) {
+        const parser_snapshot_t snap = save_state(p);
+        zsp_ast_node_t *const maybe = parse_expression(p);
+        if ((maybe != NULL) && check(p, ZSP_TOK_COLON)
+                && is_type_starter(p->peek.kind)) {
+            advance(p);   /* eat the ':' */
+            offset_expr = maybe;
+        }
+        else {
+            restore_state(p, snap);
+        }
+    }
 
     bool optional_flag = false;
     bool implicit_flag = false;
+    bool extend_flag   = false;
 
+    /* `extend` is a field-level modifier introduced for forward-
+     * compatible default-valued extensions. Appears as a leading
+     * keyword. */
+    if (eat(p, ZSP_TOK_KW_EXTEND)) {
+        extend_flag = true;
+    }
     if (eat(p, ZSP_TOK_KW_OPTIONAL)) {
         optional_flag = true;
     }
     if (eat(p, ZSP_TOK_KW_IMPLICIT)) {
         implicit_flag = true;
     }
+    /* `extend` can also appear after optional/implicit per some
+     * legacy schemas. */
+    if (!extend_flag && eat(p, ZSP_TOK_KW_EXTEND)) {
+        extend_flag = true;
+    }
+    (void)extend_flag;  /* stored on the AST below */
 
     /* Type. May be `packed` prefix for packed arrays. */
     bool packed_flag = false;
@@ -998,7 +1126,7 @@ static zsp_ast_node_t *parse_field(parser_t *p)
     if (f != NULL) {
         zsp_ast_list_take(&annos, &f->u.field.annotations, &f->u.field.n_annotations);
         f->u.field.align_expr      = align_expr;
-        f->u.field.offset_expr     = NULL;
+        f->u.field.offset_expr     = offset_expr;
         f->u.field.type            = ty;
         f->u.field.name            = name;
         f->u.field.init_expr       = init_expr;
@@ -1050,6 +1178,12 @@ static zsp_ast_node_t *parse_struct_or_union(parser_t *p,
     zsp_ast_node_t *const name = parse_ident(p);
     if (name == NULL) {
         return NULL;
+    }
+    /* Template args after the name: `struct Name<T1, T2>(...)`. */
+    if (check(p, ZSP_TOK_LT)) {
+        if (!parse_template_params(p, &tparams, &n_tparams)) {
+            return NULL;
+        }
     }
     zsp_ast_node_t **params = NULL;
     size_t           n_params = 0U;
@@ -1170,15 +1304,24 @@ static zsp_ast_node_t *parse_choice(parser_t *p,
     if (name == NULL) {
         return NULL;
     }
+    if (check(p, ZSP_TOK_LT)) {
+        if (!parse_template_params(p, &tparams, &n_tparams)) {
+            return NULL;
+        }
+    }
     zsp_ast_node_t **params = NULL;
     size_t           n_params = 0U;
     if (!parse_compound_params(p, &params, &n_params)) {
         return NULL;
     }
     (void)expect(p, ZSP_TOK_KW_ON, "expected 'on' to introduce choice selector");
-    (void)expect(p, ZSP_TOK_LPAREN, "expected '(' before choice selector");
+    /* Selector parens are optional in upstream grammar:
+     *   `on (expr)` and `on expr` both valid. */
+    const bool selector_parens = eat(p, ZSP_TOK_LPAREN);
     zsp_ast_node_t *const selector = parse_expression(p);
-    (void)expect(p, ZSP_TOK_RPAREN, "expected ')' after choice selector");
+    if (selector_parens) {
+        (void)expect(p, ZSP_TOK_RPAREN, "expected ')' after choice selector");
+    }
     (void)expect(p, ZSP_TOK_LBRACE, "expected '{' to open choice body");
 
     zsp_ast_list_t cases;
@@ -1321,6 +1464,12 @@ static zsp_ast_node_t *parse_subtype(parser_t *p,
     advance(p);    /* consume 'subtype' */
     zsp_ast_node_t *const ty = parse_type(p);
     zsp_ast_node_t *const name = parse_ident(p);
+    /* `subtype TargetType Name<T>;` — template args after name. */
+    if (check(p, ZSP_TOK_LT)) {
+        if (!parse_template_params(p, &tparams, &n_tparams)) {
+            return NULL;
+        }
+    }
     (void)expect(p, ZSP_TOK_SEMICOLON, "expected ';' after subtype");
     zsp_ast_node_t *const n = new_node(p, ZSP_AST_SUBTYPE, start);
     if (n != NULL) {
@@ -1403,6 +1552,288 @@ static zsp_ast_node_t *parse_rule_group(parser_t *p)
 }
 
 /* ============================================================ */
+/* SQL table / SQL database / service / pubsub                    */
+/* ============================================================ */
+
+static zsp_ast_node_t *parse_sql_field(parser_t *p)
+{
+    const uint32_t start = p->cur.offset;
+    bool optional_flag = false;
+    if (eat(p, ZSP_TOK_KW_OPTIONAL)) {
+        optional_flag = true;
+    }
+    zsp_ast_node_t *const ty = parse_type(p);
+    if (ty == NULL) {
+        return NULL;
+    }
+    zsp_ast_node_t *const name = parse_ident(p);
+    if (name == NULL) {
+        return NULL;
+    }
+    /* SQL constraint can be either `: expr` or `sql "string-lit"`. */
+    zsp_ast_node_t *constraint = NULL;
+    if (eat(p, ZSP_TOK_COLON)) {
+        constraint = parse_expression(p);
+    }
+    else if (eat(p, ZSP_TOK_KW_SQL)) {
+        if (check(p, ZSP_TOK_STRING_LIT)) {
+            constraint = new_node_from_tok(p, ZSP_AST_EXPR_STRING_LIT, &p->cur);
+            if (constraint != NULL) {
+                constraint->u.string_lit.span_off = p->cur.offset;
+                constraint->u.string_lit.span_len = p->cur.length;
+            }
+            advance(p);
+        }
+    }
+    (void)expect(p, ZSP_TOK_SEMICOLON, "expected ';' after SQL field");
+    zsp_ast_node_t *const n = new_node(p, ZSP_AST_SQL_FIELD, start);
+    if (n != NULL) {
+        n->u.sql_field.type             = ty;
+        n->u.sql_field.name             = name;
+        n->u.sql_field.constraint_expr  = constraint;
+        n->u.sql_field.optional         = optional_flag;
+    }
+    return n;
+}
+
+static zsp_ast_node_t *parse_sql_constraint_decl(parser_t *p)
+{
+    const uint32_t start = p->cur.offset;
+    /* upstream uses `sql` as the lead-in for table-level constraints */
+    advance(p);  /* consume 'sql' */
+    zsp_ast_node_t *const expr = parse_expression(p);
+    (void)expect(p, ZSP_TOK_SEMICOLON, "expected ';' after SQL constraint");
+    zsp_ast_node_t *const n = new_node(p, ZSP_AST_SQL_CONSTRAINT, start);
+    if (n != NULL) {
+        n->u.sql_constraint.expr = expr;
+    }
+    return n;
+}
+
+static zsp_ast_node_t *parse_sql_table(parser_t *p)
+{
+    const uint32_t start = p->cur.offset;
+    bool virtual_flag = false;
+    /* `sql_virtual` is a separate top-level keyword in upstream. */
+    if (eat(p, ZSP_TOK_KW_SQL_VIRTUAL)) {
+        virtual_flag = true;
+    }
+    advance(p);   /* consume 'sql_table' */
+    zsp_ast_node_t *const name = parse_ident(p);
+    if (name == NULL) {
+        return NULL;
+    }
+    /* `using IDENT` clause is allowed both as `sql_table NAME using X`
+     * (e.g. for SQLite fts3/fts5 modules) and as the
+     * `sql_virtual sql_table NAME using X` form. Accept either. */
+    zsp_ast_node_t *virtual_using = NULL;
+    if (eat(p, ZSP_TOK_KW_USING)) {
+        virtual_using = parse_ident(p);
+    }
+    (void)expect(p, ZSP_TOK_LBRACE, "expected '{' to open SQL table body");
+
+    zsp_ast_list_t fields;
+    zsp_ast_list_t constraints;
+    zsp_ast_list_init(&fields, p->arena);
+    zsp_ast_list_init(&constraints, p->arena);
+    bool without_rowid = false;
+    while (!check(p, ZSP_TOK_RBRACE) && !check(p, ZSP_TOK_EOF)) {
+        const uint32_t before = p->cur.offset;
+        if (check(p, ZSP_TOK_KW_SQL)) {
+            zsp_ast_node_t *const c = parse_sql_constraint_decl(p);
+            if (c != NULL) {
+                (void)push_or_oom(p, &constraints, c);
+            }
+        }
+        else if (check(p, ZSP_TOK_KW_SQL_WITHOUT_ROWID)) {
+            advance(p);
+            (void)expect(p, ZSP_TOK_SEMICOLON, "expected ';' after sql_without_rowid");
+            without_rowid = true;
+        }
+        else {
+            zsp_ast_node_t *const f = parse_sql_field(p);
+            if (f != NULL) {
+                (void)push_or_oom(p, &fields, f);
+            }
+        }
+        if (p->cur.offset == before) {
+            advance(p);
+        }
+    }
+    (void)expect(p, ZSP_TOK_RBRACE, "expected '}' to close SQL table body");
+    (void)eat(p, ZSP_TOK_SEMICOLON);
+
+    zsp_ast_node_t *const n = new_node(p, ZSP_AST_SQL_TABLE, start);
+    if (n != NULL) {
+        n->u.sql_table.name           = name;
+        zsp_ast_list_take(&fields,      &n->u.sql_table.fields,
+                          &n->u.sql_table.n_fields);
+        zsp_ast_list_take(&constraints, &n->u.sql_table.constraints,
+                          &n->u.sql_table.n_constraints);
+        n->u.sql_table.virtual_       = virtual_flag;
+        n->u.sql_table.without_rowid  = without_rowid;
+        n->u.sql_table.virtual_using  = virtual_using;
+    }
+    return n;
+}
+
+static zsp_ast_node_t *parse_sql_database(parser_t *p)
+{
+    const uint32_t start = p->cur.offset;
+    advance(p);   /* 'sql_database' */
+    zsp_ast_node_t *const name = parse_ident(p);
+    if (name == NULL) {
+        return NULL;
+    }
+    (void)expect(p, ZSP_TOK_LBRACE, "expected '{' to open SQL database body");
+
+    zsp_ast_list_t refs;
+    zsp_ast_list_init(&refs, p->arena);
+    while (!check(p, ZSP_TOK_RBRACE) && !check(p, ZSP_TOK_EOF)) {
+        const uint32_t before = p->cur.offset;
+        const uint32_t rstart = p->cur.offset;
+        zsp_ast_node_t *const ty = parse_type(p);
+        zsp_ast_node_t *const fname = (ty != NULL) ? parse_ident(p) : NULL;
+        (void)expect(p, ZSP_TOK_SEMICOLON, "expected ';' after SQL database table reference");
+        if ((ty != NULL) && (fname != NULL)) {
+            zsp_ast_node_t *const r = new_node(p, ZSP_AST_SQL_TABLE_REF, rstart);
+            if (r != NULL) {
+                r->u.sql_table_ref.type = ty;
+                r->u.sql_table_ref.name = fname;
+                (void)push_or_oom(p, &refs, r);
+            }
+        }
+        if (p->cur.offset == before) {
+            advance(p);
+        }
+    }
+    (void)expect(p, ZSP_TOK_RBRACE, "expected '}' to close SQL database body");
+    (void)eat(p, ZSP_TOK_SEMICOLON);
+
+    zsp_ast_node_t *const n = new_node(p, ZSP_AST_SQL_DATABASE, start);
+    if (n != NULL) {
+        n->u.sql_database.name = name;
+        zsp_ast_list_take(&refs, &n->u.sql_database.table_refs,
+                          &n->u.sql_database.n_table_refs);
+    }
+    return n;
+}
+
+static zsp_ast_node_t *parse_service_method(parser_t *p)
+{
+    const uint32_t start = p->cur.offset;
+    zsp_ast_node_t *const return_type = parse_type(p);
+    if (return_type == NULL) {
+        return NULL;
+    }
+    zsp_ast_node_t *const name = parse_ident(p);
+    (void)expect(p, ZSP_TOK_LPAREN, "expected '(' after service method name");
+    zsp_ast_node_t *const request_type = parse_type(p);
+    (void)expect(p, ZSP_TOK_RPAREN, "expected ')' after service method request type");
+    (void)expect(p, ZSP_TOK_SEMICOLON, "expected ';' after service method");
+    zsp_ast_node_t *const n = new_node(p, ZSP_AST_SERVICE_METHOD, start);
+    if (n != NULL) {
+        n->u.service_method.return_type  = return_type;
+        n->u.service_method.name         = name;
+        n->u.service_method.request_type = request_type;
+    }
+    return n;
+}
+
+static zsp_ast_node_t *parse_service(parser_t *p)
+{
+    const uint32_t start = p->cur.offset;
+    advance(p);   /* 'service' */
+    zsp_ast_node_t *const name = parse_ident(p);
+    if (name == NULL) {
+        return NULL;
+    }
+    (void)expect(p, ZSP_TOK_LBRACE, "expected '{' to open service body");
+    zsp_ast_list_t methods;
+    zsp_ast_list_init(&methods, p->arena);
+    while (!check(p, ZSP_TOK_RBRACE) && !check(p, ZSP_TOK_EOF)) {
+        const uint32_t before = p->cur.offset;
+        zsp_ast_node_t *const m = parse_service_method(p);
+        if (m != NULL) {
+            (void)push_or_oom(p, &methods, m);
+        }
+        if (p->cur.offset == before) {
+            advance(p);
+        }
+    }
+    (void)expect(p, ZSP_TOK_RBRACE, "expected '}' to close service body");
+    (void)eat(p, ZSP_TOK_SEMICOLON);
+    zsp_ast_node_t *const n = new_node(p, ZSP_AST_SERVICE, start);
+    if (n != NULL) {
+        n->u.service.name = name;
+        zsp_ast_list_take(&methods, &n->u.service.methods,
+                          &n->u.service.n_methods);
+    }
+    return n;
+}
+
+static zsp_ast_node_t *parse_pubsub_message(parser_t *p)
+{
+    const uint32_t start = p->cur.offset;
+    if (!expect(p, ZSP_TOK_KW_TOPIC, "expected 'topic' in pubsub body")) {
+        return NULL;
+    }
+    (void)expect(p, ZSP_TOK_LPAREN, "expected '(' after 'topic'");
+    zsp_ast_node_t *const topic_expr = parse_expression(p);
+    (void)expect(p, ZSP_TOK_RPAREN, "expected ')' after topic expression");
+    bool publish = false;
+    bool subscribe = false;
+    if (eat(p, ZSP_TOK_KW_PUBLISH))   { publish = true;   }
+    if (eat(p, ZSP_TOK_KW_SUBSCRIBE)) { subscribe = true; }
+    /* `publish subscribe` or `subscribe publish` both valid */
+    if (!publish && eat(p, ZSP_TOK_KW_PUBLISH))   { publish = true; }
+    zsp_ast_node_t *const ty   = parse_type(p);
+    zsp_ast_node_t *const name = parse_ident(p);
+    (void)expect(p, ZSP_TOK_SEMICOLON, "expected ';' after pubsub message");
+    zsp_ast_node_t *const n = new_node(p, ZSP_AST_PUBSUB_MESSAGE, start);
+    if (n != NULL) {
+        n->u.pubsub_message.topic_expr = topic_expr;
+        n->u.pubsub_message.type       = ty;
+        n->u.pubsub_message.name       = name;
+        n->u.pubsub_message.publish    = publish;
+        n->u.pubsub_message.subscribe  = subscribe;
+    }
+    return n;
+}
+
+static zsp_ast_node_t *parse_pubsub(parser_t *p)
+{
+    const uint32_t start = p->cur.offset;
+    advance(p);   /* 'pubsub' */
+    zsp_ast_node_t *const name = parse_ident(p);
+    if (name == NULL) {
+        return NULL;
+    }
+    (void)expect(p, ZSP_TOK_LBRACE, "expected '{' to open pubsub body");
+    zsp_ast_list_t msgs;
+    zsp_ast_list_init(&msgs, p->arena);
+    while (!check(p, ZSP_TOK_RBRACE) && !check(p, ZSP_TOK_EOF)) {
+        const uint32_t before = p->cur.offset;
+        zsp_ast_node_t *const m = parse_pubsub_message(p);
+        if (m != NULL) {
+            (void)push_or_oom(p, &msgs, m);
+        }
+        if (p->cur.offset == before) {
+            advance(p);
+        }
+    }
+    (void)expect(p, ZSP_TOK_RBRACE, "expected '}' to close pubsub body");
+    (void)eat(p, ZSP_TOK_SEMICOLON);
+    zsp_ast_node_t *const n = new_node(p, ZSP_AST_PUBSUB, start);
+    if (n != NULL) {
+        n->u.pubsub.name = name;
+        zsp_ast_list_take(&msgs, &n->u.pubsub.messages,
+                          &n->u.pubsub.n_messages);
+    }
+    return n;
+}
+
+/* ============================================================ */
 /* Top-level declarations dispatch                                */
 /* ============================================================ */
 
@@ -1410,39 +1841,34 @@ static zsp_ast_node_t *parse_decl(parser_t *p, zsp_ast_node_t **opt_anno)
 {
     (void)opt_anno;
 
-    /* template_params come before struct/union/choice/subtype. */
-    zsp_ast_node_t **tparams = NULL;
-    size_t           n_tparams = 0U;
-    if (check(p, ZSP_TOK_LT)) {
-        if (!parse_template_params(p, &tparams, &n_tparams)) {
-            return NULL;
-        }
-    }
+    /* Template params are parsed AFTER the type name inside each
+     * compound (per upstream grammar: `struct Name<T> (params) {...}`).
+     * No tparams collected at this level. */
 
     if (check(p, ZSP_TOK_KW_STRUCT)) {
-        return parse_struct_or_union(p, tparams, n_tparams, false);
+        return parse_struct_or_union(p, NULL, 0U, false);
     }
     if (check(p, ZSP_TOK_KW_UNION)) {
-        return parse_struct_or_union(p, tparams, n_tparams, true);
+        return parse_struct_or_union(p, NULL, 0U, true);
     }
     if (check(p, ZSP_TOK_KW_CHOICE)) {
-        return parse_choice(p, tparams, n_tparams);
+        return parse_choice(p, NULL, 0U);
     }
     if (check(p, ZSP_TOK_KW_SUBTYPE)) {
-        return parse_subtype(p, tparams, n_tparams);
+        return parse_subtype(p, NULL, 0U);
     }
 
-    /* No-template-params declarations. */
-    if (n_tparams != 0U) {
-        emit_error_at_cur(p, "template parameters only allowed on "
-                             "struct/union/choice/subtype declarations");
-        return NULL;
-    }
     if (check(p, ZSP_TOK_KW_ENUM))         { return parse_enum_decl(p); }
     if (check(p, ZSP_TOK_KW_BITMASK))      { return parse_bitmask(p); }
     if (check(p, ZSP_TOK_KW_CONST))        { return parse_const(p); }
     if (check(p, ZSP_TOK_KW_INSTANTIATE))  { return parse_instantiate(p); }
     if (check(p, ZSP_TOK_KW_RULE_GROUP))   { return parse_rule_group(p); }
+    if (check(p, ZSP_TOK_KW_SERVICE))      { return parse_service(p); }
+    if (check(p, ZSP_TOK_KW_PUBSUB))       { return parse_pubsub(p); }
+    if (check(p, ZSP_TOK_KW_SQL_TABLE) || check(p, ZSP_TOK_KW_SQL_VIRTUAL)) {
+        return parse_sql_table(p);
+    }
+    if (check(p, ZSP_TOK_KW_SQL_DATABASE)) { return parse_sql_database(p); }
 
     emit_error_at_cur(p, "expected top-level declaration");
     return NULL;
@@ -1456,6 +1882,10 @@ static zsp_ast_node_t *parse_compat_version(parser_t *p)
 {
     const uint32_t start = p->cur.offset;
     advance(p);     /* 'zserio_compatibility_version' */
+    /* Upstream grammar: COMPAT_VERSION LPAREN STRING_LITERAL RPAREN SEMICOLON.
+     * Accept both `compat(... );` and the older `compat "..."; ` shape
+     * for forward compatibility. */
+    const bool parens = eat(p, ZSP_TOK_LPAREN);
     zsp_ast_node_t *vstr = NULL;
     if (check(p, ZSP_TOK_STRING_LIT)) {
         vstr = new_node_from_tok(p, ZSP_AST_EXPR_STRING_LIT, &p->cur);
@@ -1467,6 +1897,9 @@ static zsp_ast_node_t *parse_compat_version(parser_t *p)
     }
     else {
         emit_error_at_cur(p, "expected version string literal");
+    }
+    if (parens) {
+        (void)expect(p, ZSP_TOK_RPAREN, "expected ')' after compatibility version");
     }
     (void)expect(p, ZSP_TOK_SEMICOLON, "expected ';' after compatibility version");
     zsp_ast_node_t *const n = new_node(p, ZSP_AST_COMPAT_VERSION, start);
@@ -1560,7 +1993,9 @@ zserio_status_t zsp_parse_unit(zsp_source_t          *src,
                 ZSP_TOK_KW_STRUCT, ZSP_TOK_KW_UNION, ZSP_TOK_KW_CHOICE,
                 ZSP_TOK_KW_ENUM, ZSP_TOK_KW_BITMASK, ZSP_TOK_KW_SUBTYPE,
                 ZSP_TOK_KW_CONST, ZSP_TOK_KW_INSTANTIATE,
-                ZSP_TOK_KW_RULE_GROUP, ZSP_TOK_LT,
+                ZSP_TOK_KW_RULE_GROUP, ZSP_TOK_KW_SERVICE,
+                ZSP_TOK_KW_PUBSUB, ZSP_TOK_KW_SQL_TABLE,
+                ZSP_TOK_KW_SQL_VIRTUAL, ZSP_TOK_KW_SQL_DATABASE,
             };
             skip_to_any(&p, sync, sizeof(sync) / sizeof(sync[0]));
             if (p.oom) {
