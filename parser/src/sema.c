@@ -1115,6 +1115,17 @@ zserio_status_t zsp_sema_init(zsp_sema_t           *s,
     return ZSERIO_OK;
 }
 
+zserio_status_t zsp_sema_register_unit(zsp_sema_t *s, zsp_ast_node_t *unit)
+{
+    if ((s == NULL) || (unit == NULL)) {
+        return ZSERIO_ERR_INVALID_ARGUMENT;
+    }
+    if (unit->kind != ZSP_AST_UNIT) {
+        return ZSERIO_ERR_INVALID_ARGUMENT;
+    }
+    return collect_top_level(s, unit);
+}
+
 zserio_status_t zsp_sema_analyse_unit(zsp_sema_t *s, zsp_ast_node_t *unit)
 {
     if ((s == NULL) || (unit == NULL)) {

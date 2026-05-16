@@ -389,6 +389,60 @@ static void test_const_eval_cycle_detected(void)
     fixture_teardown(&f);
 }
 
+static void test_cross_file_type_reference_resolves(void)
+{
+    /* Two files: `outer.zs` defines a struct that references
+     * a type defined in `inner.zs`. We register inner first,
+     * then analyse outer — outer's reference should resolve to
+     * inner's declaration through the shared root scope. */
+    zsp_source_t         src;
+    zsp_arena_t          arena;
+    zsp_diag_collector_t diag;
+    zsp_sema_t           sema;
+    zsp_file_id_t        inner_fid, outer_fid;
+    zsp_ast_node_t      *inner_unit = NULL;
+    zsp_ast_node_t      *outer_unit = NULL;
+
+    static const uint8_t INNER[] =
+            "package geometry;\n"
+            "struct Point { int32 x; int32 y; };\n";
+    static const uint8_t OUTER[] =
+            "package roads;\n"
+            "import geometry.*;\n"
+            "struct Stop { uint32 id; Point location; };\n";
+
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_source_init(&src, &libc_alloc));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_arena_init(&arena, &libc_alloc));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_diag_init(&diag, &libc_alloc, 0U));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_source_add_borrowed(
+            &src, "inner.zs", 8U, INNER, sizeof(INNER) - 1U, &inner_fid));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_source_add_borrowed(
+            &src, "outer.zs", 8U, OUTER, sizeof(OUTER) - 1U, &outer_fid));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_parse_unit(
+            &src, inner_fid, &arena, &diag, &inner_unit));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_parse_unit(
+            &src, outer_fid, &arena, &diag, &outer_unit));
+    TEST_ASSERT_EQUAL_size_t(0U, zsp_diag_error_count(&diag));
+
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_sema_init(&sema, &src, &arena, &diag));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_sema_register_unit(&sema, inner_unit));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_sema_analyse_unit(&sema, outer_unit));
+    TEST_ASSERT_EQUAL_size_t(0U, zsp_diag_error_count(&diag));
+
+    /* Outer's `Stop.location` field's type should resolve to
+     * inner's `Point` decl. */
+    zsp_ast_node_t *const stop = outer_unit->u.unit.decls[0];
+    zsp_ast_node_t *const loc  = stop->u.compound.members[1];
+    TEST_ASSERT_EQUAL_INT(ZSP_AST_TYPE_REF, loc->u.field.type->kind);
+    TEST_ASSERT_NOT_NULL(loc->u.field.type->resolved);
+    TEST_ASSERT_EQUAL_PTR(inner_unit->u.unit.decls[0],
+                          loc->u.field.type->resolved);
+
+    zsp_diag_dispose(&diag);
+    zsp_arena_dispose(&arena);
+    zsp_source_dispose(&src);
+}
+
 static void test_builtins_are_not_type_refs(void)
 {
     /* uint32, string, etc. lex as identifiers but parse as
@@ -426,6 +480,7 @@ int main(void)
     RUN_TEST(test_const_decl_eval);
     RUN_TEST(test_bitmask_implicit_powers_of_two);
     RUN_TEST(test_const_eval_cycle_detected);
+    RUN_TEST(test_cross_file_type_reference_resolves);
     RUN_TEST(test_builtins_are_not_type_refs);
     return UNITY_END();
 }

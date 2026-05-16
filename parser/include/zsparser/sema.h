@@ -60,6 +60,20 @@ zserio_status_t zsp_sema_init(zsp_sema_t           *s,
                               zsp_diag_collector_t *diag);
 
 /**
+ * Register an additional unit's top-level declarations into the
+ * root scope. Used to make cross-file references resolvable —
+ * the caller loads dependency files separately (e.g. via the
+ * compilation driver) and registers each before analysing the
+ * target unit.
+ *
+ * Returns ZSERIO_OK on success; duplicate-decl diagnostics
+ * surface during the bind, same as `zsp_sema_analyse_unit`'s
+ * own collection pass.
+ */
+zserio_status_t zsp_sema_register_unit(zsp_sema_t     *s,
+                                       zsp_ast_node_t *unit);
+
+/**
  * Analyse a parsed UNIT in place. Two passes:
  *   1. Collect every top-level declaration into the root scope.
  *      Duplicate names emit ZSP_SEV_ERROR diagnostics.
