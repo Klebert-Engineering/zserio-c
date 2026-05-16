@@ -339,8 +339,8 @@ struct zsp_ast_node {
 
         struct { zsp_ast_node_t *name; }           package;
 
-        struct { zsp_ast_node_t  *name;         /**< DOTTED_NAME of package */
-                 zsp_ast_node_t  *item;         /**< single import: e.g. Foo (NULL = wildcard '*') */ }
+        struct { zsp_ast_node_t *name;          /**< Full dotted path. */
+                 bool             wildcard;     /**< True for `import path.*;`. */ }
                                                   import;
 
         struct { zsp_ast_node_t *version_string; } compat_version;
