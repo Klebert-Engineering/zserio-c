@@ -231,19 +231,135 @@ static void test_decimal_integer_overflow_reports_error(void)
     fixture_dispose(&f);
 }
 
-static void test_decimal_integer_with_suffix_rejected_for_now(void)
+static void test_hex_integer(void)
 {
-    /* Slice A only does decimal. Float suffix `f`, binary suffix
-     * `b`, and hex prefix `0x` are deferred — the lexer rejects
-     * a digit-then-alpha run with a diagnostic. */
     lex_fixture_t f;
-    static const uint8_t INPUT[] = "42f";
+    static const uint8_t INPUT[] = "0x0 0xFF 0xdeadBEEF";
+    fixture_init(&f, INPUT, sizeof(INPUT) - 1U);
+
+    zsp_token_t tok;
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_lexer_next(&f.lexer, &tok));
+    TEST_ASSERT_EQUAL_INT(ZSP_TOK_INT_LIT, tok.kind);
+    TEST_ASSERT_EQUAL_UINT64(0U, tok.value.u64);
+
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_lexer_next(&f.lexer, &tok));
+    TEST_ASSERT_EQUAL_INT(ZSP_TOK_INT_LIT, tok.kind);
+    TEST_ASSERT_EQUAL_UINT64(0xFFU, tok.value.u64);
+
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_lexer_next(&f.lexer, &tok));
+    TEST_ASSERT_EQUAL_INT(ZSP_TOK_INT_LIT, tok.kind);
+    TEST_ASSERT_EQUAL_UINT64(0xDEADBEEFU, tok.value.u64);
+
+    fixture_dispose(&f);
+}
+
+static void test_binary_integer(void)
+{
+    lex_fixture_t f;
+    static const uint8_t INPUT[] = "0b 1b 1010B 11111111b";
+    fixture_init(&f, INPUT, sizeof(INPUT) - 1U);
+
+    zsp_token_t tok;
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_lexer_next(&f.lexer, &tok));
+    TEST_ASSERT_EQUAL_INT(ZSP_TOK_INT_LIT, tok.kind);
+    TEST_ASSERT_EQUAL_UINT64(0U, tok.value.u64);
+
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_lexer_next(&f.lexer, &tok));
+    TEST_ASSERT_EQUAL_INT(ZSP_TOK_INT_LIT, tok.kind);
+    TEST_ASSERT_EQUAL_UINT64(1U, tok.value.u64);
+
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_lexer_next(&f.lexer, &tok));
+    TEST_ASSERT_EQUAL_INT(ZSP_TOK_INT_LIT, tok.kind);
+    TEST_ASSERT_EQUAL_UINT64(10U, tok.value.u64);
+
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_lexer_next(&f.lexer, &tok));
+    TEST_ASSERT_EQUAL_INT(ZSP_TOK_INT_LIT, tok.kind);
+    TEST_ASSERT_EQUAL_UINT64(255U, tok.value.u64);
+
+    fixture_dispose(&f);
+}
+
+static void test_octal_integer(void)
+{
+    lex_fixture_t f;
+    static const uint8_t INPUT[] = "01 0777";
+    fixture_init(&f, INPUT, sizeof(INPUT) - 1U);
+
+    zsp_token_t tok;
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_lexer_next(&f.lexer, &tok));
+    TEST_ASSERT_EQUAL_INT(ZSP_TOK_INT_LIT, tok.kind);
+    TEST_ASSERT_EQUAL_UINT64(1U, tok.value.u64);
+
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_lexer_next(&f.lexer, &tok));
+    TEST_ASSERT_EQUAL_INT(ZSP_TOK_INT_LIT, tok.kind);
+    TEST_ASSERT_EQUAL_UINT64(0777U, tok.value.u64);
+
+    fixture_dispose(&f);
+}
+
+static void test_float_literal(void)
+{
+    lex_fixture_t f;
+    static const uint8_t INPUT[] = "1.5 0.25 3.14f 1e2 2.5e-3";
+    fixture_init(&f, INPUT, sizeof(INPUT) - 1U);
+
+    zsp_token_t tok;
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_lexer_next(&f.lexer, &tok));
+    TEST_ASSERT_EQUAL_INT(ZSP_TOK_FLOAT_LIT, tok.kind);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6F, (float)1.5, (float)tok.value.f64);
+
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_lexer_next(&f.lexer, &tok));
+    TEST_ASSERT_EQUAL_INT(ZSP_TOK_FLOAT_LIT, tok.kind);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6F, (float)0.25, (float)tok.value.f64);
+
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_lexer_next(&f.lexer, &tok));
+    TEST_ASSERT_EQUAL_INT(ZSP_TOK_FLOAT_LIT, tok.kind);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6F, (float)3.14, (float)tok.value.f64);
+
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_lexer_next(&f.lexer, &tok));
+    TEST_ASSERT_EQUAL_INT(ZSP_TOK_FLOAT_LIT, tok.kind);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6F, (float)100.0, (float)tok.value.f64);
+
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_lexer_next(&f.lexer, &tok));
+    TEST_ASSERT_EQUAL_INT(ZSP_TOK_FLOAT_LIT, tok.kind);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6F, (float)0.0025, (float)tok.value.f64);
+
+    fixture_dispose(&f);
+}
+
+static void test_string_literal(void)
+{
+    lex_fixture_t f;
+    static const uint8_t INPUT[] = "\"hello\" \"with \\\"quotes\\\"\"";
+    fixture_init(&f, INPUT, sizeof(INPUT) - 1U);
+
+    zsp_token_t tok;
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_lexer_next(&f.lexer, &tok));
+    TEST_ASSERT_EQUAL_INT(ZSP_TOK_STRING_LIT, tok.kind);
+    TEST_ASSERT_EQUAL_UINT32(7U, tok.length);   /* "hello" including quotes */
+
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_lexer_next(&f.lexer, &tok));
+    TEST_ASSERT_EQUAL_INT(ZSP_TOK_STRING_LIT, tok.kind);
+    /* "with \"quotes\"" — 17 source bytes including outer quotes and the 2 escape pairs */
+    TEST_ASSERT_EQUAL_UINT32(17U, tok.length);
+
+    fixture_dispose(&f);
+}
+
+static void test_unterminated_string_reports_error(void)
+{
+    lex_fixture_t f;
+    static const uint8_t INPUT[] = "\"oh no\nstruct";
     fixture_init(&f, INPUT, sizeof(INPUT) - 1U);
 
     zsp_token_t tok;
     TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_lexer_next(&f.lexer, &tok));
     TEST_ASSERT_EQUAL_INT(ZSP_TOK_INVALID, tok.kind);
     TEST_ASSERT_EQUAL_size_t(1U, zsp_diag_error_count(&f.diag));
+
+    /* Lexer should recover and produce the struct keyword after
+     * the newline. */
+    assert_next_kind(&f.lexer, ZSP_TOK_KW_STRUCT);
 
     fixture_dispose(&f);
 }
@@ -370,7 +486,12 @@ int main(void)
     RUN_TEST(test_annotation_keywords);
     RUN_TEST(test_decimal_integer);
     RUN_TEST(test_decimal_integer_overflow_reports_error);
-    RUN_TEST(test_decimal_integer_with_suffix_rejected_for_now);
+    RUN_TEST(test_hex_integer);
+    RUN_TEST(test_binary_integer);
+    RUN_TEST(test_octal_integer);
+    RUN_TEST(test_float_literal);
+    RUN_TEST(test_string_literal);
+    RUN_TEST(test_unterminated_string_reports_error);
     RUN_TEST(test_punctuation);
     RUN_TEST(test_single_and_double_char_operators);
     RUN_TEST(test_unexpected_character_reports_error_and_recovers);

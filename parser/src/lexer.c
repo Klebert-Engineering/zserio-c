@@ -258,24 +258,58 @@ static void lex_ident_or_keyword(zsp_lexer_t *l, zsp_token_t *out,
     l->pos = end;
 }
 
-/* ---------- integer-literal lexing (decimal only this slice) -- */
+/* ---------- numeric and string literal lexing ----------------- */
 
-/* Returns ZSERIO_OK on success and writes the parsed value;
- * ZSERIO_ERR_VALUE_OUT_OF_RANGE on overflow past UINT64_MAX. The
- * caller has already validated that the first byte is a digit. */
-static zserio_status_t parse_decimal_u64(const uint8_t *bytes, size_t len,
-                                         uint64_t *out)
+static bool is_oct_digit(uint8_t c)
+{
+    return (c >= (uint8_t)'0') && (c <= (uint8_t)'7');
+}
+
+static bool is_hex_digit(uint8_t c)
+{
+    return is_digit(c)
+        || ((c >= (uint8_t)'a') && (c <= (uint8_t)'f'))
+        || ((c >= (uint8_t)'A') && (c <= (uint8_t)'F'));
+}
+
+static bool is_bin_digit(uint8_t c)
+{
+    return (c == (uint8_t)'0') || (c == (uint8_t)'1');
+}
+
+static uint64_t hex_digit_value(uint8_t c)
+{
+    if (c <= (uint8_t)'9') {
+        return (uint64_t)(c - (uint8_t)'0');
+    }
+    if (c <= (uint8_t)'F') {
+        return (uint64_t)(c - (uint8_t)'A') + 10U;
+    }
+    return (uint64_t)(c - (uint8_t)'a') + 10U;
+}
+
+/* Multi-base unsigned parser with overflow checking. `bytes` covers
+ * `len` digit characters of the given base; the caller has already
+ * validated the digit set. */
+static zserio_status_t parse_u64_base(const uint8_t *bytes, size_t len,
+                                      uint32_t base, uint64_t *out)
 {
     uint64_t v = 0U;
+    const uint64_t MAX = (uint64_t)0xFFFFFFFFFFFFFFFFULL;
+    const uint64_t b   = (uint64_t)base;
     for (size_t i = 0U; i < len; ++i) {
-        const uint64_t d = (uint64_t)(bytes[i] - (uint8_t)'0');
-        /* Multiply-by-10 overflow check first: v > (UINT64_MAX / 10) */
-        if (v > ((uint64_t)0xFFFFFFFFFFFFFFFFULL / 10U)) {
+        uint64_t d;
+        if (base == 16U) {
+            d = hex_digit_value(bytes[i]);
+        }
+        else {
+            d = (uint64_t)(bytes[i] - (uint8_t)'0');
+        }
+        if (v > (MAX / b)) {
             return ZSERIO_ERR_VALUE_OUT_OF_RANGE;
         }
-        v *= 10U;
-        /* Add overflow check: v + d must not wrap. */
-        if (v > ((uint64_t)0xFFFFFFFFFFFFFFFFULL - d)) {
+        v *= b;
+        if (v > (MAX - d)) {
             return ZSERIO_ERR_VALUE_OUT_OF_RANGE;
         }
         v += d;
@@ -284,53 +318,329 @@ static zserio_status_t parse_decimal_u64(const uint8_t *bytes, size_t len,
     return ZSERIO_OK;
 }
 
-static zserio_status_t lex_integer(zsp_lexer_t *l, zsp_token_t *out,
-                                   size_t start)
+/* Decimal float parser. Accepts `digits [.digits] [eE [+-] digits] [f]`.
+ * The caller has already lexed the source span; `len` excludes any
+ * trailing `f` suffix. Uses repeated multiply-add accumulation —
+ * not bit-exact IEEE-754 but adequate for schema constants. */
+static double parse_decimal_f64(const uint8_t *bytes, size_t len)
 {
-    size_t end = start;
-    while ((end < l->len) && is_digit(l->bytes[end])) {
+    double v       = 0.0;
+    double frac    = 0.0;
+    double frac_div = 1.0;
+    bool   in_frac = false;
+    bool   in_exp  = false;
+    int    exp_sign = 1;
+    int    exp_val  = 0;
+    for (size_t i = 0U; i < len; ++i) {
+        const uint8_t c = bytes[i];
+        if (in_exp) {
+            if ((c == (uint8_t)'+') && (exp_val == 0)) {
+                continue;
+            }
+            if ((c == (uint8_t)'-') && (exp_val == 0)) {
+                exp_sign = -1;
+                continue;
+            }
+            exp_val = (exp_val * 10) + (int)(c - (uint8_t)'0');
+            continue;
+        }
+        if ((c == (uint8_t)'e') || (c == (uint8_t)'E')) {
+            in_exp = true;
+            continue;
+        }
+        if (c == (uint8_t)'.') {
+            in_frac = true;
+            continue;
+        }
+        const double d = (double)(c - (uint8_t)'0');
+        if (in_frac) {
+            frac_div *= 10.0;
+            frac += d / frac_div;
+        }
+        else {
+            v = (v * 10.0) + d;
+        }
+    }
+    v += frac;
+    if (in_exp) {
+        double scale = 1.0;
+        for (int i = 0; i < exp_val; ++i) {
+            scale *= 10.0;
+        }
+        if (exp_sign < 0) {
+            v /= scale;
+        }
+        else {
+            v *= scale;
+        }
+    }
+    return v;
+}
+
+/* Lex a hex literal: caller has consumed '0x' / '0X' prefix and
+ * `start` points at the '0'. `digit_start` points at the first hex
+ * digit. */
+static zserio_status_t finish_hex_literal(zsp_lexer_t *l, zsp_token_t *out,
+                                          size_t start, size_t digit_start)
+{
+    size_t end = digit_start;
+    while ((end < l->len) && is_hex_digit(l->bytes[end])) {
         end += 1U;
     }
-    const size_t len = end - start;
-
-    /* Trailing alpha after digits indicates either a float suffix
-     * (`f`), a binary-literal suffix (`b`/`B`), or a typo. The
-     * current slice rejects both with a diagnostic and produces
-     * INVALID; hex/oct/binary/float arrive in a later slice. */
-    if ((end < l->len) && is_alpha(l->bytes[end])) {
+    if (end == digit_start) {
         ZSERIO_TRY(zsp_diag_emit_lit(
-                l->diag, ZSP_SEV_ERROR,
-                l->file_id, (uint32_t)end,
-                "unsupported numeric literal form (hex/binary/float "
-                "not yet implemented)"));
-        /* Consume the remaining alnum run so we recover at the
-         * next clear delimiter. */
-        while ((end < l->len) && is_alnum(l->bytes[end])) {
-            end += 1U;
-        }
+                l->diag, ZSP_SEV_ERROR, l->file_id, (uint32_t)start,
+                "hex literal has no digits"));
         make_token(l, out, ZSP_TOK_INVALID, start, end - start);
         l->pos = end;
         return ZSERIO_OK;
     }
+    uint64_t v = 0U;
+    const zserio_status_t st = parse_u64_base(&l->bytes[digit_start],
+                                              end - digit_start, 16U, &v);
+    if (st == ZSERIO_ERR_VALUE_OUT_OF_RANGE) {
+        ZSERIO_TRY(zsp_diag_emit_lit(
+                l->diag, ZSP_SEV_ERROR, l->file_id, (uint32_t)start,
+                "hex literal exceeds 64-bit range"));
+        make_token(l, out, ZSP_TOK_INVALID, start, end - start);
+        l->pos = end;
+        return ZSERIO_OK;
+    }
+    make_token(l, out, ZSP_TOK_INT_LIT, start, end - start);
+    out->value.u64 = v;
+    l->pos = end;
+    return ZSERIO_OK;
+}
+
+/* Lex a binary literal: `digits` followed by 'b' or 'B'. `start`
+ * points at the first digit; the caller has scanned forward to find
+ * the suffix. */
+static zserio_status_t finish_binary_literal(zsp_lexer_t *l, zsp_token_t *out,
+                                             size_t start, size_t suffix_pos)
+{
+    const size_t digit_len = suffix_pos - start;
+    uint64_t v = 0U;
+    const zserio_status_t st = parse_u64_base(&l->bytes[start],
+                                              digit_len, 2U, &v);
+    const size_t end = suffix_pos + 1U;
+    if (st == ZSERIO_ERR_VALUE_OUT_OF_RANGE) {
+        ZSERIO_TRY(zsp_diag_emit_lit(
+                l->diag, ZSP_SEV_ERROR, l->file_id, (uint32_t)start,
+                "binary literal exceeds 64-bit range"));
+        make_token(l, out, ZSP_TOK_INVALID, start, end - start);
+        l->pos = end;
+        return ZSERIO_OK;
+    }
+    make_token(l, out, ZSP_TOK_INT_LIT, start, end - start);
+    out->value.u64 = v;
+    l->pos = end;
+    return ZSERIO_OK;
+}
+
+/* Lex octal: leading '0' followed by octal digits and no decimal
+ * point. `start` points at the '0'. */
+static zserio_status_t finish_octal_literal(zsp_lexer_t *l, zsp_token_t *out,
+                                            size_t start, size_t end)
+{
+    /* Skip the leading '0' for parsing; parse_u64_base treats the
+     * range as octal digits. */
+    const size_t digit_start = start + 1U;
+    uint64_t v = 0U;
+    if (digit_start < end) {
+        const zserio_status_t st = parse_u64_base(&l->bytes[digit_start],
+                                                  end - digit_start, 8U, &v);
+        if (st == ZSERIO_ERR_VALUE_OUT_OF_RANGE) {
+            ZSERIO_TRY(zsp_diag_emit_lit(
+                    l->diag, ZSP_SEV_ERROR, l->file_id, (uint32_t)start,
+                    "octal literal exceeds 64-bit range"));
+            make_token(l, out, ZSP_TOK_INVALID, start, end - start);
+            l->pos = end;
+            return ZSERIO_OK;
+        }
+    }
+    make_token(l, out, ZSP_TOK_INT_LIT, start, end - start);
+    out->value.u64 = v;
+    l->pos = end;
+    return ZSERIO_OK;
+}
+
+/* Finish a float literal. `start` points at the first digit;
+ * `dot_or_exp_pos` is where the '.' or 'e' was encountered. */
+static zserio_status_t finish_float_literal(zsp_lexer_t *l, zsp_token_t *out,
+                                            size_t start)
+{
+    size_t end = start;
+    /* integer part */
+    while ((end < l->len) && is_digit(l->bytes[end])) {
+        end += 1U;
+    }
+    /* optional fractional part */
+    if ((end < l->len) && (l->bytes[end] == (uint8_t)'.')) {
+        end += 1U;
+        while ((end < l->len) && is_digit(l->bytes[end])) {
+            end += 1U;
+        }
+    }
+    /* optional exponent */
+    if ((end < l->len)
+            && ((l->bytes[end] == (uint8_t)'e') || (l->bytes[end] == (uint8_t)'E'))) {
+        end += 1U;
+        if ((end < l->len)
+                && ((l->bytes[end] == (uint8_t)'+') || (l->bytes[end] == (uint8_t)'-'))) {
+            end += 1U;
+        }
+        while ((end < l->len) && is_digit(l->bytes[end])) {
+            end += 1U;
+        }
+    }
+    const size_t numeric_end = end;
+    /* optional 'f' suffix */
+    if ((end < l->len) && (l->bytes[end] == (uint8_t)'f')) {
+        end += 1U;
+    }
+    const double v = parse_decimal_f64(&l->bytes[start], numeric_end - start);
+    make_token(l, out, ZSP_TOK_FLOAT_LIT, start, end - start);
+    out->value.f64 = v;
+    l->pos = end;
+    return ZSERIO_OK;
+}
+
+static zserio_status_t lex_integer(zsp_lexer_t *l, zsp_token_t *out,
+                                   size_t start)
+{
+    /* Hex prefix: 0x / 0X */
+    if ((l->bytes[start] == (uint8_t)'0')
+            && ((start + 1U) < l->len)
+            && ((l->bytes[start + 1U] == (uint8_t)'x')
+                || (l->bytes[start + 1U] == (uint8_t)'X'))) {
+        return finish_hex_literal(l, out, start, start + 2U);
+    }
+
+    /* Scan a run of digits to determine whether this is binary
+     * (digits followed by 'b'/'B'), float (contains '.' or 'e'/'E'
+     * before any non-numeric character), octal (leading '0' with
+     * only octal digits and no float/binary marker), or decimal. */
+    size_t scan = start;
+    while ((scan < l->len) && is_digit(l->bytes[scan])) {
+        scan += 1U;
+    }
+    const size_t digits_end = scan;
+
+    /* Binary: digit run followed by exactly 'b' or 'B' and no
+     * more alnum. */
+    if ((scan < l->len)
+            && ((l->bytes[scan] == (uint8_t)'b')
+                || (l->bytes[scan] == (uint8_t)'B'))) {
+        bool all_binary = true;
+        for (size_t i = start; i < scan; ++i) {
+            if (!is_bin_digit(l->bytes[i])) {
+                all_binary = false;
+                break;
+            }
+        }
+        if (all_binary) {
+            return finish_binary_literal(l, out, start, scan);
+        }
+        /* Trailing 'b' on non-binary digits — fall through to
+         * decimal parse + suffix error below. */
+    }
+
+    /* Float: digits followed by '.' or 'e'/'E'. */
+    if ((scan < l->len)
+            && ((l->bytes[scan] == (uint8_t)'.')
+                || (l->bytes[scan] == (uint8_t)'e')
+                || (l->bytes[scan] == (uint8_t)'E'))) {
+        return finish_float_literal(l, out, start);
+    }
+
+    /* Octal: starts with '0' but not '0x', and the digit run is
+     * exactly the same as the leading '0...' (no float/binary). */
+    if ((l->bytes[start] == (uint8_t)'0') && ((digits_end - start) > 1U)) {
+        bool all_octal = true;
+        for (size_t i = start; i < digits_end; ++i) {
+            if (!is_oct_digit(l->bytes[i])) {
+                all_octal = false;
+                break;
+            }
+        }
+        if (all_octal) {
+            return finish_octal_literal(l, out, start, digits_end);
+        }
+    }
+
+    /* Decimal: pure digit run with no special suffix. If followed
+     * by alpha (e.g. invalid `42z`), report and recover. */
+    const size_t len = digits_end - start;
+    if ((digits_end < l->len) && is_alpha(l->bytes[digits_end])) {
+        size_t recover_end = digits_end;
+        while ((recover_end < l->len) && is_alnum(l->bytes[recover_end])) {
+            recover_end += 1U;
+        }
+        ZSERIO_TRY(zsp_diag_emit_lit(
+                l->diag, ZSP_SEV_ERROR,
+                l->file_id, (uint32_t)digits_end,
+                "invalid numeric literal suffix"));
+        make_token(l, out, ZSP_TOK_INVALID, start, recover_end - start);
+        l->pos = recover_end;
+        return ZSERIO_OK;
+    }
 
     uint64_t value = 0U;
-    const zserio_status_t st = parse_decimal_u64(&l->bytes[start], len, &value);
+    const zserio_status_t st = parse_u64_base(&l->bytes[start], len, 10U, &value);
     if (st == ZSERIO_ERR_VALUE_OUT_OF_RANGE) {
         ZSERIO_TRY(zsp_diag_emit_lit(
                 l->diag, ZSP_SEV_ERROR,
                 l->file_id, (uint32_t)start,
                 "integer literal exceeds 64-bit range"));
         make_token(l, out, ZSP_TOK_INVALID, start, len);
-        l->pos = end;
+        l->pos = digits_end;
         return ZSERIO_OK;
     }
-    if (st != ZSERIO_OK) {
-        return st;
-    }
-
     make_token(l, out, ZSP_TOK_INT_LIT, start, len);
     out->value.u64 = value;
-    l->pos = end;
+    l->pos = digits_end;
+    return ZSERIO_OK;
+}
+
+/* String literal: `"` ... `"`. C-style escape sequences are
+ * recognised at lex time but NOT decoded — the token spans the
+ * full source range including quotes, and the parser decodes
+ * escapes when copying into the AST. Unterminated strings produce
+ * a diagnostic and an INVALID token covering up to EOL or EOF. */
+static zserio_status_t lex_string_literal(zsp_lexer_t *l, zsp_token_t *out,
+                                          size_t start)
+{
+    size_t pos = start + 1U;
+    while (pos < l->len) {
+        const uint8_t c = l->bytes[pos];
+        if (c == (uint8_t)'\n') {
+            /* Newline inside string literal — treat as
+             * unterminated. */
+            break;
+        }
+        if (c == (uint8_t)'\\') {
+            /* Escape sequence: skip the following byte (whatever
+             * it is). Decoding happens in the AST builder. */
+            if ((pos + 1U) < l->len) {
+                pos += 2U;
+                continue;
+            }
+            pos += 1U;
+            break;
+        }
+        if (c == (uint8_t)'"') {
+            pos += 1U;
+            make_token(l, out, ZSP_TOK_STRING_LIT, start, pos - start);
+            l->pos = pos;
+            return ZSERIO_OK;
+        }
+        pos += 1U;
+    }
+    ZSERIO_TRY(zsp_diag_emit_lit(
+            l->diag, ZSP_SEV_ERROR, l->file_id, (uint32_t)start,
+            "unterminated string literal"));
+    make_token(l, out, ZSP_TOK_INVALID, start, pos - start);
+    l->pos = pos;
     return ZSERIO_OK;
 }
 
@@ -454,6 +764,9 @@ zserio_status_t zsp_lexer_next(zsp_lexer_t *l, zsp_token_t *out)
     }
     if (is_digit(c)) {
         return lex_integer(l, out, start);
+    }
+    if (c == (uint8_t)'"') {
+        return lex_string_literal(l, out, start);
     }
     return lex_punct(l, out, start);
 }
