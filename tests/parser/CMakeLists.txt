@@ -15,6 +15,7 @@ zserio_c_add_parser_test(test_diag)
 zserio_c_add_parser_test(test_lexer)
 zserio_c_add_parser_test(test_arena_ast)
 zserio_c_add_parser_test(test_parser)
+zserio_c_add_parser_test(test_sema)
 
 # Acceptance test: parses real upstream schemas from
 # third_party/zserio-test-data. Tests gracefully skip when the

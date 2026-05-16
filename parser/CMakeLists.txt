@@ -19,6 +19,7 @@ add_library(zserio_c_parser STATIC
     src/arena.c
     src/ast.c
     src/parser.c
+    src/sema.c
 )
 
 target_include_directories(zserio_c_parser

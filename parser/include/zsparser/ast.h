@@ -152,6 +152,15 @@ struct zsp_ast_node {
     uint32_t       offset;
     uint32_t       length;
 
+    /* Generic side-channel for analyser annotations. NULL on
+     * freshly-parsed nodes; semantic analyser populates per-kind:
+     *   - TYPE_REF       → pointer to the resolved declaration node
+     *   - EXPR_IDENT     → pointer to the declaration the name binds to
+     *   - SUBTYPE / etc. → may carry a resolved type node
+     * Other kinds leave it NULL.
+     */
+    struct zsp_ast_node *resolved;
+
     union {
         /* literals */
         struct { uint64_t value; }            int_lit;
