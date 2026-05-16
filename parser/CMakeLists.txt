@@ -40,3 +40,8 @@ set_target_properties(zserio_c_parser PROPERTIES
 )
 
 add_library(zserio_c::parser ALIAS zserio_c_parser)
+
+# CLI driver: zserio-c-gen <input.zs> -c <output-dir>
+add_executable(zserio_c_gen cli/main.c)
+target_link_libraries(zserio_c_gen PRIVATE zserio_c::parser)
+target_compile_features(zserio_c_gen PRIVATE c_std_99)
