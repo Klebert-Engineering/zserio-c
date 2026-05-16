@@ -24,9 +24,26 @@
 #include "zsparser/arena.h"
 #include "zsparser/ast.h"
 #include "zsparser/diag.h"
+#include "zsparser/emit.h"
 #include "zsparser/parser.h"
 #include "zsparser/sema.h"
 #include "zsparser/source.h"
+
+/* Black-hole sink: counts files written but throws away content. */
+typedef struct counter_sink {
+    size_t files_written;
+    size_t total_bytes;
+} counter_sink_t;
+
+static bool counter_write(void *ud, const char *path,
+                          const char *bytes, size_t len)
+{
+    counter_sink_t *const s = (counter_sink_t *)ud;
+    (void)path; (void)bytes;
+    s->files_written += 1U;
+    s->total_bytes   += len;
+    return true;
+}
 
 #ifndef ZSP_CORPUS_ROOT
 #define ZSP_CORPUS_ROOT ""
@@ -66,11 +83,12 @@ static bool ends_with_zs(const char *name)
 typedef struct corpus_result {
     bool parse_ok;
     bool sema_ok;
+    bool emit_ok;
 } corpus_result_t;
 
 static corpus_result_t try_parse_and_analyse(const char *path)
 {
-    corpus_result_t r = { false, false };
+    corpus_result_t r = { false, false, false };
     size_t len = 0U;
     uint8_t *const bytes = read_file(path, &len);
     if (bytes == NULL) return r;
@@ -94,7 +112,17 @@ static corpus_result_t try_parse_and_analyse(const char *path)
         if (r.parse_ok) {
             if ((zsp_sema_init(&sema, &src, &arena, &diag) == ZSERIO_OK)
                     && (zsp_sema_analyse_unit(&sema, unit) == ZSERIO_OK)) {
-                r.sema_ok = (zsp_diag_error_count(&diag) == parse_errs);
+                const size_t after_sema = zsp_diag_error_count(&diag);
+                r.sema_ok = (after_sema == parse_errs);
+                if (r.sema_ok) {
+                    counter_sink_t cs = { 0U, 0U };
+                    r.emit_ok = (zsp_emit_unit(unit, &arena, &diag, &src,
+                                               counter_write, &cs) == ZSERIO_OK)
+                                && (zsp_diag_error_count(&diag) == after_sema
+                                    || zsp_diag_error_count(&diag) == after_sema);
+                    /* Treat WARN-level emits (declaration-kind skipped)
+                     * as still-ok; errors mean the emitter aborted. */
+                }
             }
         }
     }
@@ -110,6 +138,7 @@ typedef struct sweep_state {
     size_t total;
     size_t parse_passed;
     size_t sema_passed;
+    size_t emit_passed;
     size_t failed_capacity;
     char **failed_paths;
     size_t failed_count;
@@ -207,6 +236,9 @@ static void sweep_directory(const char *root, sweep_state_t *s)
                 if (r.sema_ok) {
                     s->sema_passed += 1U;
                 }
+                if (r.emit_ok) {
+                    s->emit_passed += 1U;
+                }
                 if (!r.parse_ok) {
                     sweep_record_failure(s, full);
                 }
@@ -243,9 +275,11 @@ static void test_corpus_sweep_language(void)
 
     (void)printf("\ncorpus sweep:\n"
                  "  %zu / %zu schemas parsed with zero errors\n"
-                 "  %zu / %zu schemas survived parse + analyse\n",
+                 "  %zu / %zu schemas survived parse + analyse\n"
+                 "  %zu / %zu schemas survived parse + analyse + emit\n",
                  s.parse_passed, s.total,
-                 s.sema_passed, s.total);
+                 s.sema_passed,  s.total,
+                 s.emit_passed,  s.total);
     if (s.failed_count > 0U) {
         (void)printf("first parse failures:\n");
         const size_t to_show = (s.failed_count < 6U) ? s.failed_count : 6U;
