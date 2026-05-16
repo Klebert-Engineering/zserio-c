@@ -249,10 +249,76 @@ static void test_emit_and_compile_arrays_and_nested(void)
     TEST_ASSERT_TRUE(all_ok);
 }
 
+static void test_emit_and_compile_parameterised_with_if_and_bitfield(void)
+{
+    char out_dir[256];
+    (void)snprintf(out_dir, sizeof(out_dir), "/tmp/zsp_emit_test3_%u",
+                   (unsigned)getpid());
+    char rm_cmd[300];
+    (void)snprintf(rm_cmd, sizeof(rm_cmd), "rm -rf '%s'", out_dir);
+    (void)system(rm_cmd);
+    (void)mkdir(out_dir, 0755);
+
+    static const uint8_t INPUT[] =
+            "package geom;\n"
+            "struct Sample(uint16 mode) {\n"
+            "    bit:4 nibble;\n"
+            "    int32 value;\n"
+            "    int64 extra if mode == 1;\n"
+            "};\n";
+
+    zsp_source_t         src;
+    zsp_arena_t          arena;
+    zsp_diag_collector_t diag;
+    zsp_file_id_t        fid;
+    zsp_ast_node_t      *unit = NULL;
+    zsp_sema_t           sema;
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_source_init(&src, &libc_alloc));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_arena_init(&arena, &libc_alloc));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_diag_init(&diag, &libc_alloc, 0U));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_source_add_borrowed(
+            &src, "test.zs", 7U, INPUT, sizeof(INPUT) - 1U, &fid));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_parse_unit(&src, fid, &arena, &diag, &unit));
+    TEST_ASSERT_EQUAL_size_t(0U, zsp_diag_error_count(&diag));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_sema_init(&sema, &src, &arena, &diag));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_sema_analyse_unit(&sema, unit));
+
+    disk_sink_t sink = { out_dir, true };
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_emit_unit(unit, &arena, &diag, &src,
+                                              disk_write, &sink));
+    TEST_ASSERT_TRUE(sink.ok);
+    zsp_diag_dispose(&diag);
+    zsp_arena_dispose(&arena);
+    zsp_source_dispose(&src);
+
+    char cc_cmd[2048];
+    (void)snprintf(cc_cmd, sizeof(cc_cmd),
+                   "cc -std=c99 -Wall -Wextra -Werror "
+                   "-I'%s/runtime/include' "
+                   "-c '%s/geom/sample.c' -o '%s/sample.o' 2>'%s/cc.err'",
+                   ZSP_REPO_ROOT, out_dir, out_dir, out_dir);
+    const int rc = system(cc_cmd);
+    if (rc != 0) {
+        char err_path[512];
+        (void)snprintf(err_path, sizeof(err_path), "%s/cc.err", out_dir);
+        FILE *const f = fopen(err_path, "rb");
+        if (f != NULL) {
+            char buf[4096];
+            const size_t n = fread(buf, 1U, sizeof(buf) - 1U, f);
+            buf[n] = '\0';
+            (void)fclose(f);
+            (void)fprintf(stderr, "\nfailed to compile sample.c:\n%s\n", buf);
+        }
+        TEST_FAIL_MESSAGE("emitted parameterised+if+bitfield code did not compile");
+    }
+    (void)system(rm_cmd);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_emit_and_compile_simple_struct);
     RUN_TEST(test_emit_and_compile_arrays_and_nested);
+    RUN_TEST(test_emit_and_compile_parameterised_with_if_and_bitfield);
     return UNITY_END();
 }
