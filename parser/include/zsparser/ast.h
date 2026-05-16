@@ -160,6 +160,13 @@ struct zsp_ast_node {
      * Other kinds leave it NULL.
      */
     struct zsp_ast_node *resolved;
+    /* Constant-evaluation result (set by the analyser when an
+     * expression evaluates to a compile-time constant). NULL
+     * on freshly-parsed nodes and on expressions that are
+     * non-constant or have not yet been evaluated. Points to a
+     * `zsp_sema_const_t` allocated in the same arena.
+     */
+    void *computed;
 
     union {
         /* literals */

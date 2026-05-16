@@ -272,6 +272,123 @@ static void test_duplicate_field_name_is_diagnosed(void)
     fixture_teardown(&f);
 }
 
+static void test_const_eval_enum_implicit_values(void)
+{
+    fixture_t f;
+    static const uint8_t INPUT[] =
+            "package x;\n"
+            "enum uint8 Color {\n"
+            "    RED,\n"
+            "    GREEN,\n"
+            "    BLUE\n"
+            "};\n";
+    fixture_setup(&f, INPUT, sizeof(INPUT) - 1U);
+    zsp_ast_node_t *const enm = f.unit->u.unit.decls[0];
+
+    const zsp_sema_const_t *const r = (const zsp_sema_const_t *)
+            enm->u.enum_decl.items[0]->computed;
+    const zsp_sema_const_t *const g = (const zsp_sema_const_t *)
+            enm->u.enum_decl.items[1]->computed;
+    const zsp_sema_const_t *const b = (const zsp_sema_const_t *)
+            enm->u.enum_decl.items[2]->computed;
+    TEST_ASSERT_NOT_NULL(r);
+    TEST_ASSERT_EQUAL_UINT64(0U, r->v.u);
+    TEST_ASSERT_NOT_NULL(g);
+    TEST_ASSERT_EQUAL_UINT64(1U, g->v.u);
+    TEST_ASSERT_NOT_NULL(b);
+    TEST_ASSERT_EQUAL_UINT64(2U, b->v.u);
+    fixture_teardown(&f);
+}
+
+static void test_const_eval_explicit_expr(void)
+{
+    fixture_t f;
+    static const uint8_t INPUT[] =
+            "package x;\n"
+            "enum uint16 E {\n"
+            "    A = 10,\n"
+            "    B = A + 5,\n"
+            "    C = (B << 1) | 0x01\n"
+            "};\n";
+    fixture_setup(&f, INPUT, sizeof(INPUT) - 1U);
+    zsp_ast_node_t *const enm = f.unit->u.unit.decls[0];
+    const zsp_sema_const_t *const a = (const zsp_sema_const_t *)enm->u.enum_decl.items[0]->computed;
+    const zsp_sema_const_t *const b = (const zsp_sema_const_t *)enm->u.enum_decl.items[1]->computed;
+    const zsp_sema_const_t *const c = (const zsp_sema_const_t *)enm->u.enum_decl.items[2]->computed;
+    TEST_ASSERT_EQUAL_UINT64(10U, a->v.u);
+    TEST_ASSERT_EQUAL_UINT64(15U, b->v.u);
+    TEST_ASSERT_EQUAL_UINT64((15U << 1) | 1U, c->v.u);
+    fixture_teardown(&f);
+}
+
+static void test_const_decl_eval(void)
+{
+    fixture_t f;
+    static const uint8_t INPUT[] =
+            "package x;\n"
+            "const uint32 BASE = 100;\n"
+            "const uint32 SCALED = BASE * 2 + 1;\n";
+    fixture_setup(&f, INPUT, sizeof(INPUT) - 1U);
+    zsp_ast_node_t *const base   = f.unit->u.unit.decls[0];
+    zsp_ast_node_t *const scaled = f.unit->u.unit.decls[1];
+    const zsp_sema_const_t *const bv = (const zsp_sema_const_t *)
+            base->u.const_decl.value_expr->computed;
+    const zsp_sema_const_t *const sv = (const zsp_sema_const_t *)
+            scaled->u.const_decl.value_expr->computed;
+    TEST_ASSERT_NOT_NULL(bv);
+    TEST_ASSERT_EQUAL_UINT64(100U, bv->v.u);
+    TEST_ASSERT_NOT_NULL(sv);
+    TEST_ASSERT_EQUAL_UINT64(201U, sv->v.u);
+    fixture_teardown(&f);
+}
+
+static void test_bitmask_implicit_powers_of_two(void)
+{
+    fixture_t f;
+    static const uint8_t INPUT[] =
+            "package x;\n"
+            "bitmask uint8 Flags {\n"
+            "    A,\n"   /* 1 */
+            "    B,\n"   /* 2 */
+            "    C,\n"   /* 4 */
+            "    D\n"    /* 8 */
+            "};\n";
+    fixture_setup(&f, INPUT, sizeof(INPUT) - 1U);
+    zsp_ast_node_t *const bm = f.unit->u.unit.decls[0];
+    const uint64_t expect[] = { 1U, 2U, 4U, 8U };
+    for (size_t i = 0U; i < 4U; ++i) {
+        const zsp_sema_const_t *const c = (const zsp_sema_const_t *)
+                bm->u.bitmask_decl.items[i]->computed;
+        TEST_ASSERT_NOT_NULL(c);
+        TEST_ASSERT_EQUAL_UINT64(expect[i], c->v.u);
+    }
+    fixture_teardown(&f);
+}
+
+static void test_const_eval_cycle_detected(void)
+{
+    fixture_t f;
+    static const uint8_t INPUT[] =
+            "package x;\n"
+            "const uint32 X = Y + 1;\n"
+            "const uint32 Y = X + 1;\n";
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_source_init(&f.src, &libc_alloc));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_arena_init(&f.arena, &libc_alloc));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_diag_init(&f.diag, &libc_alloc, 0U));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_source_add_borrowed(
+            &f.src, "test.zs", 7U, INPUT, sizeof(INPUT) - 1U, &f.fid));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_parse_unit(
+            &f.src, f.fid, &f.arena, &f.diag, &f.unit));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_sema_init(&f.sema, &f.src,
+                                              &f.arena, &f.diag));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_sema_analyse_unit(&f.sema, f.unit));
+    /* At least one cyclic-constant diagnostic should have been
+     * emitted; the analyser detects the cycle via the in-flight
+     * sentinel and emits a diagnostic before unwinding. */
+    TEST_ASSERT_TRUE(zsp_diag_error_count(&f.diag) >= 1U);
+    fixture_teardown(&f);
+}
+
 static void test_builtins_are_not_type_refs(void)
 {
     /* uint32, string, etc. lex as identifiers but parse as
@@ -304,6 +421,11 @@ int main(void)
     RUN_TEST(test_enum_item_value_can_reference_prior);
     RUN_TEST(test_index_pseudo_ident_does_not_emit_unresolved);
     RUN_TEST(test_duplicate_field_name_is_diagnosed);
+    RUN_TEST(test_const_eval_enum_implicit_values);
+    RUN_TEST(test_const_eval_explicit_expr);
+    RUN_TEST(test_const_decl_eval);
+    RUN_TEST(test_bitmask_implicit_powers_of_two);
+    RUN_TEST(test_const_eval_cycle_detected);
     RUN_TEST(test_builtins_are_not_type_refs);
     return UNITY_END();
 }

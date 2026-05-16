@@ -659,6 +659,307 @@ static zserio_status_t resolve_pass(zsp_sema_t *s, zsp_ast_node_t *unit)
     return resolve_walk(s, unit);
 }
 
+/* ============================================================ */
+/* Constant evaluation                                           */
+/* ============================================================ */
+
+static zsp_sema_const_t CYCLE_SENTINEL;
+
+const zsp_sema_const_t *zsp_sema_const_cycle_marker(void)
+{
+    return &CYCLE_SENTINEL;
+}
+
+static zsp_sema_const_t *alloc_const(zsp_sema_t *s, zsp_const_kind_t k)
+{
+    zsp_sema_const_t *const c = (zsp_sema_const_t *)zsp_arena_alloc(
+            s->arena, sizeof(zsp_sema_const_t), sizeof(void *));
+    if (c == NULL) {
+        return NULL;
+    }
+    c->kind = k;
+    return c;
+}
+
+static const zsp_sema_const_t *eval_uint(zsp_sema_t *s, uint64_t v)
+{
+    zsp_sema_const_t *const c = alloc_const(s, ZSP_CONST_UINT);
+    if (c == NULL) return NULL;
+    c->v.u = v;
+    return c;
+}
+
+static const zsp_sema_const_t *eval_bool(zsp_sema_t *s, bool v)
+{
+    zsp_sema_const_t *const c = alloc_const(s, ZSP_CONST_BOOL);
+    if (c == NULL) return NULL;
+    c->v.b = v;
+    return c;
+}
+
+static const zsp_sema_const_t *eval_float(zsp_sema_t *s, double v)
+{
+    zsp_sema_const_t *const c = alloc_const(s, ZSP_CONST_FLOAT);
+    if (c == NULL) return NULL;
+    c->v.f = v;
+    return c;
+}
+
+static uint64_t to_u64(const zsp_sema_const_t *c)
+{
+    if (c->kind == ZSP_CONST_BOOL) return c->v.b ? 1U : 0U;
+    if (c->kind == ZSP_CONST_INT)  return (uint64_t)c->v.i;
+    return c->v.u;
+}
+
+static const zsp_sema_const_t *eval_binop(zsp_sema_t *s, zsp_op_code_t op,
+                                          const zsp_sema_const_t *l,
+                                          const zsp_sema_const_t *r)
+{
+    if ((l->kind == ZSP_CONST_FLOAT) || (r->kind == ZSP_CONST_FLOAT)) {
+        const double lv = (l->kind == ZSP_CONST_FLOAT) ? l->v.f : (double)to_u64(l);
+        const double rv = (r->kind == ZSP_CONST_FLOAT) ? r->v.f : (double)to_u64(r);
+        /* Float division-by-zero check: compare via bit pattern
+         * rather than `==` to keep -Wfloat-equal clean. The
+         * runtime's own `zserio_float_eq_bits` helper is the
+         * reference for this idiom (REQ-FS-002 spirit). */
+        const uint64_t rv_bits = ((const uint64_t *)&rv)[0];
+        const uint64_t zero_bits = 0U;
+        switch (op) {
+        case ZSP_OP_ADD: return eval_float(s, lv + rv);
+        case ZSP_OP_SUB: return eval_float(s, lv - rv);
+        case ZSP_OP_MUL: return eval_float(s, lv * rv);
+        case ZSP_OP_DIV: return (rv_bits != zero_bits) ? eval_float(s, lv / rv) : NULL;
+        case ZSP_OP_EQ:  return eval_bool(s, !(lv <  rv) && !(lv >  rv));
+        case ZSP_OP_NEQ: return eval_bool(s, (lv <  rv) ||  (lv >  rv));
+        case ZSP_OP_LT:  return eval_bool(s, lv <  rv);
+        case ZSP_OP_LE:  return eval_bool(s, lv <= rv);
+        case ZSP_OP_GT:  return eval_bool(s, lv >  rv);
+        case ZSP_OP_GE:  return eval_bool(s, lv >= rv);
+        default:         return NULL;
+        }
+    }
+    const uint64_t lu = to_u64(l);
+    const uint64_t ru = to_u64(r);
+    switch (op) {
+    case ZSP_OP_ADD:         return eval_uint(s, lu + ru);
+    case ZSP_OP_SUB:         return eval_uint(s, lu - ru);
+    case ZSP_OP_MUL:         return eval_uint(s, lu * ru);
+    case ZSP_OP_DIV:         return (ru != 0U) ? eval_uint(s, lu / ru) : NULL;
+    case ZSP_OP_MOD:         return (ru != 0U) ? eval_uint(s, lu % ru) : NULL;
+    case ZSP_OP_LSHIFT:      return eval_uint(s, lu << (ru & 63U));
+    case ZSP_OP_RSHIFT:      return eval_uint(s, lu >> (ru & 63U));
+    case ZSP_OP_BIT_AND:     return eval_uint(s, lu & ru);
+    case ZSP_OP_BIT_OR:      return eval_uint(s, lu | ru);
+    case ZSP_OP_BIT_XOR:     return eval_uint(s, lu ^ ru);
+    case ZSP_OP_LOGICAL_AND: return eval_bool(s, (lu != 0U) && (ru != 0U));
+    case ZSP_OP_LOGICAL_OR:  return eval_bool(s, (lu != 0U) || (ru != 0U));
+    case ZSP_OP_EQ:          return eval_bool(s, lu == ru);
+    case ZSP_OP_NEQ:         return eval_bool(s, lu != ru);
+    case ZSP_OP_LT:          return eval_bool(s, lu <  ru);
+    case ZSP_OP_LE:          return eval_bool(s, lu <= ru);
+    case ZSP_OP_GT:          return eval_bool(s, lu >  ru);
+    case ZSP_OP_GE:          return eval_bool(s, lu >= ru);
+    default:                 return NULL;
+    }
+}
+
+static const zsp_sema_const_t *eval_unop(zsp_sema_t *s, zsp_op_code_t op,
+                                         const zsp_sema_const_t *o)
+{
+    switch (op) {
+    case ZSP_OP_NEG:
+        if (o->kind == ZSP_CONST_FLOAT) {
+            return eval_float(s, -o->v.f);
+        }
+        return eval_uint(s, (uint64_t)(-(int64_t)to_u64(o)));
+    case ZSP_OP_BIT_NOT:
+        return eval_uint(s, ~to_u64(o));
+    case ZSP_OP_LOGICAL_NOT:
+        return eval_bool(s, to_u64(o) == 0U);
+    default:
+        return NULL;
+    }
+}
+
+const zsp_sema_const_t *zsp_sema_eval(zsp_sema_t *s, zsp_ast_node_t *expr)
+{
+    if ((s == NULL) || (expr == NULL)) {
+        return NULL;
+    }
+    if (expr->computed != NULL) {
+        if (expr->computed == &CYCLE_SENTINEL) {
+            (void)zsp_diag_emit_lit(s->diag, ZSP_SEV_ERROR,
+                                    expr->file_id, expr->offset,
+                                    "cyclic constant expression");
+            return NULL;
+        }
+        return (const zsp_sema_const_t *)expr->computed;
+    }
+
+    /* Mark in-flight to detect cycles. */
+    expr->computed = &CYCLE_SENTINEL;
+
+    const zsp_sema_const_t *result = NULL;
+    switch (expr->kind) {
+    case ZSP_AST_EXPR_INT_LIT:
+        result = eval_uint(s, expr->u.int_lit.value);
+        break;
+    case ZSP_AST_EXPR_BOOL_LIT:
+        result = eval_bool(s, expr->u.bool_lit.value);
+        break;
+    case ZSP_AST_EXPR_FLOAT_LIT:
+        result = eval_float(s, expr->u.float_lit.value);
+        break;
+    case ZSP_AST_EXPR_IDENT:
+    {
+        zsp_ast_node_t *const d = expr->resolved;
+        if (d == NULL) {
+            result = NULL;
+        }
+        else if (d->kind == ZSP_AST_ENUM_ITEM) {
+            /* Enum item: evaluate its value_expr if present;
+             * otherwise use the implicit "previous value + 1"
+             * computation handled in compute_enum_values. */
+            if (d->u.enum_item.value_expr != NULL) {
+                result = zsp_sema_eval(s, d->u.enum_item.value_expr);
+            }
+            else if (d->computed != NULL) {
+                result = (const zsp_sema_const_t *)d->computed;
+            }
+        }
+        else if (d->kind == ZSP_AST_BITMASK_ITEM) {
+            if (d->u.bitmask_item.value_expr != NULL) {
+                result = zsp_sema_eval(s, d->u.bitmask_item.value_expr);
+            }
+            else if (d->computed != NULL) {
+                result = (const zsp_sema_const_t *)d->computed;
+            }
+        }
+        else if (d->kind == ZSP_AST_CONST) {
+            if (d->u.const_decl.value_expr != NULL) {
+                result = zsp_sema_eval(s, d->u.const_decl.value_expr);
+            }
+        }
+        break;
+    }
+    case ZSP_AST_EXPR_BINARY:
+    {
+        const zsp_sema_const_t *const l = zsp_sema_eval(s, expr->u.binop.lhs);
+        const zsp_sema_const_t *const r = zsp_sema_eval(s, expr->u.binop.rhs);
+        if ((l != NULL) && (r != NULL)) {
+            result = eval_binop(s, expr->u.binop.op, l, r);
+        }
+        break;
+    }
+    case ZSP_AST_EXPR_UNARY:
+    {
+        const zsp_sema_const_t *const o = zsp_sema_eval(s, expr->u.unop.operand);
+        if (o != NULL) {
+            result = eval_unop(s, expr->u.unop.op, o);
+        }
+        break;
+    }
+    case ZSP_AST_EXPR_TERNARY:
+    {
+        const zsp_sema_const_t *const c = zsp_sema_eval(s, expr->u.ternary.cond);
+        if (c != NULL) {
+            const bool cond = (to_u64(c) != 0U);
+            result = zsp_sema_eval(s, cond ? expr->u.ternary.then_expr
+                                           : expr->u.ternary.else_expr);
+        }
+        break;
+    }
+    default:
+        result = NULL;
+        break;
+    }
+
+    /* Replace the in-flight sentinel with the real result (or
+     * clear it if non-constant). */
+    if (result != NULL) {
+        expr->computed = (void *)(uintptr_t)result;
+    }
+    else {
+        expr->computed = NULL;
+    }
+    return result;
+}
+
+/* Walk all enum + bitmask + const decls and pre-evaluate item
+ * values so that downstream lookups via EXPR_IDENT find them. */
+static zserio_status_t evaluate_known_constants(zsp_sema_t *s,
+                                                zsp_ast_node_t *unit)
+{
+    if (unit->kind != ZSP_AST_UNIT) {
+        return ZSERIO_OK;
+    }
+    for (size_t i = 0U; i < unit->u.unit.n_decls; ++i) {
+        zsp_ast_node_t *const d = unit->u.unit.decls[i];
+        if (d == NULL) continue;
+        if (d->kind == ZSP_AST_ENUM) {
+            uint64_t prev = 0U;
+            bool     first = true;
+            for (size_t j = 0U; j < d->u.enum_decl.n_items; ++j) {
+                zsp_ast_node_t *const item = d->u.enum_decl.items[j];
+                if (item->u.enum_item.value_expr != NULL) {
+                    const zsp_sema_const_t *const v = zsp_sema_eval(
+                            s, item->u.enum_item.value_expr);
+                    if (v != NULL) {
+                        prev = to_u64(v);
+                        first = false;
+                    }
+                    item->computed = (void *)(uintptr_t)v;
+                }
+                else {
+                    /* Implicit: previous + 1, or 0 for the first. */
+                    const uint64_t v = first ? 0U : (prev + 1U);
+                    zsp_sema_const_t *const c = alloc_const(s, ZSP_CONST_UINT);
+                    if (c != NULL) {
+                        c->v.u = v;
+                        item->computed = c;
+                    }
+                    prev  = v;
+                    first = false;
+                }
+            }
+        }
+        else if (d->kind == ZSP_AST_BITMASK) {
+            uint64_t prev = 0U;
+            bool     first = true;
+            for (size_t j = 0U; j < d->u.bitmask_decl.n_items; ++j) {
+                zsp_ast_node_t *const item = d->u.bitmask_decl.items[j];
+                if (item->u.bitmask_item.value_expr != NULL) {
+                    const zsp_sema_const_t *const v = zsp_sema_eval(
+                            s, item->u.bitmask_item.value_expr);
+                    if (v != NULL) {
+                        prev = to_u64(v);
+                        first = false;
+                    }
+                    item->computed = (void *)(uintptr_t)v;
+                }
+                else {
+                    /* Bitmask implicit: previous << 1, or 1 for first. */
+                    const uint64_t v = first ? 1U : (prev << 1U);
+                    zsp_sema_const_t *const c = alloc_const(s, ZSP_CONST_UINT);
+                    if (c != NULL) {
+                        c->v.u = v;
+                        item->computed = c;
+                    }
+                    prev  = v;
+                    first = false;
+                }
+            }
+        }
+        else if (d->kind == ZSP_AST_CONST) {
+            if (d->u.const_decl.value_expr != NULL) {
+                (void)zsp_sema_eval(s, d->u.const_decl.value_expr);
+            }
+        }
+    }
+    return ZSERIO_OK;
+}
+
 /* ----- Public API ------------------------------------------- */
 
 zserio_status_t zsp_sema_init(zsp_sema_t           *s,
@@ -686,5 +987,6 @@ zserio_status_t zsp_sema_analyse_unit(zsp_sema_t *s, zsp_ast_node_t *unit)
     }
     ZSERIO_TRY(collect_top_level(s, unit));
     ZSERIO_TRY(resolve_pass(s, unit));
+    ZSERIO_TRY(evaluate_known_constants(s, unit));
     return ZSERIO_OK;
 }

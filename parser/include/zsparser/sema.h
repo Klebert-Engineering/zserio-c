@@ -79,4 +79,46 @@ zserio_status_t zsp_sema_analyse_unit(zsp_sema_t *s, zsp_ast_node_t *unit);
 zsp_ast_node_t *zsp_sema_scope_find(const zsp_sema_scope_t *scope,
                                     const uint8_t *name, size_t len);
 
+/* ----- Constant evaluation ----------------------------------- */
+
+typedef enum zsp_const_kind {
+    ZSP_CONST_UNKNOWN = 0,
+    ZSP_CONST_UINT,
+    ZSP_CONST_INT,
+    ZSP_CONST_FLOAT,
+    ZSP_CONST_BOOL,
+    ZSP_CONST_STRING
+} zsp_const_kind_t;
+
+typedef struct zsp_sema_const {
+    zsp_const_kind_t kind;
+    union {
+        uint64_t u;
+        int64_t  i;
+        double   f;
+        bool     b;
+        struct {
+            const uint8_t *bytes;   /**< borrowed, into source */
+            size_t         len;
+        } s;
+    } v;
+} zsp_sema_const_t;
+
+/**
+ * Evaluate `expr` to a compile-time constant if possible.
+ * Returns a pointer to the cached const-eval result on success,
+ * NULL if the expression isn't a constant or refers to a
+ * non-constant binding. Caches successful evaluations on
+ * `expr->computed` so repeated calls are O(1).
+ *
+ * Cycle detection: setting `expr->computed` to the special
+ * sentinel `zsp_sema_const_cycle_marker()` while in-flight; a
+ * recursive visit observing the sentinel emits a diagnostic
+ * and returns NULL.
+ */
+const zsp_sema_const_t *zsp_sema_eval(zsp_sema_t *s, zsp_ast_node_t *expr);
+
+/** Sentinel used to detect cycles during const-eval. */
+const zsp_sema_const_t *zsp_sema_const_cycle_marker(void);
+
 #endif /* ZSPARSER_SEMA_H_ */
