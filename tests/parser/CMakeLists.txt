@@ -12,3 +12,4 @@ endfunction()
 
 zserio_c_add_parser_test(test_source)
 zserio_c_add_parser_test(test_diag)
+zserio_c_add_parser_test(test_lexer)

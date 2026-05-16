@@ -14,6 +14,8 @@
 add_library(zserio_c_parser STATIC
     src/source.c
     src/diag.c
+    src/token.c
+    src/lexer.c
 )
 
 target_include_directories(zserio_c_parser
