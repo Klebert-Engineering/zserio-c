@@ -1380,6 +1380,14 @@ static zsp_ast_node_t *parse_enum_decl(parser_t *p)
     while (!check(p, ZSP_TOK_RBRACE) && !check(p, ZSP_TOK_EOF)) {
         const uint32_t istart = p->cur.offset;
         const uint32_t before = p->cur.offset;
+        /* Optional leading annotations on enum items
+         * (@deprecated, @removed, @index). Parse + drop for
+         * now; analyser uses them on fields, not enum items. */
+        while (check(p, ZSP_TOK_KW_DEPRECATED)
+                || check(p, ZSP_TOK_KW_REMOVED)
+                || check(p, ZSP_TOK_KW_INDEX)) {
+            (void)parse_annotation(p);
+        }
         zsp_ast_node_t *const iname = parse_ident(p);
         if ((iname == NULL) && (p->cur.offset == before)) {
             advance(p);
@@ -1424,6 +1432,11 @@ static zsp_ast_node_t *parse_bitmask(parser_t *p)
     while (!check(p, ZSP_TOK_RBRACE) && !check(p, ZSP_TOK_EOF)) {
         const uint32_t istart = p->cur.offset;
         const uint32_t before = p->cur.offset;
+        while (check(p, ZSP_TOK_KW_DEPRECATED)
+                || check(p, ZSP_TOK_KW_REMOVED)
+                || check(p, ZSP_TOK_KW_INDEX)) {
+            (void)parse_annotation(p);
+        }
         zsp_ast_node_t *const iname = parse_ident(p);
         if ((iname == NULL) && (p->cur.offset == before)) {
             advance(p);

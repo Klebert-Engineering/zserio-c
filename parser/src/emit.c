@@ -416,6 +416,67 @@ static void emit_compound_protos(buf_t *b, const zsp_ast_node_t *cmpd,
     emit_lit(b, "_t *self, const zserio_allocator_t *alloc);\n");
 }
 
+/* Walk a compound's members and emit `#include "<typename>.h"`
+ * for every referenced named type (enum / bitmask / nested
+ * compound). Deduplicates by linear search through an
+ * arena-allocated string list. */
+static void emit_referenced_includes(buf_t *b, const zsp_ast_node_t *cmpd,
+                                     const zsp_source_t *src)
+{
+    /* Small fixed-cap table; most compounds reference << 32 types. */
+    enum { MAX_INC = 64U };
+    const uint8_t *names[MAX_INC];
+    size_t          lens[MAX_INC];
+    size_t          n = 0U;
+
+    for (size_t i = 0U; i < cmpd->u.compound.n_members; ++i) {
+        const zsp_ast_node_t *m = cmpd->u.compound.members[i];
+        if ((m == NULL) || (m->kind != ZSP_AST_FIELD)) continue;
+        const zsp_ast_node_t *ty = m->u.field.type;
+        if (ty == NULL) continue;
+        if (ty->kind == ZSP_AST_TYPE_ARRAY) {
+            ty = ty->u.type_array.element;
+        }
+        if ((ty == NULL) || (ty->kind != ZSP_AST_TYPE_REF)) continue;
+        const zsp_ast_node_t *decl = ty->resolved;
+        if (decl == NULL) continue;
+        const zsp_ast_node_t *name_node = NULL;
+        if ((decl->kind == ZSP_AST_STRUCT) || (decl->kind == ZSP_AST_UNION)) {
+            name_node = decl->u.compound.name;
+        }
+        else if (decl->kind == ZSP_AST_ENUM) {
+            name_node = decl->u.enum_decl.name;
+        }
+        else if (decl->kind == ZSP_AST_BITMASK) {
+            name_node = decl->u.bitmask_decl.name;
+        }
+        const uint8_t *nb = NULL;
+        size_t         nl = 0U;
+        if (!ident_span(src, name_node, &nb, &nl)) continue;
+        /* Dedup. */
+        bool seen = false;
+        for (size_t k = 0U; k < n; ++k) {
+            if ((lens[k] == nl) && (memcmp(names[k], nb, nl) == 0)) {
+                seen = true;
+                break;
+            }
+        }
+        if (seen || (n >= MAX_INC)) continue;
+        names[n] = nb;
+        lens[n]  = nl;
+        n += 1U;
+    }
+
+    for (size_t i = 0U; i < n; ++i) {
+        emit_lit(b, "#include \"");
+        emit_snake(b, names[i], lens[i]);
+        emit_lit(b, ".h\"\n");
+    }
+    if (n > 0U) {
+        emit_lit(b, "\n");
+    }
+}
+
 static void emit_header_for_compound(buf_t *b, const zsp_ast_node_t *cmpd,
                                      const zsp_source_t *src)
 {
@@ -434,7 +495,8 @@ static void emit_header_for_compound(buf_t *b, const zsp_ast_node_t *cmpd,
 
     emit_lit(b, "#include <stdbool.h>\n");
     emit_lit(b, "#include <stddef.h>\n");
-    emit_lit(b, "#include <stdint.h>\n\n");
+    emit_lit(b, "#include <stdint.h>\n");
+    emit_lit(b, "#include <string.h>\n\n");
     emit_lit(b, "#include \"zserio/allocator.h\"\n");
     emit_lit(b, "#include \"zserio/bitstream.h\"\n");
     emit_lit(b, "#include \"zserio/bytes.h\"\n");
@@ -445,10 +507,279 @@ static void emit_header_for_compound(buf_t *b, const zsp_ast_node_t *cmpd,
     emit_lit(b, "#include \"zserio/string.h\"\n");
     emit_lit(b, "#include \"zserio/varint.h\"\n\n");
 
+    emit_referenced_includes(b, cmpd, src);
+
     emit_struct_decl(b, cmpd, src);
     emit_compound_protos(b, cmpd, src);
 
     emit_lit(b, "\n#endif\n");
+}
+
+/* ----- Expression emission for array lengths + similar ------ */
+
+/* Emit a constant or simple-reference expression as C. Supports
+ * literals, identifiers that resolved to a field/parameter,
+ * member access. Complex expressions emit an "unsupported-expr"
+ * marker and a 0 fallback so the surrounding read still
+ * compiles. */
+static void emit_expr_c(buf_t *b, const zsp_ast_node_t *e,
+                        const zsp_source_t *src)
+{
+    if (e == NULL) {
+        emit_lit(b, "0");
+        return;
+    }
+    switch (e->kind) {
+    case ZSP_AST_EXPR_INT_LIT:
+        emit_uint(b, e->u.int_lit.value);
+        return;
+    case ZSP_AST_EXPR_BOOL_LIT:
+        emit_lit(b, e->u.bool_lit.value ? "true" : "false");
+        return;
+    case ZSP_AST_EXPR_IDENT: {
+        /* Resolved identifier: field/parameter → self->name. */
+        const zsp_ast_node_t *const d = e->resolved;
+        const zsp_file_t *f = NULL;
+        if (!zsp_source_get(src, e->file_id, &f)) {
+            emit_lit(b, "0");
+            return;
+        }
+        const uint8_t *const name = &f->bytes[e->u.ident.span_off];
+        const size_t         len  = (size_t)e->u.ident.span_len;
+        if (d != NULL) {
+            if ((d->kind == ZSP_AST_FIELD)
+                    || (d->kind == ZSP_AST_PARAMETER)) {
+                emit_lit(b, "self->");
+                emit_snake(b, name, len);
+                return;
+            }
+            if (d->kind == ZSP_AST_ENUM_ITEM) {
+                /* Emit as <enumname>_<itemname>. The enum decl
+                 * is the resolved decl's parent — we don't track
+                 * parents on AST yet, so fall back to spelling
+                 * the item name and let the user qualify it via
+                 * member access. For Color.RED case, the parser
+                 * will have built a member-access node. */
+                emit_lit(b, "/*enum-item*/");
+                emit_span(b, name, len);
+                return;
+            }
+            if (d->kind == ZSP_AST_CONST) {
+                emit_snake(b, name, len);
+                return;
+            }
+        }
+        /* Fallback: emit as-is (best effort). */
+        emit_span(b, name, len);
+        return;
+    }
+    case ZSP_AST_EXPR_BINARY:
+        emit_lit(b, "(");
+        emit_expr_c(b, e->u.binop.lhs, src);
+        switch (e->u.binop.op) {
+        case ZSP_OP_ADD: emit_lit(b, " + ");  break;
+        case ZSP_OP_SUB: emit_lit(b, " - ");  break;
+        case ZSP_OP_MUL: emit_lit(b, " * ");  break;
+        case ZSP_OP_DIV: emit_lit(b, " / ");  break;
+        case ZSP_OP_MOD: emit_lit(b, " %% "); break;
+        case ZSP_OP_LSHIFT: emit_lit(b, " << "); break;
+        case ZSP_OP_RSHIFT: emit_lit(b, " >> "); break;
+        case ZSP_OP_BIT_AND: emit_lit(b, " & "); break;
+        case ZSP_OP_BIT_OR:  emit_lit(b, " | "); break;
+        case ZSP_OP_BIT_XOR: emit_lit(b, " ^ "); break;
+        case ZSP_OP_LOGICAL_AND: emit_lit(b, " && "); break;
+        case ZSP_OP_LOGICAL_OR:  emit_lit(b, " || "); break;
+        case ZSP_OP_EQ:  emit_lit(b, " == "); break;
+        case ZSP_OP_NEQ: emit_lit(b, " != "); break;
+        case ZSP_OP_LT:  emit_lit(b, " < ");  break;
+        case ZSP_OP_GT:  emit_lit(b, " > ");  break;
+        case ZSP_OP_LE:  emit_lit(b, " <= "); break;
+        case ZSP_OP_GE:  emit_lit(b, " >= "); break;
+        default:         emit_lit(b, " /*?*/ "); break;
+        }
+        emit_expr_c(b, e->u.binop.rhs, src);
+        emit_lit(b, ")");
+        return;
+    case ZSP_AST_EXPR_UNARY:
+        switch (e->u.unop.op) {
+        case ZSP_OP_NEG:         emit_lit(b, "-"); break;
+        case ZSP_OP_BIT_NOT:     emit_lit(b, "~"); break;
+        case ZSP_OP_LOGICAL_NOT: emit_lit(b, "!"); break;
+        default:                 emit_lit(b, "/*?*/"); break;
+        }
+        emit_expr_c(b, e->u.unop.operand, src);
+        return;
+    case ZSP_AST_EXPR_MEMBER:
+        /* `LHS.RHS`: if RHS is an enum item, emit `<enumname>_<itemname>`.
+         * Otherwise emit "lhs.member" verbatim. */
+        if ((e->resolved != NULL)
+                && (e->resolved->kind == ZSP_AST_ENUM_ITEM)) {
+            /* Need the parent enum's name. The analyser doesn't
+             * track parent links yet, so for now we fall back
+             * to using the constant value if computed. */
+            const zsp_sema_const_t *const v = (const zsp_sema_const_t *)
+                    e->resolved->computed;
+            if (v != NULL) {
+                emit_uint(b, v->v.u);
+                return;
+            }
+        }
+        if (e->u.member.lhs != NULL) {
+            emit_expr_c(b, e->u.member.lhs, src);
+            emit_lit(b, ".");
+        }
+        if (e->u.member.name != NULL) {
+            const zsp_file_t *f = NULL;
+            if (zsp_source_get(src, e->u.member.name->file_id, &f)) {
+                const uint8_t *n = &f->bytes[e->u.member.name->u.ident.span_off];
+                const size_t   nl = (size_t)e->u.member.name->u.ident.span_len;
+                emit_snake(b, n, nl);
+            }
+        }
+        return;
+    default:
+        emit_lit(b, "0 /*unsupported-expr*/");
+        return;
+    }
+}
+
+/* Emit the C type name to use for a field's storage. For
+ * arrays the element type is emitted (the caller adds the
+ * pointer). For named types we emit `<lowered>_t`. */
+static void emit_element_type(buf_t *b, const zsp_ast_node_t *element_ty,
+                              const zsp_source_t *src)
+{
+    if (element_ty == NULL) {
+        emit_lit(b, "void");
+        return;
+    }
+    if (element_ty->kind == ZSP_AST_TYPE_BUILTIN) {
+        emit_lit(b, builtin_c_type(element_ty->u.type_builtin.code));
+        return;
+    }
+    if (element_ty->kind == ZSP_AST_TYPE_REF) {
+        const zsp_ast_node_t *name = element_ty->u.type_ref.name;
+        const zsp_ast_node_t *id = (name && name->kind == ZSP_AST_DOTTED_NAME)
+                ? name->u.dotted.parts[name->u.dotted.n_parts - 1U]
+                : name;
+        const uint8_t *bytes = NULL;
+        size_t         len   = 0U;
+        if (ident_span(src, id, &bytes, &len)) {
+            emit_snake(b, bytes, len);
+            emit_lit(b, "_t");
+            return;
+        }
+    }
+    emit_lit(b, "void");
+}
+
+/* For a TYPE_REF, determine if it resolves to an enum/bitmask
+ * (which we read via an underlying integer type) and return the
+ * underlying builtin code; ZSP_TB_UNKNOWN otherwise. */
+static zsp_builtin_code_t enum_underlying(const zsp_ast_node_t *type_ref)
+{
+    if ((type_ref == NULL) || (type_ref->kind != ZSP_AST_TYPE_REF)) {
+        return ZSP_TB_UNKNOWN;
+    }
+    const zsp_ast_node_t *const decl = type_ref->resolved;
+    if (decl == NULL) {
+        return ZSP_TB_UNKNOWN;
+    }
+    const zsp_ast_node_t *base = NULL;
+    if (decl->kind == ZSP_AST_ENUM) {
+        base = decl->u.enum_decl.base_type;
+    }
+    else if (decl->kind == ZSP_AST_BITMASK) {
+        base = decl->u.bitmask_decl.base_type;
+    }
+    if ((base != NULL) && (base->kind == ZSP_AST_TYPE_BUILTIN)) {
+        return base->u.type_builtin.code;
+    }
+    return ZSP_TB_UNKNOWN;
+}
+
+/* Decide which read function + signature shape to use for a
+ * single element. Returns a token: 'p' for primitive call
+ * (`fn(bs, &out)`), 'o' for owned call (`fn(bs, alloc, &out)`),
+ * 'c' for nested compound (`<T>_read(&out, bs, alloc)`),
+ * 'e' for enum/bitmask (read underlying integer then cast),
+ * '?' for unsupported (skips emission). */
+static char element_read_shape(const zsp_ast_node_t *ty)
+{
+    if (ty == NULL) return '?';
+    if (ty->kind == ZSP_AST_TYPE_BUILTIN) {
+        const zsp_builtin_code_t c = ty->u.type_builtin.code;
+        return builtin_needs_free(c) ? 'o' : 'p';
+    }
+    if (ty->kind == ZSP_AST_TYPE_REF) {
+        const zsp_ast_node_t *const decl = ty->resolved;
+        if (decl != NULL) {
+            if ((decl->kind == ZSP_AST_STRUCT) || (decl->kind == ZSP_AST_UNION)) {
+                return 'c';
+            }
+            if ((decl->kind == ZSP_AST_ENUM) || (decl->kind == ZSP_AST_BITMASK)) {
+                return 'e';
+            }
+        }
+        return '?';
+    }
+    return '?';
+}
+
+/* Emit the per-element read for a single element accessed via
+ * `slot_expr`. `slot_expr` is something like "self->name" or
+ * "self->name[i]". */
+static void emit_element_read(buf_t *b, const zsp_ast_node_t *ty,
+                              const char *slot_expr,
+                              const zsp_source_t *src)
+{
+    const char shape = element_read_shape(ty);
+    if (shape == 'p') {
+        emit_lit(b, "        ZSERIO_TRY(");
+        emit_lit(b, builtin_read_fn(ty->u.type_builtin.code));
+        emit_lit(b, "(bs, &");
+        emit_lit(b, slot_expr);
+        emit_lit(b, "));\n");
+    }
+    else if (shape == 'o') {
+        emit_lit(b, "        ZSERIO_TRY(");
+        emit_lit(b, builtin_read_fn(ty->u.type_builtin.code));
+        emit_lit(b, "(bs, alloc, &");
+        emit_lit(b, slot_expr);
+        emit_lit(b, "));\n");
+    }
+    else if (shape == 'c') {
+        const zsp_ast_node_t *const decl = ty->resolved;
+        const uint8_t *name = NULL;
+        size_t         nlen = 0U;
+        (void)ident_span(src, decl->u.compound.name, &name, &nlen);
+        emit_lit(b, "        ");
+        emit_snake(b, name, nlen);
+        emit_lit(b, "_init(&");
+        emit_lit(b, slot_expr);
+        emit_lit(b, ");\n");
+        emit_lit(b, "        ZSERIO_TRY(");
+        emit_snake(b, name, nlen);
+        emit_lit(b, "_read(&");
+        emit_lit(b, slot_expr);
+        emit_lit(b, ", bs, alloc));\n");
+    }
+    else if (shape == 'e') {
+        const zsp_builtin_code_t uc = enum_underlying(ty);
+        emit_lit(b, "        {\n");
+        emit_lit(b, "            ");
+        emit_lit(b, builtin_c_type(uc));
+        emit_lit(b, " tmp_;\n");
+        emit_lit(b, "            ZSERIO_TRY(");
+        emit_lit(b, builtin_read_fn(uc));
+        emit_lit(b, "(bs, &tmp_));\n");
+        emit_lit(b, "            ");
+        emit_lit(b, slot_expr);
+        emit_lit(b, " = (");
+        emit_element_type(b, ty, src);
+        emit_lit(b, ")tmp_;\n");
+        emit_lit(b, "        }\n");
+    }
 }
 
 /* Emit the read function body for one field. */
@@ -468,39 +799,191 @@ static void emit_field_read(buf_t *b, const zsp_ast_node_t *field,
     const zsp_ast_node_t *element_ty = is_array ? ty->u.type_array.element : ty;
 
     if (is_array) {
-        emit_lit(b, "    /* array field: ");
-        emit_span(b, fn, fl);
-        emit_lit(b, " — basic emit pending full feature support */\n");
-        emit_lit(b, "    self->");
+        /* Array path. Length: explicit expression or auto
+         * (varsize length-prefix when length_expr is NULL). */
+        const zsp_ast_node_t *const lenexpr = ty->u.type_array.length_expr;
+        emit_lit(b, "    {\n");
+        emit_lit(b, "        size_t arr_count_ = 0u;\n");
+        if (lenexpr != NULL) {
+            emit_lit(b, "        arr_count_ = (size_t)(");
+            emit_expr_c(b, lenexpr, src);
+            emit_lit(b, ");\n");
+        }
+        else {
+            emit_lit(b, "        uint32_t arr_len_ = 0u;\n");
+            emit_lit(b, "        ZSERIO_TRY(zserio_read_varsize(bs, &arr_len_));\n");
+            emit_lit(b, "        arr_count_ = (size_t)arr_len_;\n");
+        }
+        emit_lit(b, "        self->");
+        emit_snake(b, fn, fl);
+        emit_lit(b, "_count = arr_count_;\n");
+        emit_lit(b, "        self->");
         emit_snake(b, fn, fl);
         emit_lit(b, " = NULL;\n");
-        emit_lit(b, "    self->");
+        emit_lit(b, "        if (arr_count_ > 0u) {\n");
+        emit_lit(b, "            self->");
         emit_snake(b, fn, fl);
-        emit_lit(b, "_count = 0u;\n");
+        emit_lit(b, " = (");
+        emit_element_type(b, element_ty, src);
+        emit_lit(b, " *)alloc->vtable->alloc(alloc->userdata,\n");
+        emit_lit(b, "                    arr_count_ * sizeof(*self->");
+        emit_snake(b, fn, fl);
+        emit_lit(b, "), sizeof(*self->");
+        emit_snake(b, fn, fl);
+        emit_lit(b, "));\n");
+        emit_lit(b, "            if (self->");
+        emit_snake(b, fn, fl);
+        emit_lit(b, " == NULL) return ZSERIO_ERR_OUT_OF_MEMORY;\n");
+        emit_lit(b, "            (void)memset(self->");
+        emit_snake(b, fn, fl);
+        emit_lit(b, ", 0, arr_count_ * sizeof(*self->");
+        emit_snake(b, fn, fl);
+        emit_lit(b, "));\n");
+        emit_lit(b, "            for (size_t i_ = 0u; i_ < arr_count_; ++i_) {\n");
+
+        /* Build the slot expression `self->name[i_]` in a small
+         * scratch buffer. */
+        char slot[256];
+        size_t pos = 0U;
+        const char *prefix = "self->";
+        const size_t plen = strlen(prefix);
+        (void)memcpy(slot, prefix, plen); pos = plen;
+        /* lowercase + snake-case the field name */
+        for (size_t i = 0U; i < fl; ++i) {
+            const uint8_t c = fn[i];
+            if ((c >= (uint8_t)'A') && (c <= (uint8_t)'Z')) {
+                if ((pos > plen)
+                        && (slot[pos - 1U] >= 'a') && (slot[pos - 1U] <= 'z')) {
+                    slot[pos++] = '_';
+                }
+                slot[pos++] = (char)(c - 'A' + 'a');
+            }
+            else {
+                slot[pos++] = (char)c;
+            }
+        }
+        const char *suffix = "[i_]";
+        (void)memcpy(&slot[pos], suffix, strlen(suffix));
+        pos += strlen(suffix);
+        slot[pos] = '\0';
+
+        emit_element_read(b, element_ty, slot, src);
+
+        emit_lit(b, "            }\n");
+        emit_lit(b, "        }\n");
+        emit_lit(b, "    }\n");
         return;
     }
 
-    if (element_ty->kind == ZSP_AST_TYPE_BUILTIN) {
-        const zsp_builtin_code_t c = element_ty->u.type_builtin.code;
-        if (builtin_needs_free(c)) {
-            /* Runtime read signature for owned types is
-             * `(bs, alloc, out)` — allocator before output. */
-            emit_lit(b, "    ZSERIO_TRY(");
-            emit_lit(b, builtin_read_fn(c));
-            emit_lit(b, "(bs, alloc, &self->");
-            emit_snake(b, fn, fl);
-            emit_lit(b, "));\n");
+    /* Scalar field. */
+    const char shape = element_read_shape(ty);
+    if (shape == 'p') {
+        emit_lit(b, "    ZSERIO_TRY(");
+        emit_lit(b, builtin_read_fn(ty->u.type_builtin.code));
+        emit_lit(b, "(bs, &self->");
+        emit_snake(b, fn, fl);
+        emit_lit(b, "));\n");
+    }
+    else if (shape == 'o') {
+        emit_lit(b, "    ZSERIO_TRY(");
+        emit_lit(b, builtin_read_fn(ty->u.type_builtin.code));
+        emit_lit(b, "(bs, alloc, &self->");
+        emit_snake(b, fn, fl);
+        emit_lit(b, "));\n");
+    }
+    else if (shape == 'c') {
+        const zsp_ast_node_t *const decl = ty->resolved;
+        const uint8_t *cn = NULL;
+        size_t         cl = 0U;
+        (void)ident_span(src, decl->u.compound.name, &cn, &cl);
+        emit_lit(b, "    ");
+        emit_snake(b, cn, cl);
+        emit_lit(b, "_init(&self->");
+        emit_snake(b, fn, fl);
+        emit_lit(b, ");\n");
+        emit_lit(b, "    ZSERIO_TRY(");
+        emit_snake(b, cn, cl);
+        emit_lit(b, "_read(&self->");
+        emit_snake(b, fn, fl);
+        emit_lit(b, ", bs, alloc));\n");
+    }
+    else if (shape == 'e') {
+        const zsp_builtin_code_t uc = enum_underlying(ty);
+        emit_lit(b, "    {\n");
+        emit_lit(b, "        ");
+        emit_lit(b, builtin_c_type(uc));
+        emit_lit(b, " tmp_;\n");
+        emit_lit(b, "        ZSERIO_TRY(");
+        emit_lit(b, builtin_read_fn(uc));
+        emit_lit(b, "(bs, &tmp_));\n");
+        emit_lit(b, "        self->");
+        emit_snake(b, fn, fl);
+        emit_lit(b, " = (");
+        emit_element_type(b, ty, src);
+        emit_lit(b, ")tmp_;\n");
+        emit_lit(b, "    }\n");
+    }
+    else {
+        emit_lit(b, "    /* unsupported field type for read: ");
+        emit_span(b, fn, fl);
+        emit_lit(b, " */\n");
+    }
+}
+
+/* Emit a single write for the value at `slot_expr`. */
+static void emit_element_write(buf_t *b, const zsp_ast_node_t *ty,
+                               const char *slot_expr,
+                               const zsp_source_t *src)
+{
+    const char shape = element_read_shape(ty);
+    if (shape == 'p') {
+        const zsp_builtin_code_t c = ty->u.type_builtin.code;
+        emit_lit(b, "            ZSERIO_TRY(");
+        emit_lit(b, builtin_write_fn(c));
+        emit_lit(b, "(bs, ");
+        emit_lit(b, slot_expr);
+        emit_lit(b, "));\n");
+    }
+    else if (shape == 'o') {
+        const zsp_builtin_code_t c = ty->u.type_builtin.code;
+        if (c == ZSP_TB_STRING) {
+            emit_lit(b, "            {\n");
+            emit_lit(b, "                const zserio_string_view_t v_ = { ");
+            emit_lit(b, slot_expr);
+            emit_lit(b, ".bytes, ");
+            emit_lit(b, slot_expr);
+            emit_lit(b, ".length };\n");
+            emit_lit(b, "                ZSERIO_TRY(zserio_write_string(bs, v_));\n");
+            emit_lit(b, "            }\n");
         }
         else {
-            emit_lit(b, "    ZSERIO_TRY(");
-            emit_lit(b, builtin_read_fn(c));
-            emit_lit(b, "(bs, &self->");
-            emit_snake(b, fn, fl);
+            emit_lit(b, "            ZSERIO_TRY(");
+            emit_lit(b, builtin_write_fn(c));
+            emit_lit(b, "(bs, &");
+            emit_lit(b, slot_expr);
             emit_lit(b, "));\n");
         }
     }
-    else {
-        emit_lit(b, "    /* nested compound read pending */\n");
+    else if (shape == 'c') {
+        const zsp_ast_node_t *const decl = ty->resolved;
+        const uint8_t *name = NULL;
+        size_t         nlen = 0U;
+        (void)ident_span(src, decl->u.compound.name, &name, &nlen);
+        emit_lit(b, "            ZSERIO_TRY(");
+        emit_snake(b, name, nlen);
+        emit_lit(b, "_write(&");
+        emit_lit(b, slot_expr);
+        emit_lit(b, ", bs));\n");
+    }
+    else if (shape == 'e') {
+        const zsp_builtin_code_t uc = enum_underlying(ty);
+        emit_lit(b, "            ZSERIO_TRY(");
+        emit_lit(b, builtin_write_fn(uc));
+        emit_lit(b, "(bs, (");
+        emit_lit(b, builtin_c_type(uc));
+        emit_lit(b, ")");
+        emit_lit(b, slot_expr);
+        emit_lit(b, "));\n");
     }
 }
 
@@ -517,46 +1000,78 @@ static void emit_field_write(buf_t *b, const zsp_ast_node_t *field,
         return;
     }
     const bool is_array = (ty->kind == ZSP_AST_TYPE_ARRAY);
+    const zsp_ast_node_t *element_ty = is_array ? ty->u.type_array.element : ty;
+
     if (is_array) {
-        emit_lit(b, "    /* array write pending */\n");
-        return;
-    }
-    if (ty->kind == ZSP_AST_TYPE_BUILTIN) {
-        const zsp_builtin_code_t c = ty->u.type_builtin.code;
-        if (c == ZSP_TB_STRING) {
-            /* zserio_write_string takes a string_view (read-side
-             * type); construct one inline from the owned string. */
-            emit_lit(b, "    {\n");
-            emit_lit(b, "        const zserio_string_view_t view_");
+        const zsp_ast_node_t *const lenexpr = ty->u.type_array.length_expr;
+        emit_lit(b, "    {\n");
+        if (lenexpr == NULL) {
+            /* Auto-array: write length prefix. */
+            emit_lit(b, "        ZSERIO_TRY(zserio_write_varsize(bs, (uint32_t)self->");
             emit_snake(b, fn, fl);
-            emit_lit(b, " = { self->");
-            emit_snake(b, fn, fl);
-            emit_lit(b, ".bytes, self->");
-            emit_snake(b, fn, fl);
-            emit_lit(b, ".length };\n");
-            emit_lit(b, "        ZSERIO_TRY(zserio_write_string(bs, view_");
-            emit_snake(b, fn, fl);
-            emit_lit(b, "));\n");
-            emit_lit(b, "    }\n");
+            emit_lit(b, "_count));\n");
         }
-        else {
-            emit_lit(b, "    ZSERIO_TRY(");
-            emit_lit(b, builtin_write_fn(c));
-            emit_lit(b, "(bs, ");
-            if (builtin_needs_free(c)) {
-                emit_lit(b, "&self->");
-                emit_snake(b, fn, fl);
+        emit_lit(b, "        for (size_t i_ = 0u; i_ < self->");
+        emit_snake(b, fn, fl);
+        emit_lit(b, "_count; ++i_) {\n");
+
+        char slot[256];
+        size_t pos = 0U;
+        const char *prefix = "self->";
+        const size_t plen = strlen(prefix);
+        (void)memcpy(slot, prefix, plen); pos = plen;
+        for (size_t i = 0U; i < fl; ++i) {
+            const uint8_t c = fn[i];
+            if ((c >= (uint8_t)'A') && (c <= (uint8_t)'Z')) {
+                if ((pos > plen)
+                        && (slot[pos - 1U] >= 'a') && (slot[pos - 1U] <= 'z')) {
+                    slot[pos++] = '_';
+                }
+                slot[pos++] = (char)(c - 'A' + 'a');
             }
             else {
-                emit_lit(b, "self->");
-                emit_snake(b, fn, fl);
+                slot[pos++] = (char)c;
             }
-            emit_lit(b, "));\n");
+        }
+        const char *suffix = "[i_]";
+        (void)memcpy(&slot[pos], suffix, strlen(suffix));
+        pos += strlen(suffix);
+        slot[pos] = '\0';
+
+        emit_element_write(b, element_ty, slot, src);
+
+        emit_lit(b, "        }\n");
+        emit_lit(b, "    }\n");
+        return;
+    }
+
+    /* Scalar field. */
+    char slot[256];
+    size_t pos = 0U;
+    const char *prefix = "self->";
+    const size_t plen = strlen(prefix);
+    (void)memcpy(slot, prefix, plen); pos = plen;
+    for (size_t i = 0U; i < fl; ++i) {
+        const uint8_t c = fn[i];
+        if ((c >= (uint8_t)'A') && (c <= (uint8_t)'Z')) {
+            if ((pos > plen)
+                    && (slot[pos - 1U] >= 'a') && (slot[pos - 1U] <= 'z')) {
+                slot[pos++] = '_';
+            }
+            slot[pos++] = (char)(c - 'A' + 'a');
+        }
+        else {
+            slot[pos++] = (char)c;
         }
     }
-    else {
-        emit_lit(b, "    /* nested compound write pending */\n");
-    }
+    slot[pos] = '\0';
+
+    /* `emit_element_write` indents 12 spaces (for the array loop
+     * body). For scalar fields we want 4 spaces; emit a small
+     * wrapper. */
+    emit_lit(b, "    {\n");
+    emit_element_write(b, element_ty, slot, src);
+    emit_lit(b, "    }\n");
 }
 
 static void emit_field_free(buf_t *b, const zsp_ast_node_t *field,
@@ -571,6 +1086,61 @@ static void emit_field_free(buf_t *b, const zsp_ast_node_t *field,
     if (ty == NULL) {
         return;
     }
+    const bool is_array = (ty->kind == ZSP_AST_TYPE_ARRAY);
+    const zsp_ast_node_t *element_ty = is_array ? ty->u.type_array.element : ty;
+
+    if (is_array) {
+        emit_lit(b, "    if (self->");
+        emit_snake(b, fn, fl);
+        emit_lit(b, " != NULL) {\n");
+        /* Per-element free if owned. */
+        const char shape = element_read_shape(element_ty);
+        if ((shape == 'o') || (shape == 'c')) {
+            emit_lit(b, "        for (size_t i_ = 0u; i_ < self->");
+            emit_snake(b, fn, fl);
+            emit_lit(b, "_count; ++i_) {\n");
+            if (shape == 'o') {
+                emit_lit(b, "            ");
+                emit_lit(b, builtin_free_fn(element_ty->u.type_builtin.code));
+                emit_lit(b, "(&self->");
+                emit_snake(b, fn, fl);
+                emit_lit(b, "[i_], alloc);\n");
+            }
+            else {
+                const zsp_ast_node_t *const decl = element_ty->resolved;
+                const uint8_t *name = NULL;
+                size_t         nlen = 0U;
+                (void)ident_span(src, decl->u.compound.name, &name, &nlen);
+                emit_lit(b, "            ");
+                emit_snake(b, name, nlen);
+                emit_lit(b, "_free(&self->");
+                emit_snake(b, fn, fl);
+                emit_lit(b, "[i_], alloc);\n");
+            }
+            emit_lit(b, "        }\n");
+        }
+        /* Buffer free. */
+        emit_lit(b, "        alloc->vtable->free(alloc->userdata, self->");
+        emit_snake(b, fn, fl);
+        emit_lit(b, ",\n");
+        emit_lit(b, "                self->");
+        emit_snake(b, fn, fl);
+        emit_lit(b, "_count * sizeof(*self->");
+        emit_snake(b, fn, fl);
+        emit_lit(b, "),\n");
+        emit_lit(b, "                sizeof(*self->");
+        emit_snake(b, fn, fl);
+        emit_lit(b, "));\n");
+        emit_lit(b, "        self->");
+        emit_snake(b, fn, fl);
+        emit_lit(b, " = NULL;\n");
+        emit_lit(b, "        self->");
+        emit_snake(b, fn, fl);
+        emit_lit(b, "_count = 0u;\n");
+        emit_lit(b, "    }\n");
+        return;
+    }
+
     if (ty->kind == ZSP_AST_TYPE_BUILTIN) {
         const zsp_builtin_code_t c = ty->u.type_builtin.code;
         if (builtin_needs_free(c)) {
@@ -581,7 +1151,21 @@ static void emit_field_free(buf_t *b, const zsp_ast_node_t *field,
             emit_lit(b, ", alloc);\n");
         }
     }
-    /* Arrays + nested compounds: free pending. */
+    else if (ty->kind == ZSP_AST_TYPE_REF) {
+        const zsp_ast_node_t *const decl = ty->resolved;
+        if ((decl != NULL)
+                && ((decl->kind == ZSP_AST_STRUCT)
+                    || (decl->kind == ZSP_AST_UNION))) {
+            const uint8_t *name = NULL;
+            size_t         nlen = 0U;
+            (void)ident_span(src, decl->u.compound.name, &name, &nlen);
+            emit_lit(b, "    ");
+            emit_snake(b, name, nlen);
+            emit_lit(b, "_free(&self->");
+            emit_snake(b, fn, fl);
+            emit_lit(b, ", alloc);\n");
+        }
+    }
 }
 
 static void emit_source_for_compound(buf_t *b, const zsp_ast_node_t *cmpd,
@@ -628,6 +1212,8 @@ static void emit_source_for_compound(buf_t *b, const zsp_ast_node_t *cmpd,
     emit_lit(b, "_write(const ");
     emit_snake(b, name, nlen);
     emit_lit(b, "_t *self, zserio_bitstream_writer_t *bs)\n{\n");
+    emit_lit(b, "    (void)self;\n");
+    emit_lit(b, "    (void)bs;\n");
     for (size_t i = 0U; i < cmpd->u.compound.n_members; ++i) {
         const zsp_ast_node_t *m = cmpd->u.compound.members[i];
         if (m->kind == ZSP_AST_FIELD) {
@@ -643,6 +1229,7 @@ static void emit_source_for_compound(buf_t *b, const zsp_ast_node_t *cmpd,
     emit_lit(b, "_free(");
     emit_snake(b, name, nlen);
     emit_lit(b, "_t *self, const zserio_allocator_t *alloc)\n{\n");
+    emit_lit(b, "    (void)self;\n");
     emit_lit(b, "    (void)alloc;\n");
     for (size_t i = 0U; i < cmpd->u.compound.n_members; ++i) {
         const zsp_ast_node_t *m = cmpd->u.compound.members[i];
