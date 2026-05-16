@@ -1310,6 +1310,431 @@ static void emit_source_for_compound(buf_t *b, const zsp_ast_node_t *cmpd,
     emit_lit(b, "}\n");
 }
 
+/* ----- Choice emission --------------------------------------- */
+
+/* Choice struct shape: parameter members + union of case fields. */
+static void emit_choice_decl(buf_t *b, const zsp_ast_node_t *ch,
+                             const zsp_source_t *src)
+{
+    const uint8_t *name = NULL;
+    size_t         nlen = 0U;
+    (void)ident_span(src, ch->u.choice.name, &name, &nlen);
+
+    emit_lit(b, "typedef struct ");
+    emit_snake(b, name, nlen);
+    emit_lit(b, " {\n");
+
+    /* Parameters. */
+    for (size_t i = 0U; i < ch->u.choice.n_params; ++i) {
+        const zsp_ast_node_t *p = ch->u.choice.params[i];
+        emit_lit(b, "    ");
+        bool owned = false;
+        (void)emit_field_c_type(b, p->u.parameter.type, src, &owned);
+        emit_lit(b, " ");
+        const uint8_t *pn = NULL;
+        size_t         pl = 0U;
+        if (ident_span(src, p->u.parameter.name, &pn, &pl)) {
+            emit_snake(b, pn, pl);
+        }
+        emit_lit(b, ";  /* parameter */\n");
+    }
+
+    /* Union of case fields. */
+    emit_lit(b, "    union {\n");
+    for (size_t i = 0U; i < ch->u.choice.n_cases; ++i) {
+        const zsp_ast_node_t *c = ch->u.choice.cases[i];
+        const zsp_ast_node_t *f = c->u.choice_case.field;
+        if (f == NULL) continue;
+        emit_lit(b, "        ");
+        bool owned = false;
+        const zsp_ast_node_t *ty = f->u.field.type;
+        const bool is_array = (ty != NULL) && (ty->kind == ZSP_AST_TYPE_ARRAY);
+        const zsp_ast_node_t *element_ty = is_array ? ty->u.type_array.element : ty;
+        (void)emit_field_c_type(b, element_ty, src, &owned);
+        if (is_array) {
+            emit_lit(b, " *");
+        }
+        else {
+            emit_lit(b, " ");
+        }
+        const uint8_t *fn = NULL;
+        size_t         fl = 0U;
+        if (ident_span(src, f->u.field.name, &fn, &fl)) {
+            emit_snake(b, fn, fl);
+        }
+        emit_lit(b, ";\n");
+        if (is_array) {
+            emit_lit(b, "        size_t ");
+            if (ident_span(src, f->u.field.name, &fn, &fl)) {
+                emit_snake(b, fn, fl);
+            }
+            emit_lit(b, "_count;\n");
+        }
+    }
+    /* Default arm. */
+    if (ch->u.choice.default_case != NULL) {
+        const zsp_ast_node_t *f = ch->u.choice.default_case->u.choice_default.field;
+        if (f != NULL) {
+            emit_lit(b, "        ");
+            bool owned = false;
+            (void)emit_field_c_type(b, f->u.field.type, src, &owned);
+            emit_lit(b, " ");
+            const uint8_t *fn = NULL;
+            size_t         fl = 0U;
+            if (ident_span(src, f->u.field.name, &fn, &fl)) {
+                emit_snake(b, fn, fl);
+            }
+            emit_lit(b, ";\n");
+        }
+    }
+    emit_lit(b, "    } u;\n");
+
+    emit_lit(b, "} ");
+    emit_snake(b, name, nlen);
+    emit_lit(b, "_t;\n");
+}
+
+static void emit_choice_protos(buf_t *b, const zsp_ast_node_t *ch,
+                               const zsp_source_t *src)
+{
+    const uint8_t *name = NULL;
+    size_t         nlen = 0U;
+    (void)ident_span(src, ch->u.choice.name, &name, &nlen);
+
+    emit_lit(b, "\nvoid ");      emit_snake(b, name, nlen); emit_lit(b, "_init(");
+    emit_snake(b, name, nlen); emit_lit(b, "_t *self);\n");
+
+    emit_lit(b, "\nzserio_status_t "); emit_snake(b, name, nlen);
+    emit_lit(b, "_read("); emit_snake(b, name, nlen);
+    emit_lit(b, "_t *self, zserio_bitstream_reader_t *bs,\n"
+                "        const zserio_allocator_t *alloc);\n");
+
+    emit_lit(b, "\nzserio_status_t "); emit_snake(b, name, nlen);
+    emit_lit(b, "_write(const "); emit_snake(b, name, nlen);
+    emit_lit(b, "_t *self, zserio_bitstream_writer_t *bs);\n");
+
+    emit_lit(b, "\nvoid "); emit_snake(b, name, nlen);
+    emit_lit(b, "_free("); emit_snake(b, name, nlen);
+    emit_lit(b, "_t *self, const zserio_allocator_t *alloc);\n");
+}
+
+/* For one case body, emit the read for the active field. */
+static void emit_choice_case_read(buf_t *b, const zsp_ast_node_t *f,
+                                  const zsp_source_t *src)
+{
+    if (f == NULL) {
+        return;
+    }
+    const zsp_ast_node_t *ty = f->u.field.type;
+    if (ty == NULL) return;
+    const uint8_t *fn = NULL;
+    size_t         fl = 0U;
+    if (!ident_span(src, f->u.field.name, &fn, &fl)) return;
+    /* For simplicity reuse the per-field-read logic by faking
+     * a `slot` pointing into `self->u.<field>`. */
+    char slot[256];
+    size_t pos = 0U;
+    const char *prefix = "self->u.";
+    const size_t plen = strlen(prefix);
+    (void)memcpy(slot, prefix, plen); pos = plen;
+    for (size_t i = 0U; i < fl; ++i) {
+        const uint8_t c = fn[i];
+        if ((c >= (uint8_t)'A') && (c <= (uint8_t)'Z')) {
+            if ((pos > plen) && (slot[pos - 1U] >= 'a') && (slot[pos - 1U] <= 'z')) {
+                slot[pos++] = '_';
+            }
+            slot[pos++] = (char)(c - 'A' + 'a');
+        }
+        else {
+            slot[pos++] = (char)c;
+        }
+    }
+    slot[pos] = '\0';
+
+    const char shape = element_read_shape(ty);
+    emit_lit(b, "        ");
+    if (shape == 'p') {
+        emit_lit(b, "ZSERIO_TRY("); emit_lit(b, builtin_read_fn(ty->u.type_builtin.code));
+        emit_lit(b, "(bs, &"); emit_lit(b, slot); emit_lit(b, "));\n");
+    }
+    else if (shape == 'o') {
+        emit_lit(b, "ZSERIO_TRY("); emit_lit(b, builtin_read_fn(ty->u.type_builtin.code));
+        emit_lit(b, "(bs, alloc, &"); emit_lit(b, slot); emit_lit(b, "));\n");
+    }
+    else if (shape == 'c') {
+        const zsp_ast_node_t *decl = ty->resolved;
+        const uint8_t *name = NULL;
+        size_t         nlen = 0U;
+        (void)ident_span(src, decl->u.compound.name, &name, &nlen);
+        emit_snake(b, name, nlen);
+        emit_lit(b, "_init(&"); emit_lit(b, slot); emit_lit(b, ");\n");
+        emit_lit(b, "        ZSERIO_TRY("); emit_snake(b, name, nlen);
+        emit_lit(b, "_read(&"); emit_lit(b, slot); emit_lit(b, ", bs, alloc));\n");
+    }
+    else if (shape == 'e') {
+        const zsp_builtin_code_t uc = enum_underlying(ty);
+        emit_lit(b, "{ "); emit_lit(b, builtin_c_type(uc)); emit_lit(b, " tmp_; ");
+        emit_lit(b, "ZSERIO_TRY("); emit_lit(b, builtin_read_fn(uc));
+        emit_lit(b, "(bs, &tmp_)); "); emit_lit(b, slot);
+        emit_lit(b, " = ("); emit_element_type(b, ty, src); emit_lit(b, ")tmp_; }\n");
+    }
+    else {
+        emit_lit(b, "/* unsupported choice-case read */\n");
+    }
+}
+
+static void emit_choice_case_write(buf_t *b, const zsp_ast_node_t *f,
+                                   const zsp_source_t *src)
+{
+    if (f == NULL) return;
+    const zsp_ast_node_t *ty = f->u.field.type;
+    if (ty == NULL) return;
+    const uint8_t *fn = NULL;
+    size_t         fl = 0U;
+    if (!ident_span(src, f->u.field.name, &fn, &fl)) return;
+    char slot[256];
+    size_t pos = 0U;
+    const char *prefix = "self->u.";
+    const size_t plen = strlen(prefix);
+    (void)memcpy(slot, prefix, plen); pos = plen;
+    for (size_t i = 0U; i < fl; ++i) {
+        const uint8_t c = fn[i];
+        if ((c >= (uint8_t)'A') && (c <= (uint8_t)'Z')) {
+            if ((pos > plen) && (slot[pos - 1U] >= 'a') && (slot[pos - 1U] <= 'z')) {
+                slot[pos++] = '_';
+            }
+            slot[pos++] = (char)(c - 'A' + 'a');
+        }
+        else {
+            slot[pos++] = (char)c;
+        }
+    }
+    slot[pos] = '\0';
+    emit_lit(b, "        ");
+    emit_element_write(b, ty, slot, src);
+}
+
+static void emit_choice_case_free(buf_t *b, const zsp_ast_node_t *f,
+                                  const zsp_source_t *src)
+{
+    if (f == NULL) return;
+    const zsp_ast_node_t *ty = f->u.field.type;
+    if (ty == NULL) return;
+    const uint8_t *fn = NULL;
+    size_t         fl = 0U;
+    if (!ident_span(src, f->u.field.name, &fn, &fl)) return;
+
+    if (ty->kind == ZSP_AST_TYPE_BUILTIN) {
+        const zsp_builtin_code_t c = ty->u.type_builtin.code;
+        if (builtin_needs_free(c)) {
+            emit_lit(b, "        ");
+            emit_lit(b, builtin_free_fn(c));
+            emit_lit(b, "(&self->u.");
+            emit_snake(b, fn, fl);
+            emit_lit(b, ", alloc);\n");
+        }
+    }
+    else if (ty->kind == ZSP_AST_TYPE_REF) {
+        const zsp_ast_node_t *decl = ty->resolved;
+        if ((decl != NULL)
+                && ((decl->kind == ZSP_AST_STRUCT) || (decl->kind == ZSP_AST_UNION))) {
+            const uint8_t *name = NULL;
+            size_t         nlen = 0U;
+            (void)ident_span(src, decl->u.compound.name, &name, &nlen);
+            emit_lit(b, "        ");
+            emit_snake(b, name, nlen);
+            emit_lit(b, "_free(&self->u.");
+            emit_snake(b, fn, fl);
+            emit_lit(b, ", alloc);\n");
+        }
+    }
+}
+
+static void emit_choice_source(buf_t *b, const zsp_ast_node_t *ch,
+                               const zsp_source_t *src)
+{
+    const uint8_t *name = NULL;
+    size_t         nlen = 0U;
+    (void)ident_span(src, ch->u.choice.name, &name, &nlen);
+
+    emit_lit(b, "/* Auto-generated by zserio-c parser. */\n");
+    emit_lit(b, "#include <string.h>\n");
+    emit_lit(b, "#include \"");
+    emit_snake(b, name, nlen);
+    emit_lit(b, ".h\"\n\n");
+
+    /* init */
+    emit_lit(b, "void "); emit_snake(b, name, nlen);
+    emit_lit(b, "_init("); emit_snake(b, name, nlen);
+    emit_lit(b, "_t *self)\n{\n    (void)memset(self, 0, sizeof(*self));\n}\n\n");
+
+    /* read */
+    emit_lit(b, "zserio_status_t "); emit_snake(b, name, nlen);
+    emit_lit(b, "_read("); emit_snake(b, name, nlen);
+    emit_lit(b, "_t *self, zserio_bitstream_reader_t *bs,\n"
+                "        const zserio_allocator_t *alloc)\n{\n");
+    emit_lit(b, "    (void)alloc;\n");
+    emit_lit(b, "    switch (");
+    emit_expr_c(b, ch->u.choice.selector, src);
+    emit_lit(b, ") {\n");
+    for (size_t i = 0U; i < ch->u.choice.n_cases; ++i) {
+        const zsp_ast_node_t *c = ch->u.choice.cases[i];
+        for (size_t j = 0U; j < c->u.choice_case.n_labels; ++j) {
+            emit_lit(b, "    case ");
+            emit_expr_c(b, c->u.choice_case.labels[j], src);
+            emit_lit(b, ":\n");
+        }
+        emit_choice_case_read(b, c->u.choice_case.field, src);
+        emit_lit(b, "        break;\n");
+    }
+    emit_lit(b, "    default:\n");
+    if (ch->u.choice.default_case != NULL) {
+        emit_choice_case_read(b, ch->u.choice.default_case->u.choice_default.field, src);
+    }
+    emit_lit(b, "        break;\n");
+    emit_lit(b, "    }\n    return ZSERIO_OK;\n}\n\n");
+
+    /* write */
+    emit_lit(b, "zserio_status_t "); emit_snake(b, name, nlen);
+    emit_lit(b, "_write(const "); emit_snake(b, name, nlen);
+    emit_lit(b, "_t *self, zserio_bitstream_writer_t *bs)\n{\n");
+    emit_lit(b, "    (void)self;\n    (void)bs;\n");
+    emit_lit(b, "    switch (");
+    emit_expr_c(b, ch->u.choice.selector, src);
+    emit_lit(b, ") {\n");
+    for (size_t i = 0U; i < ch->u.choice.n_cases; ++i) {
+        const zsp_ast_node_t *c = ch->u.choice.cases[i];
+        for (size_t j = 0U; j < c->u.choice_case.n_labels; ++j) {
+            emit_lit(b, "    case ");
+            emit_expr_c(b, c->u.choice_case.labels[j], src);
+            emit_lit(b, ":\n");
+        }
+        emit_choice_case_write(b, c->u.choice_case.field, src);
+        emit_lit(b, "        break;\n");
+    }
+    emit_lit(b, "    default:\n");
+    if (ch->u.choice.default_case != NULL) {
+        emit_choice_case_write(b, ch->u.choice.default_case->u.choice_default.field, src);
+    }
+    emit_lit(b, "        break;\n");
+    emit_lit(b, "    }\n    return ZSERIO_OK;\n}\n\n");
+
+    /* free */
+    emit_lit(b, "void "); emit_snake(b, name, nlen);
+    emit_lit(b, "_free("); emit_snake(b, name, nlen);
+    emit_lit(b, "_t *self, const zserio_allocator_t *alloc)\n{\n");
+    emit_lit(b, "    (void)self;\n    (void)alloc;\n");
+    emit_lit(b, "    switch (");
+    emit_expr_c(b, ch->u.choice.selector, src);
+    emit_lit(b, ") {\n");
+    for (size_t i = 0U; i < ch->u.choice.n_cases; ++i) {
+        const zsp_ast_node_t *c = ch->u.choice.cases[i];
+        for (size_t j = 0U; j < c->u.choice_case.n_labels; ++j) {
+            emit_lit(b, "    case ");
+            emit_expr_c(b, c->u.choice_case.labels[j], src);
+            emit_lit(b, ":\n");
+        }
+        emit_choice_case_free(b, c->u.choice_case.field, src);
+        emit_lit(b, "        break;\n");
+    }
+    emit_lit(b, "    default:\n");
+    if (ch->u.choice.default_case != NULL) {
+        emit_choice_case_free(b, ch->u.choice.default_case->u.choice_default.field, src);
+    }
+    emit_lit(b, "        break;\n");
+    emit_lit(b, "    }\n}\n");
+}
+
+static void emit_choice_header(buf_t *b, const zsp_ast_node_t *ch,
+                               const zsp_source_t *src)
+{
+    const uint8_t *name = NULL;
+    size_t         nlen = 0U;
+    (void)ident_span(src, ch->u.choice.name, &name, &nlen);
+    emit_lit(b, "/* Auto-generated by zserio-c parser. */\n");
+    emit_lit(b, "#ifndef ZSP_GENERATED_");
+    emit_snake(b, name, nlen);
+    emit_lit(b, "_H_\n");
+    emit_lit(b, "#define ZSP_GENERATED_");
+    emit_snake(b, name, nlen);
+    emit_lit(b, "_H_\n\n");
+    emit_lit(b, "#include <stdbool.h>\n#include <stddef.h>\n#include <stdint.h>\n");
+    emit_lit(b, "#include <string.h>\n\n");
+    emit_lit(b, "#include \"zserio/allocator.h\"\n#include \"zserio/bitstream.h\"\n");
+    emit_lit(b, "#include \"zserio/bytes.h\"\n#include \"zserio/extern.h\"\n");
+    emit_lit(b, "#include \"zserio/float.h\"\n#include \"zserio/primitives.h\"\n");
+    emit_lit(b, "#include \"zserio/status.h\"\n#include \"zserio/string.h\"\n");
+    emit_lit(b, "#include \"zserio/varint.h\"\n\n");
+    /* Collect referenced types from parameters, union members,
+     * and default field. Same dedup approach as for compounds. */
+    {
+        enum { MAX_INC = 64U };
+        const uint8_t *names[MAX_INC];
+        size_t          lens[MAX_INC];
+        size_t          n = 0U;
+
+        const zsp_ast_node_t *referenced_types[256];
+        size_t n_refs = 0U;
+        for (size_t i = 0U; (i < ch->u.choice.n_params) && (n_refs < 256U); ++i) {
+            referenced_types[n_refs++] = ch->u.choice.params[i]->u.parameter.type;
+        }
+        for (size_t i = 0U; (i < ch->u.choice.n_cases) && (n_refs < 256U); ++i) {
+            const zsp_ast_node_t *f = ch->u.choice.cases[i]->u.choice_case.field;
+            if (f != NULL) {
+                referenced_types[n_refs++] = f->u.field.type;
+            }
+        }
+        if ((ch->u.choice.default_case != NULL)
+                && (ch->u.choice.default_case->u.choice_default.field != NULL)
+                && (n_refs < 256U)) {
+            referenced_types[n_refs++] =
+                ch->u.choice.default_case->u.choice_default.field->u.field.type;
+        }
+        for (size_t r = 0U; r < n_refs; ++r) {
+            const zsp_ast_node_t *ty = referenced_types[r];
+            if (ty == NULL) continue;
+            if (ty->kind == ZSP_AST_TYPE_ARRAY) {
+                ty = ty->u.type_array.element;
+            }
+            if ((ty == NULL) || (ty->kind != ZSP_AST_TYPE_REF)) continue;
+            const zsp_ast_node_t *decl = ty->resolved;
+            if (decl == NULL) continue;
+            const zsp_ast_node_t *name_node = NULL;
+            if ((decl->kind == ZSP_AST_STRUCT) || (decl->kind == ZSP_AST_UNION)) {
+                name_node = decl->u.compound.name;
+            }
+            else if (decl->kind == ZSP_AST_ENUM)    { name_node = decl->u.enum_decl.name; }
+            else if (decl->kind == ZSP_AST_BITMASK) { name_node = decl->u.bitmask_decl.name; }
+            const uint8_t *nb = NULL;
+            size_t         nl = 0U;
+            if (!ident_span(src, name_node, &nb, &nl)) continue;
+            bool seen = false;
+            for (size_t k = 0U; k < n; ++k) {
+                if ((lens[k] == nl) && (memcmp(names[k], nb, nl) == 0)) {
+                    seen = true;
+                    break;
+                }
+            }
+            if (seen || (n >= MAX_INC)) continue;
+            names[n] = nb;
+            lens[n]  = nl;
+            n += 1U;
+        }
+        for (size_t i = 0U; i < n; ++i) {
+            emit_lit(b, "#include \"");
+            emit_snake(b, names[i], lens[i]);
+            emit_lit(b, ".h\"\n");
+        }
+        if (n > 0U) {
+            emit_lit(b, "\n");
+        }
+    }
+
+    emit_choice_decl(b, ch, src);
+    emit_choice_protos(b, ch, src);
+    emit_lit(b, "\n#endif\n");
+}
+
 /* ----- Enum + bitmask emission ------------------------------ */
 
 static void emit_enum_header(buf_t *b, const zsp_ast_node_t *enm,
@@ -1505,6 +1930,9 @@ zserio_status_t zsp_emit_unit(const zsp_ast_node_t *unit,
         else if (d->kind == ZSP_AST_SUBTYPE) {
             name_node = d->u.subtype.alias_name;
         }
+        else if (d->kind == ZSP_AST_CHOICE) {
+            name_node = d->u.choice.name;
+        }
         else {
             /* Skip declarations the MVP emitter doesn't handle yet. */
             (void)zsp_diag_emit_lit(diag, ZSP_SEV_WARN,
@@ -1526,6 +1954,20 @@ zserio_status_t zsp_emit_unit(const zsp_ast_node_t *unit,
         buf_init(&hbuf, arena);
         buf_init(&cbuf, arena);
 
+        if (d->kind == ZSP_AST_CHOICE) {
+            emit_choice_header(&hbuf, d, source);
+            emit_choice_source(&cbuf, d, source);
+            if (hbuf.oom || cbuf.oom) {
+                return ZSERIO_ERR_OUT_OF_MEMORY;
+            }
+            if (!write(userdata, path_h, hbuf.bytes, hbuf.len)) {
+                return ZSERIO_ERR_OUT_OF_MEMORY;
+            }
+            if (!write(userdata, path_c, cbuf.bytes, cbuf.len)) {
+                return ZSERIO_ERR_OUT_OF_MEMORY;
+            }
+            continue;
+        }
         if ((d->kind == ZSP_AST_STRUCT) || (d->kind == ZSP_AST_UNION)) {
             emit_header_for_compound(&hbuf, d, source);
             emit_source_for_compound(&cbuf, d, source);
