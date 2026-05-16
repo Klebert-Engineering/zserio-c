@@ -1126,6 +1126,16 @@ zserio_status_t zsp_sema_register_unit(zsp_sema_t *s, zsp_ast_node_t *unit)
     return collect_top_level(s, unit);
 }
 
+zserio_status_t zsp_sema_resolve_unit(zsp_sema_t *s, zsp_ast_node_t *unit)
+{
+    if ((s == NULL) || (unit == NULL)) {
+        return ZSERIO_ERR_INVALID_ARGUMENT;
+    }
+    ZSERIO_TRY(resolve_pass(s, unit));
+    ZSERIO_TRY(evaluate_known_constants(s, unit));
+    return ZSERIO_OK;
+}
+
 zserio_status_t zsp_sema_analyse_unit(zsp_sema_t *s, zsp_ast_node_t *unit)
 {
     if ((s == NULL) || (unit == NULL)) {

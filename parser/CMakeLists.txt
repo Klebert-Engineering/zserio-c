@@ -21,6 +21,7 @@ add_library(zserio_c_parser STATIC
     src/parser.c
     src/sema.c
     src/emit.c
+    src/session.c
 )
 
 target_include_directories(zserio_c_parser

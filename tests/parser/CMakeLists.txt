@@ -19,6 +19,7 @@ zserio_c_add_parser_test(test_sema)
 zserio_c_add_parser_test(test_emit)
 
 zserio_c_add_parser_test(test_emit_compile)
+zserio_c_add_parser_test(test_session)
 target_compile_definitions(test_emit_compile PRIVATE
     "ZSP_REPO_ROOT=\"${CMAKE_SOURCE_DIR}\""
 )

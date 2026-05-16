@@ -28,45 +28,20 @@
 #include "zsparser/emit.h"
 #include "zsparser/parser.h"
 #include "zsparser/sema.h"
+#include "zsparser/session.h"
 #include "zsparser/source.h"
 
 static void usage(const char *argv0)
 {
     (void)fprintf(stderr,
-                  "usage: %s <input.zs> -c <output-dir>\n"
+                  "usage: %s <input.zs> -c <output-dir> [-src <root>...]\n"
                   "\n"
                   "  <input.zs>     schema file to compile\n"
-                  "  -c <output>    directory for emitted .c / .h files\n",
+                  "  -c <output>    directory for emitted .c / .h files\n"
+                  "  -src <root>    source-root for resolving imports.\n"
+                  "                 may be repeated; defaults to the\n"
+                  "                 directory containing the input file.\n",
                   argv0);
-}
-
-static uint8_t *read_file_(const char *path, size_t *out_len)
-{
-    FILE *const f = fopen(path, "rb");
-    if (f == NULL) {
-        (void)fprintf(stderr, "error: cannot open '%s'\n", path);
-        return NULL;
-    }
-    (void)fseek(f, 0L, SEEK_END);
-    const long sz = ftell(f);
-    if ((sz < 0L) || (fseek(f, 0L, SEEK_SET) != 0)) {
-        (void)fclose(f);
-        return NULL;
-    }
-    uint8_t *const buf = (uint8_t *)malloc((size_t)sz + 1U);
-    if (buf == NULL) {
-        (void)fclose(f);
-        return NULL;
-    }
-    const size_t got = fread(buf, 1U, (size_t)sz, f);
-    (void)fclose(f);
-    if (got != (size_t)sz) {
-        free(buf);
-        return NULL;
-    }
-    buf[sz] = (uint8_t)'\0';
-    *out_len = (size_t)sz;
-    return buf;
 }
 
 static void mkdirs_for(const char *path)
@@ -124,9 +99,17 @@ int main(int argc, char **argv)
 
     const char *input  = NULL;
     const char *outdir = NULL;
+    const char *roots[16];
+    size_t      n_roots = 0U;
+
     for (int i = 1; i < argc; ++i) {
         if ((strcmp(argv[i], "-c") == 0) && ((i + 1) < argc)) {
             outdir = argv[i + 1];
+            i += 1;
+        }
+        else if ((strcmp(argv[i], "-src") == 0) && ((i + 1) < argc)
+                 && (n_roots < (sizeof(roots) / sizeof(roots[0])))) {
+            roots[n_roots++] = argv[i + 1];
             i += 1;
         }
         else {
@@ -138,47 +121,44 @@ int main(int argc, char **argv)
         return 2;
     }
 
-    size_t len = 0U;
-    uint8_t *const bytes = read_file_(input, &len);
-    if (bytes == NULL) return 1;
+    /* If no -src roots supplied, derive a default from the
+     * input file's parent directory. */
+    char default_root[2048];
+    if (n_roots == 0U) {
+        (void)snprintf(default_root, sizeof(default_root), "%s", input);
+        size_t pos = strlen(default_root);
+        while ((pos > 0U) && (default_root[pos - 1U] != '/')) {
+            pos -= 1U;
+        }
+        if (pos > 0U) {
+            default_root[pos - 1U] = '\0';
+        }
+        else {
+            (void)snprintf(default_root, sizeof(default_root), ".");
+        }
+        roots[n_roots++] = default_root;
+    }
 
-    zserio_allocator_t libc = zserio_allocator_libc();
-
-    zsp_source_t         src;
-    zsp_arena_t          arena;
-    zsp_diag_collector_t diag;
-    zsp_file_id_t        fid;
-    zsp_ast_node_t      *unit = NULL;
-    zsp_sema_t           sema;
-
-    if ((zsp_source_init(&src, &libc) != ZSERIO_OK)
-            || (zsp_arena_init(&arena, &libc) != ZSERIO_OK)
-            || (zsp_diag_init(&diag, &libc, 64U) != ZSERIO_OK)) {
+    zsp_session_t session;
+    if (zsp_session_init(&session, roots, n_roots) != ZSERIO_OK) {
         (void)fprintf(stderr, "error: session init failed\n");
-        free(bytes);
-        return 1;
-    }
-    if (zsp_source_add_borrowed(&src, input, strlen(input),
-                                bytes, len, &fid) != ZSERIO_OK) {
-        (void)fprintf(stderr, "error: source register failed\n");
-        free(bytes);
         return 1;
     }
 
+    zsp_ast_node_t *top_unit = NULL;
     int rc = 0;
-    if (zsp_parse_unit(&src, fid, &arena, &diag, &unit) != ZSERIO_OK) {
-        rc = 1;
-    }
-    if ((rc == 0)
-            && (zsp_sema_init(&sema, &src, &arena, &diag) != ZSERIO_OK)) {
+    if (zsp_session_load(&session, input, &top_unit) != ZSERIO_OK) {
+        (void)fprintf(stderr, "error: cannot load '%s'\n", input);
         rc = 1;
     }
     if (rc == 0) {
-        (void)zsp_sema_analyse_unit(&sema, unit);
+        (void)zsp_session_analyse(&session);
     }
-    if ((rc == 0) && (zsp_diag_error_count(&diag) == 0U)) {
+    if ((rc == 0) && (zsp_diag_error_count(&session.diag) == 0U)
+            && (top_unit != NULL)) {
         out_ctx_t out = { outdir, true, 0U };
-        if (zsp_emit_unit(unit, &arena, &diag, &src, out_write, &out) != ZSERIO_OK) {
+        if (zsp_emit_unit(top_unit, &session.arena, &session.diag,
+                          &session.source, out_write, &out) != ZSERIO_OK) {
             (void)fprintf(stderr, "error: emit failed\n");
             rc = 1;
         }
@@ -192,16 +172,13 @@ int main(int argc, char **argv)
         }
     }
 
-    /* Format diagnostics to stderr. */
-    (void)zsp_diag_format_gcc(&diag, &src, diag_to_stderr, NULL);
+    (void)zsp_diag_format_gcc(&session.diag, &session.source,
+                              diag_to_stderr, NULL);
 
-    if (zsp_diag_error_count(&diag) > 0U) {
+    if (zsp_diag_error_count(&session.diag) > 0U) {
         rc = 1;
     }
 
-    zsp_diag_dispose(&diag);
-    zsp_arena_dispose(&arena);
-    zsp_source_dispose(&src);
-    free(bytes);
+    zsp_session_dispose(&session);
     return rc;
 }

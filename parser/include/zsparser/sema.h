@@ -74,6 +74,19 @@ zserio_status_t zsp_sema_register_unit(zsp_sema_t     *s,
                                        zsp_ast_node_t *unit);
 
 /**
+ * Resolve-only pass: assumes `zsp_sema_register_unit` has
+ * already populated the root scope (possibly across multiple
+ * files). Walks `unit` resolving TYPE_REF + EXPR_IDENT +
+ * member-access, then runs the constant-evaluation pass.
+ *
+ * Used by the multi-file driver: register all units first to
+ * build a combined symbol table, then resolve each unit
+ * against it.
+ */
+zserio_status_t zsp_sema_resolve_unit(zsp_sema_t     *s,
+                                      zsp_ast_node_t *unit);
+
+/**
  * Analyse a parsed UNIT in place. Two passes:
  *   1. Collect every top-level declaration into the root scope.
  *      Duplicate names emit ZSP_SEV_ERROR diagnostics.

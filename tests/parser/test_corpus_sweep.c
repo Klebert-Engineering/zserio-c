@@ -27,6 +27,7 @@
 #include "zsparser/emit.h"
 #include "zsparser/parser.h"
 #include "zsparser/sema.h"
+#include "zsparser/session.h"
 #include "zsparser/source.h"
 
 /* Black-hole sink: counts files written but throws away content. */
@@ -54,26 +55,6 @@ static zserio_allocator_t libc_alloc;
 void setUp(void) { libc_alloc = zserio_allocator_libc(); }
 void tearDown(void) {}
 
-static uint8_t *read_file(const char *path, size_t *out_len)
-{
-    FILE *const f = fopen(path, "rb");
-    if (f == NULL) return NULL;
-    if (fseek(f, 0L, SEEK_END) != 0) { (void)fclose(f); return NULL; }
-    const long sz = ftell(f);
-    if ((sz < 0) || (fseek(f, 0L, SEEK_SET) != 0)) {
-        (void)fclose(f);
-        return NULL;
-    }
-    uint8_t *const buf = (uint8_t *)malloc((size_t)sz + 1U);
-    if (buf == NULL) { (void)fclose(f); return NULL; }
-    const size_t got = fread(buf, 1U, (size_t)sz, f);
-    (void)fclose(f);
-    if (got != (size_t)sz) { free(buf); return NULL; }
-    buf[sz] = (uint8_t)'\0';
-    *out_len = (size_t)sz;
-    return buf;
-}
-
 static bool ends_with_zs(const char *name)
 {
     const size_t n = strlen(name);
@@ -86,51 +67,79 @@ typedef struct corpus_result {
     bool emit_ok;
 } corpus_result_t;
 
+/* Determine the source root for a schema path: walk up from
+ * the file until we find a directory that looks like the
+ * package root. For corpus schemas, the convention is that
+ * package `a.b.c` lives at `<root>/a/b/c.zs` — so for each
+ * file we strip the directories matching the package path.
+ * For simplicity we use the file's immediate parent + grandparent
+ * as candidate roots; the session tries each. */
+static void derive_roots(const char *path, char roots[][1024],
+                         const char **out_roots, size_t cap, size_t *n_out)
+{
+    *n_out = 0U;
+    char buf[1024];
+    (void)snprintf(buf, sizeof(buf), "%s", path);
+    /* Strip file basename + walk up to 6 parent dirs. */
+    for (size_t up = 0U; (up < 6U) && (*n_out < cap); ++up) {
+        size_t pos = strlen(buf);
+        while ((pos > 0U) && (buf[pos - 1U] != '/')) pos -= 1U;
+        if (pos == 0U) break;
+        buf[pos - 1U] = '\0';
+        (void)snprintf(roots[*n_out], 1024, "%s", buf);
+        out_roots[*n_out] = roots[*n_out];
+        *n_out += 1U;
+    }
+}
+
+/* Count diagnostics belonging to a specific file_id (skip
+ * deps' own errors when measuring the target). */
+static size_t errors_for_file(const zsp_diag_collector_t *c,
+                              zsp_file_id_t fid)
+{
+    size_t n = 0U;
+    for (size_t i = 0U; i < c->count; ++i) {
+        if ((c->diags[i].severity == ZSP_SEV_ERROR)
+                && (c->diags[i].file_id == fid)) {
+            n += 1U;
+        }
+    }
+    return n;
+}
+
 static corpus_result_t try_parse_and_analyse(const char *path)
 {
     corpus_result_t r = { false, false, false };
-    size_t len = 0U;
-    uint8_t *const bytes = read_file(path, &len);
-    if (bytes == NULL) return r;
 
-    zsp_source_t         src;
-    zsp_arena_t          arena;
-    zsp_diag_collector_t diag;
-    zsp_file_id_t        fid;
-    zsp_ast_node_t      *unit = NULL;
-    zsp_sema_t           sema;
+    char roots_buf[6][1024];
+    const char *roots[6];
+    size_t n_roots = 0U;
+    derive_roots(path, roots_buf, roots, 6U, &n_roots);
 
-    if ((zsp_source_init(&src, &libc_alloc) == ZSERIO_OK)
-            && (zsp_arena_init(&arena, &libc_alloc) == ZSERIO_OK)
-            && (zsp_diag_init(&diag, &libc_alloc, 64U) == ZSERIO_OK)
-            && (zsp_source_add_borrowed(&src, path, strlen(path),
-                                        bytes, len, &fid) == ZSERIO_OK)
-            && (zsp_parse_unit(&src, fid, &arena, &diag, &unit) == ZSERIO_OK)
-            && (unit != NULL)) {
-        const size_t parse_errs = zsp_diag_error_count(&diag);
-        r.parse_ok = (parse_errs == 0U);
+    zsp_session_t session;
+    if (zsp_session_init(&session, roots, n_roots) != ZSERIO_OK) {
+        return r;
+    }
+
+    zsp_ast_node_t *top_unit = NULL;
+    if ((zsp_session_load(&session, path, &top_unit) == ZSERIO_OK)
+            && (top_unit != NULL)) {
+        const zsp_file_id_t target_fid = top_unit->file_id;
+        r.parse_ok = (errors_for_file(&session.diag, target_fid) == 0U);
         if (r.parse_ok) {
-            if ((zsp_sema_init(&sema, &src, &arena, &diag) == ZSERIO_OK)
-                    && (zsp_sema_analyse_unit(&sema, unit) == ZSERIO_OK)) {
-                const size_t after_sema = zsp_diag_error_count(&diag);
-                r.sema_ok = (after_sema == parse_errs);
-                if (r.sema_ok) {
-                    counter_sink_t cs = { 0U, 0U };
-                    r.emit_ok = (zsp_emit_unit(unit, &arena, &diag, &src,
-                                               counter_write, &cs) == ZSERIO_OK)
-                                && (zsp_diag_error_count(&diag) == after_sema
-                                    || zsp_diag_error_count(&diag) == after_sema);
-                    /* Treat WARN-level emits (declaration-kind skipped)
-                     * as still-ok; errors mean the emitter aborted. */
-                }
+            (void)zsp_session_analyse(&session);
+            r.sema_ok = (errors_for_file(&session.diag, target_fid) == 0U);
+            if (r.sema_ok) {
+                counter_sink_t cs = { 0U, 0U };
+                r.emit_ok = (zsp_emit_unit(top_unit, &session.arena,
+                                           &session.diag, &session.source,
+                                           counter_write, &cs) == ZSERIO_OK)
+                            && (errors_for_file(&session.diag, target_fid) == 0U);
             }
         }
     }
 
-    zsp_diag_dispose(&diag);
-    zsp_arena_dispose(&arena);
-    zsp_source_dispose(&src);
-    free(bytes);
+    zsp_session_dispose(&session);
     return r;
 }
 
