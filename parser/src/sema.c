@@ -609,6 +609,111 @@ static void resolve_expr_ident(zsp_sema_t *s, zsp_ast_node_t *e)
     e->resolved = decl;
 }
 
+/* Resolve a member access `LHS.name` where LHS has resolved to
+ * an enum, bitmask, or compound declaration. The RHS resolves
+ * to one of the LHS's items. Sets `member->resolved` on success;
+ * silently leaves NULL when LHS isn't enum/bitmask/compound
+ * shape (which is fine — that case will be picked up by a
+ * future expression-typing pass). */
+static void resolve_member_access(zsp_sema_t *s, zsp_ast_node_t *m)
+{
+    if (m->resolved != NULL) {
+        return;
+    }
+    zsp_ast_node_t *const lhs = m->u.member.lhs;
+    zsp_ast_node_t *const rhs = m->u.member.name;
+    if ((lhs == NULL) || (rhs == NULL)) {
+        return;
+    }
+    /* The LHS must have resolved to a decl. EXPR_IDENT resolves
+     * via lexical scope; EXPR_MEMBER recursively resolves via
+     * this same function. */
+    zsp_ast_node_t *base = NULL;
+    if (lhs->kind == ZSP_AST_EXPR_IDENT) {
+        base = lhs->resolved;
+    }
+    else if (lhs->kind == ZSP_AST_EXPR_MEMBER) {
+        base = lhs->resolved;
+    }
+    if (base == NULL) {
+        return;
+    }
+
+    const uint8_t *const src = source_bytes(s, rhs->file_id);
+    if (src == NULL) {
+        return;
+    }
+    const uint8_t *const name = &src[rhs->u.ident.span_off];
+    const size_t         len  = (size_t)rhs->u.ident.span_len;
+
+    /* Search items by name on enum/bitmask. For compound types
+     * (struct/union/choice), search field names. */
+    if (base->kind == ZSP_AST_ENUM) {
+        for (size_t i = 0U; i < base->u.enum_decl.n_items; ++i) {
+            zsp_ast_node_t *const item = base->u.enum_decl.items[i];
+            const uint8_t *ib = NULL;
+            size_t         il = 0U;
+            if (extract_simple_name(s, item->u.enum_item.name, &ib, &il)
+                    && (il == len) && (memcmp(ib, name, len) == 0)) {
+                m->resolved   = item;
+                rhs->resolved = item;
+                return;
+            }
+        }
+    }
+    else if (base->kind == ZSP_AST_BITMASK) {
+        for (size_t i = 0U; i < base->u.bitmask_decl.n_items; ++i) {
+            zsp_ast_node_t *const item = base->u.bitmask_decl.items[i];
+            const uint8_t *ib = NULL;
+            size_t         il = 0U;
+            if (extract_simple_name(s, item->u.bitmask_item.name, &ib, &il)
+                    && (il == len) && (memcmp(ib, name, len) == 0)) {
+                m->resolved   = item;
+                rhs->resolved = item;
+                return;
+            }
+        }
+    }
+    else if ((base->kind == ZSP_AST_STRUCT) || (base->kind == ZSP_AST_UNION)) {
+        for (size_t i = 0U; i < base->u.compound.n_members; ++i) {
+            zsp_ast_node_t *const mem = base->u.compound.members[i];
+            const uint8_t *mb = NULL;
+            size_t         ml = 0U;
+            const zsp_ast_node_t *name_node = NULL;
+            if (mem->kind == ZSP_AST_FIELD) name_node = mem->u.field.name;
+            else if (mem->kind == ZSP_AST_FUNCTION) name_node = mem->u.function_decl.name;
+            else if (mem->kind == ZSP_AST_PARAMETER) name_node = mem->u.parameter.name;
+            if ((name_node != NULL)
+                    && extract_simple_name(s, name_node, &mb, &ml)
+                    && (ml == len) && (memcmp(mb, name, len) == 0)) {
+                m->resolved   = mem;
+                rhs->resolved = mem;
+                return;
+            }
+        }
+    }
+    /* Subtype: peel one layer and try again. */
+    else if (base->kind == ZSP_AST_SUBTYPE) {
+        zsp_ast_node_t *target = base->u.subtype.target_type;
+        if ((target != NULL) && (target->resolved != NULL)) {
+            /* Construct a transient member access shape and recurse.
+             * For now, just walk: temporarily swap base out. */
+            zsp_ast_node_t *const inner = target->resolved;
+            /* If the subtype's target resolves further, defer; the
+             * recursion below covers single-level alias. */
+            if ((inner->kind == ZSP_AST_ENUM) || (inner->kind == ZSP_AST_BITMASK)
+                    || (inner->kind == ZSP_AST_STRUCT) || (inner->kind == ZSP_AST_UNION)) {
+                /* Splice: temporarily set lhs->resolved = inner so a
+                 * recursive call finds the items. */
+                zsp_ast_node_t *const orig = lhs->resolved;
+                lhs->resolved = inner;
+                resolve_member_access(s, m);
+                lhs->resolved = orig;
+            }
+        }
+    }
+}
+
 /* Resolve every TYPE_REF + EXPR_IDENT under `n`, with scope
  * push/pop around compound bodies. Recursive — bounded by AST
  * nesting depth, covered by the Q5 / Rule 17.2 deviation. */
@@ -632,6 +737,10 @@ static zserio_status_t resolve_walk(zsp_sema_t *s, zsp_ast_node_t *n)
     else if (n->kind == ZSP_AST_EXPR_IDENT) {
         resolve_expr_ident(s, n);
     }
+    else if (n->kind == ZSP_AST_EXPR_MEMBER) {
+        /* Defer until LHS is resolved; we walk children first
+         * below, then resolve member access on the way back. */
+    }
 
     /* Walk children. We can't reuse the iterative enqueue_children
      * verbatim here because we need recursive descent — recurse
@@ -646,6 +755,12 @@ static zserio_status_t resolve_walk(zsp_sema_t *s, zsp_ast_node_t *n)
     }
     for (size_t i = 0U; i < st.count; ++i) {
         ZSERIO_TRY(resolve_walk(s, st.items[i]));
+    }
+
+    /* Member-access resolves after the LHS has had its chance to
+     * resolve via the child walk. */
+    if (n->kind == ZSP_AST_EXPR_MEMBER) {
+        resolve_member_access(s, n);
     }
 
     if (saved != NULL) {
@@ -839,6 +954,26 @@ const zsp_sema_const_t *zsp_sema_eval(zsp_sema_t *s, zsp_ast_node_t *expr)
         else if (d->kind == ZSP_AST_CONST) {
             if (d->u.const_decl.value_expr != NULL) {
                 result = zsp_sema_eval(s, d->u.const_decl.value_expr);
+            }
+        }
+        break;
+    }
+    case ZSP_AST_EXPR_MEMBER:
+    {
+        /* A member access that resolved to an enum/bitmask item
+         * inherits the item's computed value. */
+        zsp_ast_node_t *const d = expr->resolved;
+        if (d != NULL) {
+            if ((d->kind == ZSP_AST_ENUM_ITEM)
+                    || (d->kind == ZSP_AST_BITMASK_ITEM)) {
+                if (d->computed != NULL) {
+                    result = (const zsp_sema_const_t *)d->computed;
+                }
+            }
+            else if (d->kind == ZSP_AST_CONST) {
+                if (d->u.const_decl.value_expr != NULL) {
+                    result = zsp_sema_eval(s, d->u.const_decl.value_expr);
+                }
             }
         }
         break;

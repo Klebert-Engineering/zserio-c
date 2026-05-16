@@ -113,6 +113,9 @@ typedef struct sweep_state {
     size_t failed_capacity;
     char **failed_paths;
     size_t failed_count;
+    size_t sema_only_capacity;
+    char **sema_only_paths;
+    size_t sema_only_count;
 } sweep_state_t;
 
 static void sweep_record_failure(sweep_state_t *s, const char *path)
@@ -127,6 +130,20 @@ static void sweep_record_failure(sweep_state_t *s, const char *path)
     }
     s->failed_paths[s->failed_count] = strdup(path);
     s->failed_count += 1U;
+}
+
+static void sweep_record_sema_only(sweep_state_t *s, const char *path)
+{
+    if (s->sema_only_count == s->sema_only_capacity) {
+        const size_t new_cap = (s->sema_only_capacity == 0U) ? 32U
+                                                             : (s->sema_only_capacity * 2U);
+        char **grown = (char **)realloc(s->sema_only_paths, new_cap * sizeof(char *));
+        if (grown == NULL) return;
+        s->sema_only_paths    = grown;
+        s->sema_only_capacity = new_cap;
+    }
+    s->sema_only_paths[s->sema_only_count] = strdup(path);
+    s->sema_only_count += 1U;
 }
 
 /* Iterative directory walker — POSIX opendir/readdir + a manual
@@ -193,6 +210,9 @@ static void sweep_directory(const char *root, sweep_state_t *s)
                 if (!r.parse_ok) {
                     sweep_record_failure(s, full);
                 }
+                else if (!r.sema_ok) {
+                    sweep_record_sema_only(s, full);
+                }
             }
         }
         (void)closedir(d);
@@ -228,15 +248,26 @@ static void test_corpus_sweep_language(void)
                  s.sema_passed, s.total);
     if (s.failed_count > 0U) {
         (void)printf("first parse failures:\n");
-        const size_t to_show = (s.failed_count < 8U) ? s.failed_count : 8U;
+        const size_t to_show = (s.failed_count < 6U) ? s.failed_count : 6U;
         for (size_t i = 0U; i < to_show; ++i) {
             (void)printf("  - %s\n", s.failed_paths[i]);
+        }
+    }
+    if (s.sema_only_count > 0U) {
+        (void)printf("first sema-only failures (parsed clean but analyser found errors):\n");
+        const size_t to_show = (s.sema_only_count < 6U) ? s.sema_only_count : 6U;
+        for (size_t i = 0U; i < to_show; ++i) {
+            (void)printf("  - %s\n", s.sema_only_paths[i]);
         }
     }
     for (size_t i = 0U; i < s.failed_count; ++i) {
         free(s.failed_paths[i]);
     }
+    for (size_t i = 0U; i < s.sema_only_count; ++i) {
+        free(s.sema_only_paths[i]);
+    }
     free(s.failed_paths);
+    free(s.sema_only_paths);
 
     /* Milestone 7.2/7.3 acceptance threshold: 85% of upstream
      * language schemas must survive parse + analyse with zero
