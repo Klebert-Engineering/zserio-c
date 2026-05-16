@@ -443,42 +443,220 @@ static void enqueue_children(walk_stack_t *st, zsp_ast_node_t *n)
     }
 }
 
-/* Walk a list of decls collecting member-name bindings into the
- * compound's local scope so that within-body references resolve.
- * Currently a no-op for member-name resolution; placeholder for
- * the next analyser slice. */
-static void collect_compound_members(zsp_sema_t *s, zsp_ast_node_t *cmpd)
+/* Bind a single field/parameter/template-param's name into the
+ * given scope. Silently skips nodes we can't extract a name
+ * from. Used during compound-scope construction. */
+static zserio_status_t bind_member(zsp_sema_t *s, zsp_sema_scope_t *sc,
+                                   zsp_ast_node_t *member)
 {
-    (void)s;
-    (void)cmpd;
+    if (member == NULL) {
+        return ZSERIO_OK;
+    }
+    const zsp_ast_node_t *name_node = NULL;
+    switch (member->kind) {
+    case ZSP_AST_FIELD:           name_node = member->u.field.name;            break;
+    case ZSP_AST_PARAMETER:       name_node = member->u.parameter.name;        break;
+    case ZSP_AST_TEMPLATE_PARAM:  name_node = member->u.template_param.name;   break;
+    case ZSP_AST_FUNCTION:        name_node = member->u.function_decl.name;    break;
+    case ZSP_AST_ENUM_ITEM:       name_node = member->u.enum_item.name;        break;
+    case ZSP_AST_BITMASK_ITEM:    name_node = member->u.bitmask_item.name;     break;
+    case ZSP_AST_SQL_FIELD:       name_node = member->u.sql_field.name;        break;
+    case ZSP_AST_SQL_TABLE_REF:   name_node = member->u.sql_table_ref.name;    break;
+    case ZSP_AST_SERVICE_METHOD:  name_node = member->u.service_method.name;   break;
+    case ZSP_AST_PUBSUB_MESSAGE:  name_node = member->u.pubsub_message.name;   break;
+    case ZSP_AST_CHOICE_CASE:     name_node = (member->u.choice_case.field != NULL)
+                                              ? member->u.choice_case.field->u.field.name
+                                              : NULL; break;
+    case ZSP_AST_CHOICE_DEFAULT:  name_node = (member->u.choice_default.field != NULL)
+                                              ? member->u.choice_default.field->u.field.name
+                                              : NULL; break;
+    default:                      break;
+    }
+    if (name_node == NULL) {
+        return ZSERIO_OK;
+    }
+    const uint8_t *bytes = NULL;
+    size_t         len   = 0U;
+    if (!extract_simple_name(s, name_node, &bytes, &len)) {
+        return ZSERIO_OK;
+    }
+    /* Per-compound scope: duplicate field names are a hard error
+     * since members share a single namespace. */
+    for (size_t i = 0U; i < sc->count; ++i) {
+        const zsp_sema_binding_t *const b = &sc->bindings[i];
+        if ((b->name_len == len) && (memcmp(b->name, bytes, len) == 0)) {
+            (void)zsp_diag_emit_lit(s->diag, ZSP_SEV_ERROR,
+                                    member->file_id, member->offset,
+                                    "duplicate member name in compound type");
+            return ZSERIO_OK;
+        }
+    }
+    ZSERIO_TRY(scope_grow(s, sc));
+    sc->bindings[sc->count].name     = bytes;
+    sc->bindings[sc->count].name_len = len;
+    sc->bindings[sc->count].decl     = member;
+    sc->count += 1U;
+    return ZSERIO_OK;
+}
+
+/* Build a fresh scope for a compound's body and bind its
+ * template params + parameters + members. Returns the new scope
+ * (which is also pushed as the current). */
+static zserio_status_t enter_compound_scope(zsp_sema_t *s,
+                                            zsp_ast_node_t *cmpd,
+                                            zsp_sema_scope_t **out_scope)
+{
+    zsp_sema_scope_t *scope = NULL;
+    ZSERIO_TRY(scope_new(s, s->current, &scope));
+
+    if ((cmpd->kind == ZSP_AST_STRUCT) || (cmpd->kind == ZSP_AST_UNION)) {
+        for (size_t i = 0U; i < cmpd->u.compound.n_template_params; ++i) {
+            ZSERIO_TRY(bind_member(s, scope,
+                                   cmpd->u.compound.template_params[i]));
+        }
+        for (size_t i = 0U; i < cmpd->u.compound.n_params; ++i) {
+            ZSERIO_TRY(bind_member(s, scope, cmpd->u.compound.params[i]));
+        }
+        for (size_t i = 0U; i < cmpd->u.compound.n_members; ++i) {
+            ZSERIO_TRY(bind_member(s, scope, cmpd->u.compound.members[i]));
+        }
+    }
+    else if (cmpd->kind == ZSP_AST_CHOICE) {
+        for (size_t i = 0U; i < cmpd->u.choice.n_template_params; ++i) {
+            ZSERIO_TRY(bind_member(s, scope,
+                                   cmpd->u.choice.template_params[i]));
+        }
+        for (size_t i = 0U; i < cmpd->u.choice.n_params; ++i) {
+            ZSERIO_TRY(bind_member(s, scope, cmpd->u.choice.params[i]));
+        }
+        for (size_t i = 0U; i < cmpd->u.choice.n_cases; ++i) {
+            ZSERIO_TRY(bind_member(s, scope, cmpd->u.choice.cases[i]));
+        }
+        if (cmpd->u.choice.default_case != NULL) {
+            ZSERIO_TRY(bind_member(s, scope, cmpd->u.choice.default_case));
+        }
+    }
+    else if (cmpd->kind == ZSP_AST_ENUM) {
+        for (size_t i = 0U; i < cmpd->u.enum_decl.n_items; ++i) {
+            ZSERIO_TRY(bind_member(s, scope, cmpd->u.enum_decl.items[i]));
+        }
+    }
+    else if (cmpd->kind == ZSP_AST_BITMASK) {
+        for (size_t i = 0U; i < cmpd->u.bitmask_decl.n_items; ++i) {
+            ZSERIO_TRY(bind_member(s, scope, cmpd->u.bitmask_decl.items[i]));
+        }
+    }
+    else if (cmpd->kind == ZSP_AST_SQL_TABLE) {
+        for (size_t i = 0U; i < cmpd->u.sql_table.n_fields; ++i) {
+            ZSERIO_TRY(bind_member(s, scope, cmpd->u.sql_table.fields[i]));
+        }
+    }
+    else if (cmpd->kind == ZSP_AST_SQL_DATABASE) {
+        for (size_t i = 0U; i < cmpd->u.sql_database.n_table_refs; ++i) {
+            ZSERIO_TRY(bind_member(s, scope, cmpd->u.sql_database.table_refs[i]));
+        }
+    }
+    else if (cmpd->kind == ZSP_AST_SERVICE) {
+        for (size_t i = 0U; i < cmpd->u.service.n_methods; ++i) {
+            ZSERIO_TRY(bind_member(s, scope, cmpd->u.service.methods[i]));
+        }
+    }
+    else if (cmpd->kind == ZSP_AST_PUBSUB) {
+        for (size_t i = 0U; i < cmpd->u.pubsub.n_messages; ++i) {
+            ZSERIO_TRY(bind_member(s, scope, cmpd->u.pubsub.messages[i]));
+        }
+    }
+
+    s->current = scope;
+    *out_scope = scope;
+    return ZSERIO_OK;
+}
+
+static bool is_scope_owner(zsp_ast_kind_t k)
+{
+    return (k == ZSP_AST_STRUCT) || (k == ZSP_AST_UNION) || (k == ZSP_AST_CHOICE)
+        || (k == ZSP_AST_ENUM) || (k == ZSP_AST_BITMASK)
+        || (k == ZSP_AST_SQL_TABLE) || (k == ZSP_AST_SQL_DATABASE)
+        || (k == ZSP_AST_SERVICE) || (k == ZSP_AST_PUBSUB);
+}
+
+/* Resolve EXPR_IDENT against the lexical scope chain. */
+static void resolve_expr_ident(zsp_sema_t *s, zsp_ast_node_t *e)
+{
+    if (e->resolved != NULL) {
+        return;
+    }
+    const uint8_t *const src = source_bytes(s, e->file_id);
+    if (src == NULL) {
+        return;
+    }
+    const uint8_t *const name = &src[e->u.ident.span_off];
+    const size_t         len  = (size_t)e->u.ident.span_len;
+    /* `@index` and a few other pseudo-idents start with '@' and
+     * are not in any scope. Skip those. */
+    if ((len > 0U) && (name[0] == (uint8_t)'@')) {
+        return;
+    }
+    zsp_ast_node_t *const decl = zsp_sema_scope_find(s->current, name, len);
+    if (decl == NULL) {
+        /* Identifier resolution is best-effort: it may legitimately
+         * fail for member-access RHS, package-qualified references,
+         * or template-parameter uses inside instantiations. We
+         * emit no diagnostic here; only TYPE_REF (which definitely
+         * names a type) gets the strict-error treatment. */
+        return;
+    }
+    e->resolved = decl;
+}
+
+/* Resolve every TYPE_REF + EXPR_IDENT under `n`, with scope
+ * push/pop around compound bodies. Recursive — bounded by AST
+ * nesting depth, covered by the Q5 / Rule 17.2 deviation. */
+static zserio_status_t resolve_walk(zsp_sema_t *s, zsp_ast_node_t *n)
+{
+    if (n == NULL) {
+        return ZSERIO_OK;
+    }
+
+    zsp_sema_scope_t *saved = NULL;
+    if (is_scope_owner(n->kind)) {
+        saved = s->current;
+        zsp_sema_scope_t *new_scope = NULL;
+        ZSERIO_TRY(enter_compound_scope(s, n, &new_scope));
+        (void)new_scope;
+    }
+
+    if (n->kind == ZSP_AST_TYPE_REF) {
+        resolve_type_ref(s, n);
+    }
+    else if (n->kind == ZSP_AST_EXPR_IDENT) {
+        resolve_expr_ident(s, n);
+    }
+
+    /* Walk children. We can't reuse the iterative enqueue_children
+     * verbatim here because we need recursive descent — recurse
+     * into each child to maintain scope discipline. */
+    walk_stack_t st = { NULL, 0U, 0U, s->arena, false };
+    enqueue_children(&st, n);
+    if (st.oom) {
+        if (saved != NULL) {
+            s->current = saved;
+        }
+        return ZSERIO_ERR_OUT_OF_MEMORY;
+    }
+    for (size_t i = 0U; i < st.count; ++i) {
+        ZSERIO_TRY(resolve_walk(s, st.items[i]));
+    }
+
+    if (saved != NULL) {
+        s->current = saved;
+    }
+    return ZSERIO_OK;
 }
 
 static zserio_status_t resolve_pass(zsp_sema_t *s, zsp_ast_node_t *unit)
 {
-    walk_stack_t st = { NULL, 0U, 0U, s->arena, false };
-    walk_push(&st, unit);
-    if (st.oom) {
-        return ZSERIO_ERR_OUT_OF_MEMORY;
-    }
-    while (st.count > 0U) {
-        st.count -= 1U;
-        zsp_ast_node_t *const n = st.items[st.count];
-        if (n == NULL) {
-            continue;
-        }
-        if (n->kind == ZSP_AST_TYPE_REF) {
-            resolve_type_ref(s, n);
-        }
-        if ((n->kind == ZSP_AST_STRUCT) || (n->kind == ZSP_AST_UNION)
-                || (n->kind == ZSP_AST_CHOICE)) {
-            collect_compound_members(s, n);
-        }
-        enqueue_children(&st, n);
-        if (st.oom) {
-            return ZSERIO_ERR_OUT_OF_MEMORY;
-        }
-    }
-    return ZSERIO_OK;
+    return resolve_walk(s, unit);
 }
 
 /* ----- Public API ------------------------------------------- */

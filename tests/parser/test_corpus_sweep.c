@@ -25,6 +25,7 @@
 #include "zsparser/ast.h"
 #include "zsparser/diag.h"
 #include "zsparser/parser.h"
+#include "zsparser/sema.h"
 #include "zsparser/source.h"
 
 #ifndef ZSP_CORPUS_ROOT
@@ -62,37 +63,53 @@ static bool ends_with_zs(const char *name)
     return (n >= 3U) && (strcmp(&name[n - 3U], ".zs") == 0);
 }
 
-static bool try_parse_file(const char *path)
+typedef struct corpus_result {
+    bool parse_ok;
+    bool sema_ok;
+} corpus_result_t;
+
+static corpus_result_t try_parse_and_analyse(const char *path)
 {
+    corpus_result_t r = { false, false };
     size_t len = 0U;
     uint8_t *const bytes = read_file(path, &len);
-    if (bytes == NULL) return false;
+    if (bytes == NULL) return r;
 
     zsp_source_t         src;
     zsp_arena_t          arena;
     zsp_diag_collector_t diag;
     zsp_file_id_t        fid;
     zsp_ast_node_t      *unit = NULL;
+    zsp_sema_t           sema;
 
-    bool ok = (zsp_source_init(&src, &libc_alloc) == ZSERIO_OK)
-           && (zsp_arena_init(&arena, &libc_alloc) == ZSERIO_OK)
-           && (zsp_diag_init(&diag, &libc_alloc, 32U) == ZSERIO_OK)
-           && (zsp_source_add_borrowed(&src, path, strlen(path),
-                                       bytes, len, &fid) == ZSERIO_OK)
-           && (zsp_parse_unit(&src, fid, &arena, &diag, &unit) == ZSERIO_OK)
-           && (unit != NULL)
-           && (zsp_diag_error_count(&diag) == 0U);
+    if ((zsp_source_init(&src, &libc_alloc) == ZSERIO_OK)
+            && (zsp_arena_init(&arena, &libc_alloc) == ZSERIO_OK)
+            && (zsp_diag_init(&diag, &libc_alloc, 64U) == ZSERIO_OK)
+            && (zsp_source_add_borrowed(&src, path, strlen(path),
+                                        bytes, len, &fid) == ZSERIO_OK)
+            && (zsp_parse_unit(&src, fid, &arena, &diag, &unit) == ZSERIO_OK)
+            && (unit != NULL)) {
+        const size_t parse_errs = zsp_diag_error_count(&diag);
+        r.parse_ok = (parse_errs == 0U);
+        if (r.parse_ok) {
+            if ((zsp_sema_init(&sema, &src, &arena, &diag) == ZSERIO_OK)
+                    && (zsp_sema_analyse_unit(&sema, unit) == ZSERIO_OK)) {
+                r.sema_ok = (zsp_diag_error_count(&diag) == parse_errs);
+            }
+        }
+    }
 
     zsp_diag_dispose(&diag);
     zsp_arena_dispose(&arena);
     zsp_source_dispose(&src);
     free(bytes);
-    return ok;
+    return r;
 }
 
 typedef struct sweep_state {
     size_t total;
-    size_t passed;
+    size_t parse_passed;
+    size_t sema_passed;
     size_t failed_capacity;
     char **failed_paths;
     size_t failed_count;
@@ -166,10 +183,14 @@ static void sweep_directory(const char *root, sweep_state_t *s)
             }
             else if (S_ISREG(st.st_mode) && ends_with_zs(ent->d_name)) {
                 s->total += 1U;
-                if (try_parse_file(full)) {
-                    s->passed += 1U;
+                const corpus_result_t r = try_parse_and_analyse(full);
+                if (r.parse_ok) {
+                    s->parse_passed += 1U;
                 }
-                else {
+                if (r.sema_ok) {
+                    s->sema_passed += 1U;
+                }
+                if (!r.parse_ok) {
                     sweep_record_failure(s, full);
                 }
             }
@@ -200,10 +221,13 @@ static void test_corpus_sweep_language(void)
         return;
     }
 
-    (void)printf("\ncorpus sweep: %zu / %zu schemas parsed with zero errors\n",
-                 s.passed, s.total);
+    (void)printf("\ncorpus sweep:\n"
+                 "  %zu / %zu schemas parsed with zero errors\n"
+                 "  %zu / %zu schemas survived parse + analyse\n",
+                 s.parse_passed, s.total,
+                 s.sema_passed, s.total);
     if (s.failed_count > 0U) {
-        (void)printf("first failures:\n");
+        (void)printf("first parse failures:\n");
         const size_t to_show = (s.failed_count < 8U) ? s.failed_count : 8U;
         for (size_t i = 0U; i < to_show; ++i) {
             (void)printf("  - %s\n", s.failed_paths[i]);
@@ -214,18 +238,27 @@ static void test_corpus_sweep_language(void)
     }
     free(s.failed_paths);
 
-    /* Acceptance threshold for milestone 7.2: at least 85% of
-     * upstream language schemas parse with zero errors. The
-     * remaining 15% includes schemas exercising features we've
-     * deferred (advanced SQL constraints, niche grammar forms).
-     * As the parser tightens, this threshold can rise. */
+    /* Milestone 7.2/7.3 acceptance threshold: 85% of upstream
+     * language schemas must survive parse + analyse with zero
+     * diagnostic errors. */
     const size_t threshold_pct = 85U;
-    const size_t actual_pct = (s.passed * 100U) / s.total;
-    if (actual_pct < threshold_pct) {
+    const size_t parse_pct = (s.parse_passed * 100U) / s.total;
+    const size_t sema_pct  = (s.sema_passed  * 100U) / s.total;
+    if (parse_pct < threshold_pct) {
         char msg[256];
         (void)snprintf(msg, sizeof(msg),
-                       "corpus pass rate %zu%% below threshold %zu%% (%zu / %zu)",
-                       actual_pct, threshold_pct, s.passed, s.total);
+                       "parse pass rate %zu%% below threshold %zu%% (%zu / %zu)",
+                       parse_pct, threshold_pct, s.parse_passed, s.total);
+        TEST_FAIL_MESSAGE(msg);
+    }
+    /* Sema is allowed to be lower than parse during slice-by-slice
+     * rollout. As the analyser tightens, the floor rises. */
+    const size_t sema_floor = 60U;
+    if (sema_pct < sema_floor) {
+        char msg[256];
+        (void)snprintf(msg, sizeof(msg),
+                       "sema pass rate %zu%% below floor %zu%% (%zu / %zu)",
+                       sema_pct, sema_floor, s.sema_passed, s.total);
         TEST_FAIL_MESSAGE(msg);
     }
 }

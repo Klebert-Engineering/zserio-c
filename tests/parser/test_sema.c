@@ -158,6 +158,120 @@ static void test_resolve_across_decl_order(void)
     fixture_teardown(&f);
 }
 
+static void test_array_length_field_reference_resolves(void)
+{
+    /* `int32 items[count]` — `count` must resolve to the field
+     * declared earlier in the same struct. */
+    fixture_t f;
+    static const uint8_t INPUT[] =
+            "package x;\n"
+            "struct List {\n"
+            "    uint16 count;\n"
+            "    int32 items[count];\n"
+            "};\n";
+    fixture_setup(&f, INPUT, sizeof(INPUT) - 1U);
+
+    zsp_ast_node_t *const items = f.unit->u.unit.decls[0]->u.compound.members[1];
+    zsp_ast_node_t *const arr   = items->u.field.type;
+    TEST_ASSERT_EQUAL_INT(ZSP_AST_TYPE_ARRAY, arr->kind);
+    zsp_ast_node_t *const len_expr = arr->u.type_array.length_expr;
+    TEST_ASSERT_NOT_NULL(len_expr);
+    TEST_ASSERT_EQUAL_INT(ZSP_AST_EXPR_IDENT, len_expr->kind);
+    TEST_ASSERT_NOT_NULL(len_expr->resolved);
+    /* Resolves to the count field. */
+    zsp_ast_node_t *const count_field = f.unit->u.unit.decls[0]->u.compound.members[0];
+    TEST_ASSERT_EQUAL_PTR(count_field, len_expr->resolved);
+
+    fixture_teardown(&f);
+}
+
+static void test_struct_parameter_resolves(void)
+{
+    fixture_t f;
+    static const uint8_t INPUT[] =
+            "package x;\n"
+            "struct Point(uint16 shift) {\n"
+            "    int32 x;\n"
+            "    int8 z if shift == 0;\n"
+            "};\n";
+    fixture_setup(&f, INPUT, sizeof(INPUT) - 1U);
+
+    zsp_ast_node_t *const z_field  = f.unit->u.unit.decls[0]->u.compound.members[1];
+    zsp_ast_node_t *const if_expr  = z_field->u.field.if_clause;
+    TEST_ASSERT_NOT_NULL(if_expr);
+    TEST_ASSERT_EQUAL_INT(ZSP_AST_EXPR_BINARY, if_expr->kind);
+    zsp_ast_node_t *const lhs = if_expr->u.binop.lhs;
+    TEST_ASSERT_EQUAL_INT(ZSP_AST_EXPR_IDENT, lhs->kind);
+    TEST_ASSERT_NOT_NULL(lhs->resolved);
+    TEST_ASSERT_EQUAL_INT(ZSP_AST_PARAMETER, lhs->resolved->kind);
+    fixture_teardown(&f);
+}
+
+static void test_enum_item_value_can_reference_prior(void)
+{
+    fixture_t f;
+    static const uint8_t INPUT[] =
+            "package x;\n"
+            "enum uint8 E {\n"
+            "    A = 1,\n"
+            "    B = A + 1\n"
+            "};\n";
+    fixture_setup(&f, INPUT, sizeof(INPUT) - 1U);
+
+    zsp_ast_node_t *const enm = f.unit->u.unit.decls[0];
+    zsp_ast_node_t *const b   = enm->u.enum_decl.items[1];
+    zsp_ast_node_t *const expr = b->u.enum_item.value_expr;
+    TEST_ASSERT_EQUAL_INT(ZSP_AST_EXPR_BINARY, expr->kind);
+    zsp_ast_node_t *const lhs = expr->u.binop.lhs;
+    TEST_ASSERT_EQUAL_INT(ZSP_AST_EXPR_IDENT, lhs->kind);
+    TEST_ASSERT_NOT_NULL(lhs->resolved);
+    TEST_ASSERT_EQUAL_PTR(enm->u.enum_decl.items[0], lhs->resolved);
+
+    fixture_teardown(&f);
+}
+
+static void test_index_pseudo_ident_does_not_emit_unresolved(void)
+{
+    fixture_t f;
+    static const uint8_t INPUT[] =
+            "package x;\n"
+            "struct Header { uint32 length; uint32 offset; };\n"
+            "struct Item(Header h) { int64 data[h.length]; };\n"
+            "struct Container {\n"
+            "    uint16 count;\n"
+            "    Header headers[count];\n"
+            "    Item(headers[@index]) items[count];\n"
+            "};\n";
+    fixture_setup(&f, INPUT, sizeof(INPUT) - 1U);
+    /* @index doesn't trigger a hard diagnostic, even though it's
+     * not bound in any scope. */
+    TEST_ASSERT_EQUAL_size_t(0U, zsp_diag_error_count(&f.diag));
+    fixture_teardown(&f);
+}
+
+static void test_duplicate_field_name_is_diagnosed(void)
+{
+    fixture_t f;
+    static const uint8_t INPUT[] =
+            "package x;\n"
+            "struct Bad {\n"
+            "    uint32 v;\n"
+            "    string v;\n"
+            "};\n";
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_source_init(&f.src, &libc_alloc));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_arena_init(&f.arena, &libc_alloc));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_diag_init(&f.diag, &libc_alloc, 0U));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_source_add_borrowed(
+            &f.src, "test.zs", 7U, INPUT, sizeof(INPUT) - 1U, &f.fid));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_parse_unit(
+            &f.src, f.fid, &f.arena, &f.diag, &f.unit));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_sema_init(&f.sema, &f.src,
+                                              &f.arena, &f.diag));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_sema_analyse_unit(&f.sema, f.unit));
+    TEST_ASSERT_EQUAL_size_t(1U, zsp_diag_error_count(&f.diag));
+    fixture_teardown(&f);
+}
+
 static void test_builtins_are_not_type_refs(void)
 {
     /* uint32, string, etc. lex as identifiers but parse as
@@ -185,6 +299,11 @@ int main(void)
     RUN_TEST(test_unresolved_type_reference_is_diagnosed);
     RUN_TEST(test_type_ref_resolution);
     RUN_TEST(test_resolve_across_decl_order);
+    RUN_TEST(test_array_length_field_reference_resolves);
+    RUN_TEST(test_struct_parameter_resolves);
+    RUN_TEST(test_enum_item_value_can_reference_prior);
+    RUN_TEST(test_index_pseudo_ident_does_not_emit_unresolved);
+    RUN_TEST(test_duplicate_field_name_is_diagnosed);
     RUN_TEST(test_builtins_are_not_type_refs);
     return UNITY_END();
 }
