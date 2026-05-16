@@ -547,6 +547,10 @@ static zserio_status_t enter_compound_scope(zsp_sema_t *s,
         }
     }
     else if (cmpd->kind == ZSP_AST_SQL_TABLE) {
+        for (size_t i = 0U; i < cmpd->u.sql_table.n_template_params; ++i) {
+            ZSERIO_TRY(bind_member(s, scope,
+                                   cmpd->u.sql_table.template_params[i]));
+        }
         for (size_t i = 0U; i < cmpd->u.sql_table.n_fields; ++i) {
             ZSERIO_TRY(bind_member(s, scope, cmpd->u.sql_table.fields[i]));
         }

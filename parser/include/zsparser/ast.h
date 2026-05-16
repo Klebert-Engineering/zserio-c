@@ -319,6 +319,8 @@ struct zsp_ast_node {
 
         /* SQL table specifics */
         struct { zsp_ast_node_t  *name;
+                 zsp_ast_node_t **template_params;
+                 size_t            n_template_params;
                  zsp_ast_node_t **fields;
                  size_t            n_fields;
                  zsp_ast_node_t **constraints;

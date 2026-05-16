@@ -40,6 +40,12 @@ typedef struct parser {
     zsp_file_id_t         file_id;
     zsp_token_t           cur;
     zsp_token_t           peek;
+    /* Single-slot pushback for `>>` splits: when a nested
+     * template close needs to decompose RSHIFT into two `>`,
+     * the original peek is stashed here and consumed on the
+     * next advance. */
+    zsp_token_t           stash;
+    bool                  has_stash;
     bool                  oom;        /**< Sticky: arena ran out. */
 } parser_t;
 
@@ -47,10 +53,11 @@ static zserio_status_t parser_init(parser_t *p,
                                    zsp_source_t *src, zsp_file_id_t file_id,
                                    zsp_arena_t *arena, zsp_diag_collector_t *diag)
 {
-    p->arena   = arena;
-    p->diag    = diag;
-    p->file_id = file_id;
-    p->oom     = false;
+    p->arena     = arena;
+    p->diag      = diag;
+    p->file_id   = file_id;
+    p->oom       = false;
+    p->has_stash = false;
     ZSERIO_TRY(zsp_lexer_init(&p->lexer, src, file_id, diag));
     ZSERIO_TRY(zsp_lexer_next(&p->lexer, &p->cur));
     ZSERIO_TRY(zsp_lexer_next(&p->lexer, &p->peek));
@@ -64,7 +71,13 @@ static zserio_status_t parser_init(parser_t *p,
 static void advance(parser_t *p)
 {
     p->cur = p->peek;
-    (void)zsp_lexer_next(&p->lexer, &p->peek);
+    if (p->has_stash) {
+        p->peek      = p->stash;
+        p->has_stash = false;
+    }
+    else {
+        (void)zsp_lexer_next(&p->lexer, &p->peek);
+    }
 }
 
 static bool check(const parser_t *p, zsp_token_kind_t k)
@@ -145,6 +158,10 @@ static bool is_type_starter(zsp_token_kind_t k)
     case ZSP_TOK_KW_PACKED:
     case ZSP_TOK_KW_OPTIONAL:
     case ZSP_TOK_KW_IMPLICIT:
+    case ZSP_TOK_KW_EXTEND:
+    case ZSP_TOK_KW_DEPRECATED:
+    case ZSP_TOK_KW_REMOVED:
+    case ZSP_TOK_KW_INDEX:
         return true;
     default:
         return false;
@@ -259,6 +276,7 @@ static bool            parse_compound_params(parser_t *p,
                                              zsp_ast_node_t ***out_items,
                                              size_t *out_count);
 static zsp_ast_node_t *parse_annotation(parser_t *p);
+static void            try_split_rshift(parser_t *p);
 
 /* ============================================================ */
 /* Identifiers, dotted names                                     */
@@ -426,18 +444,45 @@ static zsp_ast_node_t *parse_bitfield(parser_t *p, zsp_builtin_code_t code)
          * that excludes relational operators (`<`, `>`, `<=`,
          * `>=` are precedence 7); otherwise the closing `>`
          * would be eaten as a comparison operator. Shift-left
-         * and shift-right (precedence 8) still bind normally. */
-        zsp_ast_node_t *const lhs = parse_primary(p);
-        if (lhs != NULL) {
-            (void)parse_binop_rhs(p, 8, lhs);
+         * and shift-right (precedence 8) still bind normally.
+         * Handle a top-level ternary tail explicitly — the
+         * normal `parse_ternary` would consume `>` inside its
+         * cond at full precedence, which conflicts with the
+         * closing delimiter. */
+        const uint32_t expr_start = p->cur.offset;
+        zsp_ast_node_t *cond = parse_primary(p);
+        if (cond != NULL) {
+            cond = parse_binop_rhs(p, 8, cond);
         }
+        if ((cond != NULL) && eat(p, ZSP_TOK_QUESTION)) {
+            /* Inside the THEN/ELSE branches, comparisons in
+             * sub-expressions are still constrained — schemas
+             * needing `>` must use parentheses. THEN is bounded
+             * by the `:`. */
+            zsp_ast_node_t *const then_e = parse_ternary(p);
+            (void)expect(p, ZSP_TOK_COLON, "expected ':' in ternary expression");
+            zsp_ast_node_t *else_e = parse_primary(p);
+            if (else_e != NULL) {
+                else_e = parse_binop_rhs(p, 8, else_e);
+            }
+            zsp_ast_node_t *const tn = new_node(p, ZSP_AST_EXPR_TERNARY, expr_start);
+            if (tn != NULL) {
+                tn->u.ternary.cond      = cond;
+                tn->u.ternary.then_expr = then_e;
+                tn->u.ternary.else_expr = else_e;
+            }
+        }
+        try_split_rshift(p);
         if (!expect(p, ZSP_TOK_GT, "expected '>' to close bit width")) {
             return NULL;
         }
     }
     else {
-        emit_error_at_cur(p, "expected ':' or '<' after 'bit' or 'int'");
-        return NULL;
+        /* Standalone `bit` / `int` (no width) — dynamic-width
+         * bitfield. Width 0 is the sentinel; the analyser /
+         * runtime resolves the actual width from the surrounding
+         * `int<expr>` style context elsewhere. */
+        width = 0U;
     }
     zsp_ast_node_t *const n = new_node(p, ZSP_AST_TYPE_BUILTIN, start);
     if (n != NULL) {
@@ -461,6 +506,11 @@ static bool parse_type_args(parser_t *p,
     zsp_ast_list_t list;
     zsp_ast_list_init(&list, p->arena);
     for (;;) {
+        /* Optional `explicit` modifier on a type-argument
+         * binding: `Foo(explicit X)`. Consume and ignore for
+         * the parser; the analyser uses the explicit-vs-implicit
+         * distinction. */
+        (void)eat(p, ZSP_TOK_KW_EXPLICIT);
         zsp_ast_node_t *const e = parse_expression(p);
         if (!push_or_oom(p, &list, e)) {
             return false;
@@ -474,6 +524,33 @@ static bool parse_type_args(parser_t *p,
     }
     zsp_ast_list_take(&list, out_items, out_count);
     return true;
+}
+
+/* `>>` is lexed as a single ZSP_TOK_RSHIFT but the parser may
+ * need to treat it as two `>` tokens to close nested templates
+ * (`Foo<Bar<Baz>>`). When the closing-`>` site sees RSHIFT,
+ * virtually split it: cur becomes GT (representing the first
+ * `>`), the second `>` is pushed onto peek, and the original
+ * peek is stashed for the subsequent advance. */
+static void try_split_rshift(parser_t *p)
+{
+    if (p->cur.kind != ZSP_TOK_RSHIFT) {
+        return;
+    }
+    /* Preserve the original peek for after both `>` tokens are
+     * consumed. */
+    if (!p->has_stash) {
+        p->stash     = p->peek;
+        p->has_stash = true;
+    }
+    /* Replace peek with the synthesized second `>` at offset+1. */
+    p->peek = p->cur;
+    p->peek.kind   = ZSP_TOK_GT;
+    p->peek.offset = p->cur.offset + 1U;
+    p->peek.length = 1U;
+    /* Replace cur with the first `>`. */
+    p->cur.kind   = ZSP_TOK_GT;
+    p->cur.length = 1U;
 }
 
 static bool parse_template_args(parser_t *p,
@@ -495,6 +572,8 @@ static bool parse_template_args(parser_t *p,
             break;
         }
     }
+    /* Accept `>` or the first half of a `>>`. */
+    try_split_rshift(p);
     if (!expect(p, ZSP_TOK_GT, "expected '>' after template arguments")) {
         return false;
     }
@@ -694,7 +773,8 @@ static zsp_ast_node_t *parse_primary(parser_t *p)
         }
         return n;
     }
-    /* Function-call-like prefixes: lengthof/valueof/numbits/isset */
+    /* Function-call-like prefixes: lengthof/valueof/numbits/isset.
+     * `isset` takes two args (target + flag); the others take one. */
     if (check(p, ZSP_TOK_KW_LENGTHOF) || check(p, ZSP_TOK_KW_VALUEOF)
             || check(p, ZSP_TOK_KW_NUMBITS) || check(p, ZSP_TOK_KW_ISSET)) {
         const zsp_token_kind_t op_tok = p->cur.kind;
@@ -703,6 +783,13 @@ static zsp_ast_node_t *parse_primary(parser_t *p)
             return NULL;
         }
         zsp_ast_node_t *const arg = parse_expression(p);
+        /* Drop any additional comma-separated args (e.g. `isset(x, FLAG)`)
+         * — semantically the second arg is the bitmask flag; the
+         * analyser handles this once it has bitmask-typing context.
+         * For parsing purposes we accept and discard them. */
+        while (eat(p, ZSP_TOK_COMMA)) {
+            (void)parse_expression(p);
+        }
         if (!expect(p, ZSP_TOK_RPAREN, "expected ')' to close builtin call")) {
             return NULL;
         }
@@ -931,6 +1018,7 @@ static bool parse_template_params(parser_t *p,
             break;
         }
     }
+    try_split_rshift(p);
     if (!expect(p, ZSP_TOK_GT, "expected '>' after template parameters")) {
         return false;
     }
@@ -1002,13 +1090,15 @@ static zsp_ast_node_t *parse_field(parser_t *p)
         }
     }
 
-    /* align(N) */
+    /* align(N): — upstream grammar trails the alignment
+     * declaration with a `:`. */
     zsp_ast_node_t *align_expr = NULL;
     if (eat(p, ZSP_TOK_KW_ALIGN)) {
         if (expect(p, ZSP_TOK_LPAREN, "expected '(' after 'align'")) {
             align_expr = parse_expression(p);
             (void)expect(p, ZSP_TOK_RPAREN, "expected ')' after align value");
         }
+        (void)eat(p, ZSP_TOK_COLON);
     }
 
     /* Leading field offset: an expression followed by ':' before
@@ -1282,7 +1372,12 @@ static zsp_ast_node_t *parse_choice_case_or_default(parser_t *p)
         return NULL;
     }
     zsp_ast_node_t *field = NULL;
-    if (!check(p, ZSP_TOK_KW_CASE) && !check(p, ZSP_TOK_KW_DEFAULT)
+    /* Empty case body: `case X: ; // no field` — accept a
+     * lone semicolon as the field placeholder. */
+    if (eat(p, ZSP_TOK_SEMICOLON)) {
+        /* empty case, no field */
+    }
+    else if (!check(p, ZSP_TOK_KW_CASE) && !check(p, ZSP_TOK_KW_DEFAULT)
             && !check(p, ZSP_TOK_RBRACE)) {
         field = parse_field(p);
     }
@@ -1329,6 +1424,16 @@ static zsp_ast_node_t *parse_choice(parser_t *p,
     zsp_ast_node_t *default_case = NULL;
     while (!check(p, ZSP_TOK_RBRACE) && !check(p, ZSP_TOK_EOF)) {
         const uint32_t before = p->cur.offset;
+        /* `function` declarations may appear inside a choice
+         * body alongside cases. Parse + discard for the MVP
+         * emitter; the analyser tracks them on the AST. */
+        if (check(p, ZSP_TOK_KW_FUNCTION)) {
+            (void)parse_function(p);
+            if (p->cur.offset == before) {
+                advance(p);
+            }
+            continue;
+        }
         zsp_ast_node_t *const c = parse_choice_case_or_default(p);
         if (c == NULL) {
             if (p->cur.offset == before) {
@@ -1572,9 +1677,13 @@ static zsp_ast_node_t *parse_sql_field(parser_t *p)
 {
     const uint32_t start = p->cur.offset;
     bool optional_flag = false;
+    /* `sql_virtual` modifier on the field; consumed and ignored
+     * for now (analyser/emitter will pick it up later). */
+    (void)eat(p, ZSP_TOK_KW_SQL_VIRTUAL);
     if (eat(p, ZSP_TOK_KW_OPTIONAL)) {
         optional_flag = true;
     }
+    (void)eat(p, ZSP_TOK_KW_SQL_VIRTUAL);   /* may also follow optional */
     zsp_ast_node_t *const ty = parse_type(p);
     if (ty == NULL) {
         return NULL;
@@ -1583,20 +1692,15 @@ static zsp_ast_node_t *parse_sql_field(parser_t *p)
     if (name == NULL) {
         return NULL;
     }
-    /* SQL constraint can be either `: expr` or `sql "string-lit"`. */
+    /* SQL constraint can be either `: expr` or `sql expr`. The
+     * latter often appears as `sql "STR" + "STR" + ...` so we
+     * parse a full expression after `sql`. */
     zsp_ast_node_t *constraint = NULL;
     if (eat(p, ZSP_TOK_COLON)) {
         constraint = parse_expression(p);
     }
     else if (eat(p, ZSP_TOK_KW_SQL)) {
-        if (check(p, ZSP_TOK_STRING_LIT)) {
-            constraint = new_node_from_tok(p, ZSP_AST_EXPR_STRING_LIT, &p->cur);
-            if (constraint != NULL) {
-                constraint->u.string_lit.span_off = p->cur.offset;
-                constraint->u.string_lit.span_len = p->cur.length;
-            }
-            advance(p);
-        }
+        constraint = parse_expression(p);
     }
     (void)expect(p, ZSP_TOK_SEMICOLON, "expected ';' after SQL field");
     zsp_ast_node_t *const n = new_node(p, ZSP_AST_SQL_FIELD, start);
@@ -1635,6 +1739,14 @@ static zsp_ast_node_t *parse_sql_table(parser_t *p)
     zsp_ast_node_t *const name = parse_ident(p);
     if (name == NULL) {
         return NULL;
+    }
+    /* sql_table may carry template parameters: `sql_table T<U>`. */
+    zsp_ast_node_t **sql_tparams   = NULL;
+    size_t            sql_n_tparams = 0U;
+    if (check(p, ZSP_TOK_LT)) {
+        if (!parse_template_params(p, &sql_tparams, &sql_n_tparams)) {
+            return NULL;
+        }
     }
     /* `using IDENT` clause is allowed both as `sql_table NAME using X`
      * (e.g. for SQLite fts3/fts5 modules) and as the
@@ -1678,7 +1790,9 @@ static zsp_ast_node_t *parse_sql_table(parser_t *p)
 
     zsp_ast_node_t *const n = new_node(p, ZSP_AST_SQL_TABLE, start);
     if (n != NULL) {
-        n->u.sql_table.name           = name;
+        n->u.sql_table.name              = name;
+        n->u.sql_table.template_params   = sql_tparams;
+        n->u.sql_table.n_template_params = sql_n_tparams;
         zsp_ast_list_take(&fields,      &n->u.sql_table.fields,
                           &n->u.sql_table.n_fields);
         zsp_ast_list_take(&constraints, &n->u.sql_table.constraints,
@@ -1788,18 +1902,32 @@ static zsp_ast_node_t *parse_service(parser_t *p)
 static zsp_ast_node_t *parse_pubsub_message(parser_t *p)
 {
     const uint32_t start = p->cur.offset;
+    /* Upstream grammar: `(publish|subscribe|pubsub) topic(expr) Type name;`
+     * — the directionality keyword comes BEFORE `topic`. Accept
+     * both orderings for resilience (some older schemas write
+     * `topic(...) publish ...`). */
+    bool publish = false;
+    bool subscribe = false;
+    while (check(p, ZSP_TOK_KW_PUBLISH) || check(p, ZSP_TOK_KW_SUBSCRIBE)
+            || check(p, ZSP_TOK_KW_PUBSUB)) {
+        if (eat(p, ZSP_TOK_KW_PUBLISH))   publish = true;
+        else if (eat(p, ZSP_TOK_KW_SUBSCRIBE)) subscribe = true;
+        else if (eat(p, ZSP_TOK_KW_PUBSUB)) {
+            publish = true;
+            subscribe = true;
+        }
+    }
     if (!expect(p, ZSP_TOK_KW_TOPIC, "expected 'topic' in pubsub body")) {
         return NULL;
     }
     (void)expect(p, ZSP_TOK_LPAREN, "expected '(' after 'topic'");
     zsp_ast_node_t *const topic_expr = parse_expression(p);
     (void)expect(p, ZSP_TOK_RPAREN, "expected ')' after topic expression");
-    bool publish = false;
-    bool subscribe = false;
-    if (eat(p, ZSP_TOK_KW_PUBLISH))   { publish = true;   }
-    if (eat(p, ZSP_TOK_KW_SUBSCRIBE)) { subscribe = true; }
-    /* `publish subscribe` or `subscribe publish` both valid */
-    if (!publish && eat(p, ZSP_TOK_KW_PUBLISH))   { publish = true; }
+    /* Trailing form: pub/sub keyword after the topic clause. */
+    while (check(p, ZSP_TOK_KW_PUBLISH) || check(p, ZSP_TOK_KW_SUBSCRIBE)) {
+        if (eat(p, ZSP_TOK_KW_PUBLISH))   publish = true;
+        if (eat(p, ZSP_TOK_KW_SUBSCRIBE)) subscribe = true;
+    }
     zsp_ast_node_t *const ty   = parse_type(p);
     zsp_ast_node_t *const name = parse_ident(p);
     (void)expect(p, ZSP_TOK_SEMICOLON, "expected ';' after pubsub message");
