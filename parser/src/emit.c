@@ -1575,21 +1575,21 @@ static void emit_field_read(buf_t *b, const zsp_ast_node_t *field,
     const bool is_array = (ty->kind == ZSP_AST_TYPE_ARRAY);
     const zsp_ast_node_t *element_ty = is_array ? ty->u.type_array.element : ty;
 
-    /* Field-level alignment: emit `zserio_bitstream_reader_align`
-     * before the payload so the stream cursor lands at the right
-     * bit position. */
-    if (field->u.field.align_expr != NULL) {
-        emit_lit(b, "    ZSERIO_TRY(zserio_bitstream_reader_align(bs, ");
-        emit_expr_c(b, field->u.field.align_expr, src);
-        emit_lit(b, "));\n");
-    }
-    /* `offset(<name>):` directive — the next field starts at a
-     * byte boundary, whose byte index the named field stored on
-     * write. Reader byte-aligns here; we don't verify against
-     * the stored value (Java does; cpp_driver's verify catches
-     * mismatches at runtime). */
-    if (field->u.field.offset_expr != NULL) {
-        emit_lit(b, "    ZSERIO_TRY(zserio_bitstream_reader_align(bs, 8u));\n");
+    /* When the field is gated by an `if`-clause or is auto-
+     * optional, the alignment + offset directives only apply
+     * when the payload is actually written. We emit them inside
+     * the `if (..._present)` body further below. */
+    const bool has_if = (field->u.field.if_clause != NULL)
+            || field->u.field.optional;
+    if (!has_if) {
+        if (field->u.field.align_expr != NULL) {
+            emit_lit(b, "    ZSERIO_TRY(zserio_bitstream_reader_align(bs, ");
+            emit_expr_c(b, field->u.field.align_expr, src);
+            emit_lit(b, "));\n");
+        }
+        if (field->u.field.offset_expr != NULL) {
+            emit_lit(b, "    ZSERIO_TRY(zserio_bitstream_reader_align(bs, 8u));\n");
+        }
     }
 
     if (is_array) {
@@ -1718,6 +1718,19 @@ static void emit_field_read(buf_t *b, const zsp_ast_node_t *field,
         emit_lit(b, "    if (self->");
         emit_snake(b, fn, fl);
         emit_lit(b, "_present) {\n    ");
+    }
+    /* Inside the conditional body, perform the field's
+     * alignment / offset directives so they only fire when the
+     * field is actually present (Java semantics). */
+    if (has_if) {
+        if (field->u.field.align_expr != NULL) {
+            emit_lit(b, "    ZSERIO_TRY(zserio_bitstream_reader_align(bs, ");
+            emit_expr_c(b, field->u.field.align_expr, src);
+            emit_lit(b, "));\n");
+        }
+        if (field->u.field.offset_expr != NULL) {
+            emit_lit(b, "    ZSERIO_TRY(zserio_bitstream_reader_align(bs, 8u));\n");
+        }
     }
     (void)has_present;
 
@@ -1959,8 +1972,14 @@ static void emit_field_write(buf_t *b, const zsp_ast_node_t *field,
     const bool is_array = (ty->kind == ZSP_AST_TYPE_ARRAY);
     const zsp_ast_node_t *element_ty = is_array ? ty->u.type_array.element : ty;
 
-    /* Field-level alignment: same as on read but for the writer. */
-    if (field->u.field.align_expr != NULL) {
+    /* Field-level alignment + offset directives — only apply
+     * when the field is actually written (so when an if-clause
+     * is false, no padding is consumed). For unconditional
+     * fields, emit them up front; for conditional fields,
+     * emit them inside the `if (..._present) { }` body below. */
+    const bool has_if = (field->u.field.if_clause != NULL)
+            || field->u.field.optional;
+    if (!has_if && field->u.field.align_expr != NULL) {
         emit_lit(b, "    ZSERIO_TRY(zserio_bitstream_writer_align(bs, ");
         emit_expr_c(b, field->u.field.align_expr, src);
         emit_lit(b, "));\n");
@@ -1969,7 +1988,8 @@ static void emit_field_write(buf_t *b, const zsp_ast_node_t *field,
      * position, seek back to the offset-source field's saved
      * position, overwrite it with the byte index, then seek
      * back to here and continue writing the target. */
-    if ((field->u.field.offset_expr != NULL)
+    if (!has_if
+            && (field->u.field.offset_expr != NULL)
             && (field->u.field.offset_expr->kind == ZSP_AST_EXPR_IDENT)
             && (field->u.field.offset_expr->resolved != NULL)
             && (field->u.field.offset_expr->resolved->kind == ZSP_AST_FIELD)) {
@@ -2111,6 +2131,55 @@ static void emit_field_write(buf_t *b, const zsp_ast_node_t *field,
         emit_lit(b, "    if (");
         emit_expr_c(b, if_clause, src);
         emit_lit(b, ") {\n");
+    }
+    /* Inside the conditional body emit alignment / offset
+     * back-patch so they don't fire when the field is skipped. */
+    if (has_present && field->u.field.align_expr != NULL) {
+        emit_lit(b, "    ZSERIO_TRY(zserio_bitstream_writer_align(bs, ");
+        emit_expr_c(b, field->u.field.align_expr, src);
+        emit_lit(b, "));\n");
+    }
+    if (has_present
+            && (field->u.field.offset_expr != NULL)
+            && (field->u.field.offset_expr->kind == ZSP_AST_EXPR_IDENT)
+            && (field->u.field.offset_expr->resolved != NULL)
+            && (field->u.field.offset_expr->resolved->kind == ZSP_AST_FIELD)) {
+        const zsp_ast_node_t *const src_field = field->u.field.offset_expr->resolved;
+        const zsp_ast_node_t *const src_ty    = src_field->u.field.type;
+        const uint8_t *sn = NULL;
+        size_t         sl = 0U;
+        if (ident_span(src, src_field->u.field.name, &sn, &sl)
+                && (src_ty != NULL)) {
+            emit_lit(b, "    ZSERIO_TRY(zserio_bitstream_writer_align(bs, 8u));\n");
+            emit_lit(b, "    {\n");
+            emit_lit(b, "        const size_t cur_pos_ = zserio_bitstream_writer_position(bs);\n");
+            emit_lit(b, "        ZSERIO_TRY(zserio_bitstream_writer_seek(bs, ");
+            emit_snake(b, sn, sl);
+            emit_lit(b, "_off_pos_));\n");
+            if (src_ty->kind == ZSP_AST_TYPE_BUILTIN) {
+                const zsp_builtin_code_t c = src_ty->u.type_builtin.code;
+                if ((c == ZSP_TB_BIT_FIELD) || (c == ZSP_TB_INT_FIELD)) {
+                    emit_lit(b, "        ZSERIO_TRY(zserio_bitstream_write_bits(bs, ");
+                    if (src_ty->u.type_builtin.width > 0U) emit_uint(b, src_ty->u.type_builtin.width);
+                    else if (src_ty->u.type_builtin.width_expr != NULL) {
+                        emit_lit(b, "(size_t)(");
+                        emit_expr_c(b, src_ty->u.type_builtin.width_expr, src);
+                        emit_lit(b, ")");
+                    }
+                    else emit_lit(b, "64");
+                    emit_lit(b, ", (uint64_t)(cur_pos_ / 8u)));\n");
+                }
+                else {
+                    emit_lit(b, "        ZSERIO_TRY(");
+                    emit_lit(b, builtin_write_fn(c));
+                    emit_lit(b, "(bs, (");
+                    emit_lit(b, builtin_c_type(c));
+                    emit_lit(b, ")(cur_pos_ / 8u)));\n");
+                }
+            }
+            emit_lit(b, "        ZSERIO_TRY(zserio_bitstream_writer_seek(bs, cur_pos_));\n");
+            emit_lit(b, "    }\n");
+        }
     }
 
     /* Bit:N / bit<expr> write through zserio_bitstream_write_bits.
