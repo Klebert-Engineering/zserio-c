@@ -32,7 +32,7 @@ CORPUS_ROOT="${REPO_ROOT}/third_party/zserio-test-data/language"
 WORK_ROOT="${REPO_ROOT}/build-xvalidation"
 ZSERIO_JAR="${REPO_ROOT}/build-jars/zserio.jar"
 ZSERIO_CORE_JAR="${REPO_ROOT}/build-jars/zserio_core.jar"
-ZSERIO_C_JAR="${REPO_ROOT}/generator/build/jar/zserio_c.jar"
+ZSERIO_C_GEN="${REPO_ROOT}/build/parser/zserio_c_gen"
 SEEDS="${SEEDS:-1 2 7 42 999}"
 
 if [[ ! -f "${ZSERIO_JAR}" ]]; then
@@ -41,8 +41,10 @@ if [[ ! -f "${ZSERIO_JAR}" ]]; then
     echo "xval: full zserio.jar (with cpp extension) is staged separately." >&2
     exit 1
 fi
-if [[ ! -f "${ZSERIO_C_JAR}" ]]; then
-    "${REPO_ROOT}/tools/build_generator_jar.sh" >/dev/null
+if [[ ! -x "${ZSERIO_C_GEN}" ]]; then
+    echo "xval: zserio_c_gen not found at ${ZSERIO_C_GEN}" >&2
+    echo "xval: build it first with 'cmake --build build'." >&2
+    exit 1
 fi
 
 SCHEMAS_FILE="${TESTS_ROOT}/schemas.txt"
@@ -153,13 +155,26 @@ while IFS= read -r schema_rel; do
             ;;
     esac
 
-    java -cp "${ZSERIO_CORE_JAR}:${ZSERIO_C_JAR}:${ZSERIO_JAR}" \
+    # cpp side: still produced by upstream's Java cpp extension.
+    java -cp "${ZSERIO_CORE_JAR}:${ZSERIO_JAR}" \
         zserio.tools.ZserioTool \
         "${extra_codegen_args[@]}" \
         -src "${work}/staging" "${rel_schema}" \
-        -c "${work}/c_out" -cpp "${work}/cpp_out" \
-        1>/dev/null 2>"${work}/gen.log" || {
-            echo "xval: ${name}: codegen failed (see ${work}/gen.log)" >&2
+        -cpp "${work}/cpp_out" \
+        1>/dev/null 2>"${work}/cpp_gen.log" || {
+            echo "xval: ${name}: cpp codegen failed (see ${work}/cpp_gen.log)" >&2
+            fail=$((fail + 1))
+            continue
+        }
+    # C side: our C-native generator. -setTopLevelPackage isn't a
+    # zserio_c_gen flag — when the schema needs it we apply the
+    # rename manually below.
+    "${ZSERIO_C_GEN}" \
+        "${work}/staging/${rel_schema}" \
+        -c "${work}/c_out" \
+        -src "${work}/staging" \
+        1>/dev/null 2>"${work}/c_gen.log" || {
+            echo "xval: ${name}: C codegen failed (see ${work}/c_gen.log)" >&2
             fail=$((fail + 1))
             continue
         }

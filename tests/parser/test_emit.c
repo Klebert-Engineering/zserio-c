@@ -138,19 +138,20 @@ static void test_emit_simple_struct(void)
     TEST_ASSERT_NOT_NULL(h);
     TEST_ASSERT_NOT_NULL(c);
 
-    /* Header contains the struct definition + prototypes. */
-    TEST_ASSERT_NOT_NULL(strstr(h->bytes, "typedef struct frame_s frame_t;"));
+    /* Header contains the struct definition + prototypes. Names are
+     * package-qualified to match the Java generator convention. */
+    TEST_ASSERT_NOT_NULL(strstr(h->bytes, "typedef struct x_frame_s x_frame_t;"));
     TEST_ASSERT_NOT_NULL(strstr(h->bytes, "uint32_t sensor_id;"));
     TEST_ASSERT_NOT_NULL(strstr(h->bytes, "zserio_string_t device_label;"));
-    TEST_ASSERT_NOT_NULL(strstr(h->bytes, "frame_t;"));
-    TEST_ASSERT_NOT_NULL(strstr(h->bytes, "frame_read("));
-    TEST_ASSERT_NOT_NULL(strstr(h->bytes, "frame_write("));
-    TEST_ASSERT_NOT_NULL(strstr(h->bytes, "frame_free("));
-    TEST_ASSERT_NOT_NULL(strstr(h->bytes, "frame_init("));
+    TEST_ASSERT_NOT_NULL(strstr(h->bytes, "x_frame_t;"));
+    TEST_ASSERT_NOT_NULL(strstr(h->bytes, "x_frame_read("));
+    TEST_ASSERT_NOT_NULL(strstr(h->bytes, "x_frame_write("));
+    TEST_ASSERT_NOT_NULL(strstr(h->bytes, "x_frame_free("));
+    TEST_ASSERT_NOT_NULL(strstr(h->bytes, "x_frame_init("));
 
     /* Source contains the function bodies. */
-    TEST_ASSERT_NOT_NULL(strstr(c->bytes, "frame_init(frame_t *self)"));
-    TEST_ASSERT_NOT_NULL(strstr(c->bytes, "frame_read("));
+    TEST_ASSERT_NOT_NULL(strstr(c->bytes, "x_frame_init(x_frame_t *self)"));
+    TEST_ASSERT_NOT_NULL(strstr(c->bytes, "x_frame_read("));
     TEST_ASSERT_NOT_NULL(strstr(c->bytes, "zserio_read_uint32(bs, &self->sensor_id)"));
     TEST_ASSERT_NOT_NULL(strstr(c->bytes, "zserio_read_string(bs, alloc, &self->device_label)"));
     TEST_ASSERT_NOT_NULL(strstr(c->bytes, "zserio_string_free(&self->device_label"));
@@ -168,11 +169,11 @@ static void test_emit_enum(void)
 
     const emitted_file_t *const h = find_file(&sink, "color.h");
     TEST_ASSERT_NOT_NULL(h);
-    TEST_ASSERT_NOT_NULL(strstr(h->bytes, "typedef enum color"));
-    TEST_ASSERT_NOT_NULL(strstr(h->bytes, "color_RED = 0"));
-    TEST_ASSERT_NOT_NULL(strstr(h->bytes, "color_GREEN = 1"));
-    TEST_ASSERT_NOT_NULL(strstr(h->bytes, "color_BLUE = 2"));
-    TEST_ASSERT_NOT_NULL(strstr(h->bytes, "color_t;"));
+    TEST_ASSERT_NOT_NULL(strstr(h->bytes, "typedef enum x_color"));
+    TEST_ASSERT_NOT_NULL(strstr(h->bytes, "x_COLOR_RED = 0"));
+    TEST_ASSERT_NOT_NULL(strstr(h->bytes, "x_COLOR_GREEN = 1"));
+    TEST_ASSERT_NOT_NULL(strstr(h->bytes, "x_COLOR_BLUE = 2"));
+    TEST_ASSERT_NOT_NULL(strstr(h->bytes, "x_color_t;"));
 
     memory_sink_free(&sink);
 }
