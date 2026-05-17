@@ -472,6 +472,9 @@ static void enqueue_children(walk_stack_t *st, zsp_ast_node_t *n)
                        n->u.type_ref.n_template_args);
         walk_push_list(st, n->u.type_ref.type_args, n->u.type_ref.n_type_args);
         break;
+    case ZSP_AST_TYPE_BUILTIN:
+        walk_push(st, n->u.type_builtin.width_expr);
+        break;
     case ZSP_AST_TYPE_ARRAY:
         walk_push(st, n->u.type_array.element);
         walk_push(st, n->u.type_array.length_expr);

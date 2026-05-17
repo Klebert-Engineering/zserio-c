@@ -262,13 +262,13 @@ static const char *builtin_c_type(zsp_builtin_code_t code)
     case ZSP_TB_UINT16:     return "uint16_t";
     case ZSP_TB_UINT32:     return "uint32_t";
     case ZSP_TB_UINT64:     return "uint64_t";
+    case ZSP_TB_VARINT16:   return "int16_t";
+    case ZSP_TB_VARINT32:   return "int32_t";
     case ZSP_TB_VARINT:
-    case ZSP_TB_VARINT16:
-    case ZSP_TB_VARINT32:
     case ZSP_TB_VARINT64:   return "int64_t";
+    case ZSP_TB_VARUINT16:  return "uint16_t";
+    case ZSP_TB_VARUINT32:  return "uint32_t";
     case ZSP_TB_VARUINT:
-    case ZSP_TB_VARUINT16:
-    case ZSP_TB_VARUINT32:
     case ZSP_TB_VARUINT64:  return "uint64_t";
     case ZSP_TB_VARSIZE:    return "uint32_t";
     case ZSP_TB_FLOAT16:    return "float";
@@ -393,6 +393,20 @@ static zsp_builtin_code_t emit_field_c_type(buf_t *b,
     }
     if (type_node->kind == ZSP_AST_TYPE_BUILTIN) {
         const zsp_builtin_code_t c = type_node->u.type_builtin.code;
+        /* For sized bit/int fields, pick the smallest builtin
+         * that fits the declared width so harnesses can assign
+         * `uint8_t arr[N]` literally. Dynamic-width (width == 0)
+         * stays on the 64-bit storage. */
+        if ((c == ZSP_TB_BIT_FIELD) || (c == ZSP_TB_INT_FIELD)) {
+            const uint32_t w = type_node->u.type_builtin.width;
+            const bool is_signed = (c == ZSP_TB_INT_FIELD);
+            if (w > 0U && w <= 8U)        emit_lit(b, is_signed ? "int8_t"  : "uint8_t");
+            else if (w > 0U && w <= 16U)  emit_lit(b, is_signed ? "int16_t" : "uint16_t");
+            else if (w > 0U && w <= 32U)  emit_lit(b, is_signed ? "int32_t" : "uint32_t");
+            else                          emit_lit(b, is_signed ? "int64_t" : "uint64_t");
+            *is_owned = false;
+            return c;
+        }
         emit_lit(b, builtin_c_type(c));
         *is_owned = builtin_needs_free(c);
         return c;
@@ -773,14 +787,16 @@ static void emit_referenced_includes(buf_t *b, const zsp_ast_node_t *cmpd,
         const zsp_ast_node_t *m = cmpd->u.compound.members[i];
         if ((m == NULL) || (m->kind != ZSP_AST_FIELD)) continue;
         all_types[n_types++] = m->u.field.type;
-        /* Scan field's array length + init + if-clause for
-         * IDENT references to const decls. */
+        /* Scan field's array length + init + if-clause + align +
+         * offset for IDENT references to const decls. */
         const zsp_ast_node_t *exprs[] = {
             (m->u.field.type && (m->u.field.type->kind == ZSP_AST_TYPE_ARRAY))
                 ? m->u.field.type->u.type_array.length_expr : NULL,
             m->u.field.init_expr,
             m->u.field.if_clause,
             m->u.field.constraint_expr,
+            m->u.field.align_expr,
+            m->u.field.offset_expr,
         };
         for (size_t e = 0U; e < (sizeof(exprs) / sizeof(exprs[0])); ++e) {
             /* DFS through the expression tree looking for IDENT
@@ -1187,6 +1203,31 @@ static void emit_expr_c(buf_t *b, const zsp_ast_node_t *e,
             }
         }
         return;
+    case ZSP_AST_EXPR_INDEX:
+        /* `arr[idx]` — array indexing in a constraint/if-clause. */
+        if (e->u.index.lhs != NULL) {
+            emit_expr_c(b, e->u.index.lhs, src);
+        }
+        emit_lit(b, "[");
+        if (e->u.index.index != NULL) {
+            emit_expr_c(b, e->u.index.index, src);
+        }
+        emit_lit(b, "]");
+        return;
+    case ZSP_AST_EXPR_TERNARY:
+        emit_lit(b, "(");
+        if (e->u.ternary.cond != NULL) emit_expr_c(b, e->u.ternary.cond, src);
+        emit_lit(b, " ? ");
+        if (e->u.ternary.then_expr != NULL) emit_expr_c(b, e->u.ternary.then_expr, src);
+        emit_lit(b, " : ");
+        if (e->u.ternary.else_expr != NULL) emit_expr_c(b, e->u.ternary.else_expr, src);
+        emit_lit(b, ")");
+        return;
+    case ZSP_AST_EXPR_CALL:
+        /* Bare function call — emit as 0 since we don't have a
+         * function-call lowering yet. */
+        emit_lit(b, "0 /*unsupported-call*/");
+        return;
     default:
         emit_lit(b, "0 /*unsupported-expr*/");
         return;
@@ -1204,7 +1245,17 @@ static void emit_element_type(buf_t *b, const zsp_ast_node_t *element_ty,
         return;
     }
     if (element_ty->kind == ZSP_AST_TYPE_BUILTIN) {
-        emit_lit(b, builtin_c_type(element_ty->u.type_builtin.code));
+        const zsp_builtin_code_t c = element_ty->u.type_builtin.code;
+        if ((c == ZSP_TB_BIT_FIELD) || (c == ZSP_TB_INT_FIELD)) {
+            const uint32_t w = element_ty->u.type_builtin.width;
+            const bool is_signed = (c == ZSP_TB_INT_FIELD);
+            if (w > 0U && w <= 8U)        emit_lit(b, is_signed ? "int8_t"  : "uint8_t");
+            else if (w > 0U && w <= 16U)  emit_lit(b, is_signed ? "int16_t" : "uint16_t");
+            else if (w > 0U && w <= 32U)  emit_lit(b, is_signed ? "int32_t" : "uint32_t");
+            else                          emit_lit(b, is_signed ? "int64_t" : "uint64_t");
+            return;
+        }
+        emit_lit(b, builtin_c_type(c));
         return;
     }
     if (element_ty->kind == ZSP_AST_TYPE_REF) {
@@ -1285,9 +1336,18 @@ static char element_read_shape(const zsp_ast_node_t *ty)
         return builtin_needs_free(c) ? 'o' : 'p';
     }
     if (ty->kind == ZSP_AST_TYPE_REF) {
-        const zsp_ast_node_t *const decl = ty->resolved;
+        const zsp_ast_node_t *decl = ty->resolved;
+        /* Peel SUBTYPE aliases so the underlying shape drives
+         * element emission. */
+        while ((decl != NULL) && (decl->kind == ZSP_AST_SUBTYPE)
+                && (decl->u.subtype.target_type != NULL)
+                && (decl->u.subtype.target_type->resolved != NULL)) {
+            decl = decl->u.subtype.target_type->resolved;
+        }
         if (decl != NULL) {
-            if ((decl->kind == ZSP_AST_STRUCT) || (decl->kind == ZSP_AST_UNION)) {
+            if ((decl->kind == ZSP_AST_STRUCT)
+                    || (decl->kind == ZSP_AST_UNION)
+                    || (decl->kind == ZSP_AST_CHOICE)) {
                 return 'c';
             }
             if ((decl->kind == ZSP_AST_ENUM) || (decl->kind == ZSP_AST_BITMASK)) {
@@ -1307,22 +1367,35 @@ static void emit_element_read(buf_t *b, const zsp_ast_node_t *ty,
                               const zsp_source_t *src)
 {
     const char shape = element_read_shape(ty);
-    /* Bit-field element (explicit or dynamic width). */
+    /* Bit-field element (explicit or dynamic width). Signed
+     * (`int:N` / `int<expr>`) goes through the runtime's
+     * sign-extending helper. */
     if ((ty != NULL) && (ty->kind == ZSP_AST_TYPE_BUILTIN)
             && ((ty->u.type_builtin.code == ZSP_TB_BIT_FIELD)
                 || (ty->u.type_builtin.code == ZSP_TB_INT_FIELD))) {
-        const uint32_t w = (ty->u.type_builtin.width > 0U)
-                ? ty->u.type_builtin.width
-                : 64U;
+        const bool is_signed = (ty->u.type_builtin.code == ZSP_TB_INT_FIELD);
         emit_lit(b, "        {\n");
-        emit_lit(b, "            uint64_t tmp_;\n");
-        emit_lit(b, "            ZSERIO_TRY(zserio_bitstream_read_bits(bs, ");
-        emit_uint(b, w);
+        emit_lit(b, is_signed ? "            int64_t tmp_;\n"
+                              : "            uint64_t tmp_;\n");
+        emit_lit(b, is_signed
+                ? "            ZSERIO_TRY(zserio_bitstream_read_signed(bs, "
+                : "            ZSERIO_TRY(zserio_bitstream_read_bits(bs, ");
+        if (ty->u.type_builtin.width > 0U) {
+            emit_uint(b, ty->u.type_builtin.width);
+        }
+        else if (ty->u.type_builtin.width_expr != NULL) {
+            emit_lit(b, "(size_t)(");
+            emit_expr_c(b, ty->u.type_builtin.width_expr, src);
+            emit_lit(b, ")");
+        }
+        else {
+            emit_lit(b, "64");
+        }
         emit_lit(b, ", &tmp_));\n");
         emit_lit(b, "            ");
         emit_lit(b, slot_expr);
         emit_lit(b, " = (");
-        emit_lit(b, builtin_c_type(ty->u.type_builtin.code));
+        emit_element_type(b, ty, src);
         emit_lit(b, ")tmp_;\n");
         emit_lit(b, "        }\n");
         return;
@@ -1398,16 +1471,51 @@ static void emit_field_read(buf_t *b, const zsp_ast_node_t *field,
     const bool is_array = (ty->kind == ZSP_AST_TYPE_ARRAY);
     const zsp_ast_node_t *element_ty = is_array ? ty->u.type_array.element : ty;
 
+    /* Field-level alignment: emit `zserio_bitstream_reader_align`
+     * before the payload so the stream cursor lands at the right
+     * bit position. */
+    if (field->u.field.align_expr != NULL) {
+        emit_lit(b, "    ZSERIO_TRY(zserio_bitstream_reader_align(bs, ");
+        emit_expr_c(b, field->u.field.align_expr, src);
+        emit_lit(b, "));\n");
+    }
+
     if (is_array) {
         /* Array path. Length: explicit expression or auto
          * (varsize length-prefix when length_expr is NULL).
          * Fixed-size arrays (compile-time-constant length) are
          * stored as `T name[N]` inline and read in place — no
-         * length prefix, no allocation. */
+         * length prefix, no allocation.
+         * Optional (`optional T x[];`) and if-guarded arrays
+         * follow the same `_present` flag pattern as scalar
+         * fields. */
         const zsp_ast_node_t *const lenexpr = ty->u.type_array.length_expr;
         const zsp_sema_const_t *const lenc = (lenexpr != NULL)
                 ? (const zsp_sema_const_t *)lenexpr->computed : NULL;
         const bool fixed = (lenc != NULL) && (lenc->kind == ZSP_CONST_UINT);
+        const zsp_ast_node_t *const if_clause = field->u.field.if_clause;
+        const bool has_present =
+                field->u.field.optional || (if_clause != NULL);
+        if (field->u.field.optional && (if_clause == NULL)) {
+            emit_lit(b, "    {\n        uint64_t opt_tmp_; ZSERIO_TRY(zserio_bitstream_read_bits(bs, 1u, &opt_tmp_));\n");
+            emit_lit(b, "        self->");
+            emit_snake(b, fn, fl);
+            emit_lit(b, "_present = (opt_tmp_ != 0u);\n    }\n");
+            emit_lit(b, "    if (self->");
+            emit_snake(b, fn, fl);
+            emit_lit(b, "_present)\n");
+        }
+        else if (if_clause != NULL) {
+            emit_lit(b, "    self->");
+            emit_snake(b, fn, fl);
+            emit_lit(b, "_present = (");
+            emit_expr_c(b, if_clause, src);
+            emit_lit(b, ");\n");
+            emit_lit(b, "    if (self->");
+            emit_snake(b, fn, fl);
+            emit_lit(b, "_present)\n");
+        }
+        (void)has_present;
 
         /* Build the slot expression `self->name[i_]`. */
         char slot[256];
@@ -1513,23 +1621,31 @@ static void emit_field_read(buf_t *b, const zsp_ast_node_t *field,
     if ((ty->kind == ZSP_AST_TYPE_BUILTIN)
             && ((ty->u.type_builtin.code == ZSP_TB_BIT_FIELD)
                 || (ty->u.type_builtin.code == ZSP_TB_INT_FIELD))) {
-        const uint32_t w = (ty->u.type_builtin.width > 0U)
-                ? ty->u.type_builtin.width
-                : 64U;
+        const bool is_signed = (ty->u.type_builtin.code == ZSP_TB_INT_FIELD);
         emit_lit(b, "    {\n");
-        emit_lit(b, "        uint64_t tmp_;\n");
-        emit_lit(b, "        ZSERIO_TRY(zserio_bitstream_read_bits(bs, ");
-        emit_uint(b, w);
+        emit_lit(b, is_signed ? "        int64_t tmp_;\n"
+                              : "        uint64_t tmp_;\n");
+        emit_lit(b, is_signed
+                ? "        ZSERIO_TRY(zserio_bitstream_read_signed(bs, "
+                : "        ZSERIO_TRY(zserio_bitstream_read_bits(bs, ");
+        if (ty->u.type_builtin.width > 0U) {
+            emit_uint(b, ty->u.type_builtin.width);
+        }
+        else if (ty->u.type_builtin.width_expr != NULL) {
+            emit_lit(b, "(size_t)(");
+            emit_expr_c(b, ty->u.type_builtin.width_expr, src);
+            emit_lit(b, ")");
+        }
+        else {
+            emit_lit(b, "64");
+        }
         emit_lit(b, ", &tmp_));\n");
         emit_lit(b, "        self->");
         emit_snake(b, fn, fl);
         emit_lit(b, " = ");
-        if (ty->u.type_builtin.code == ZSP_TB_INT_FIELD) {
-            emit_lit(b, "(int64_t)tmp_;\n");
-        }
-        else {
-            emit_lit(b, "tmp_;\n");
-        }
+        emit_lit(b, "(");
+        emit_element_type(b, ty, src);
+        emit_lit(b, ")tmp_;\n");
         emit_lit(b, "    }\n");
         if (has_present) {
             emit_lit(b, "    }\n");
@@ -1610,12 +1726,22 @@ static void emit_element_write(buf_t *b, const zsp_ast_node_t *ty,
     if ((ty != NULL) && (ty->kind == ZSP_AST_TYPE_BUILTIN)
             && ((ty->u.type_builtin.code == ZSP_TB_BIT_FIELD)
                 || (ty->u.type_builtin.code == ZSP_TB_INT_FIELD))) {
-        const uint32_t w = (ty->u.type_builtin.width > 0U)
-                ? ty->u.type_builtin.width
-                : 64U;
-        emit_lit(b, "            ZSERIO_TRY(zserio_bitstream_write_bits(bs, ");
-        emit_uint(b, w);
-        emit_lit(b, ", (uint64_t)");
+        const bool is_signed = (ty->u.type_builtin.code == ZSP_TB_INT_FIELD);
+        emit_lit(b, is_signed
+                ? "            ZSERIO_TRY(zserio_bitstream_write_signed(bs, "
+                : "            ZSERIO_TRY(zserio_bitstream_write_bits(bs, ");
+        if (ty->u.type_builtin.width > 0U) {
+            emit_uint(b, ty->u.type_builtin.width);
+        }
+        else if (ty->u.type_builtin.width_expr != NULL) {
+            emit_lit(b, "(size_t)(");
+            emit_expr_c(b, ty->u.type_builtin.width_expr, src);
+            emit_lit(b, ")");
+        }
+        else {
+            emit_lit(b, "64");
+        }
+        emit_lit(b, is_signed ? ", (int64_t)" : ", (uint64_t)");
         emit_lit(b, slot_expr);
         emit_lit(b, "));\n");
         return;
@@ -1714,11 +1840,35 @@ static void emit_field_write(buf_t *b, const zsp_ast_node_t *field,
     const bool is_array = (ty->kind == ZSP_AST_TYPE_ARRAY);
     const zsp_ast_node_t *element_ty = is_array ? ty->u.type_array.element : ty;
 
+    /* Field-level alignment: same as on read but for the writer. */
+    if (field->u.field.align_expr != NULL) {
+        emit_lit(b, "    ZSERIO_TRY(zserio_bitstream_writer_align(bs, ");
+        emit_expr_c(b, field->u.field.align_expr, src);
+        emit_lit(b, "));\n");
+    }
+
     if (is_array) {
         const zsp_ast_node_t *const lenexpr = ty->u.type_array.length_expr;
         const zsp_sema_const_t *const lenc = (lenexpr != NULL)
                 ? (const zsp_sema_const_t *)lenexpr->computed : NULL;
         const bool fixed = (lenc != NULL) && (lenc->kind == ZSP_CONST_UINT);
+        const zsp_ast_node_t *const if_clause_a = field->u.field.if_clause;
+        const bool has_present_a =
+                field->u.field.optional || (if_clause_a != NULL);
+        if (field->u.field.optional && (if_clause_a == NULL)) {
+            emit_lit(b, "    ZSERIO_TRY(zserio_bitstream_write_bits(bs, 1u, self->");
+            emit_snake(b, fn, fl);
+            emit_lit(b, "_present ? 1u : 0u));\n");
+            emit_lit(b, "    if (self->");
+            emit_snake(b, fn, fl);
+            emit_lit(b, "_present)\n");
+        }
+        else if (if_clause_a != NULL) {
+            emit_lit(b, "    if (");
+            emit_expr_c(b, if_clause_a, src);
+            emit_lit(b, ")\n");
+        }
+        (void)has_present_a;
         emit_lit(b, "    {\n");
         if (lenexpr == NULL) {
             /* Auto-array: write length prefix. */
@@ -1771,9 +1921,11 @@ static void emit_field_write(buf_t *b, const zsp_ast_node_t *field,
     slot[pos] = '\0';
 
     /* If-clause + optional wrapping mirrors the read. A plain
-     * `optional T x;` writes its 1-bit "is set" tag, then conditionally
-     * writes the payload. An `if`-clause writes only when the
-     * (caller-controlled) `_present` flag is set. */
+     * `optional T x;` writes its 1-bit "is set" tag from the
+     * caller-set `_present` flag, then conditionally writes the
+     * payload. An `if`-clause is recomputed from the struct's
+     * current state on write — the user just sets the field
+     * value; the predicate decides whether bytes get emitted. */
     const zsp_ast_node_t *const if_clause = field->u.field.if_clause;
     const bool has_present =
             field->u.field.optional || (if_clause != NULL);
@@ -1786,22 +1938,34 @@ static void emit_field_write(buf_t *b, const zsp_ast_node_t *field,
         emit_lit(b, "_present) {\n");
     }
     else if (if_clause != NULL) {
-        emit_lit(b, "    if (self->");
-        emit_snake(b, fn, fl);
-        emit_lit(b, "_present) {\n");
+        emit_lit(b, "    if (");
+        emit_expr_c(b, if_clause, src);
+        emit_lit(b, ") {\n");
     }
 
     /* Bit:N / bit<expr> write through zserio_bitstream_write_bits.
-     * Dynamic-width (width==0) falls back to 64-bit as on read. */
+     * Dynamic-width fields carry a `width_expr` we evaluate on
+     * the fly; absent both we fall back to 64-bit. Signed
+     * (`int:N`) routes through the runtime's sign-aware helper. */
     if ((element_ty->kind == ZSP_AST_TYPE_BUILTIN)
             && ((element_ty->u.type_builtin.code == ZSP_TB_BIT_FIELD)
                 || (element_ty->u.type_builtin.code == ZSP_TB_INT_FIELD))) {
-        const uint32_t w = (element_ty->u.type_builtin.width > 0U)
-                ? element_ty->u.type_builtin.width
-                : 64U;
-        emit_lit(b, "    ZSERIO_TRY(zserio_bitstream_write_bits(bs, ");
-        emit_uint(b, w);
-        emit_lit(b, ", (uint64_t)self->");
+        const bool is_signed = (element_ty->u.type_builtin.code == ZSP_TB_INT_FIELD);
+        emit_lit(b, is_signed
+                ? "    ZSERIO_TRY(zserio_bitstream_write_signed(bs, "
+                : "    ZSERIO_TRY(zserio_bitstream_write_bits(bs, ");
+        if (element_ty->u.type_builtin.width > 0U) {
+            emit_uint(b, element_ty->u.type_builtin.width);
+        }
+        else if (element_ty->u.type_builtin.width_expr != NULL) {
+            emit_lit(b, "(size_t)(");
+            emit_expr_c(b, element_ty->u.type_builtin.width_expr, src);
+            emit_lit(b, ")");
+        }
+        else {
+            emit_lit(b, "64");
+        }
+        emit_lit(b, is_signed ? ", (int64_t)self->" : ", (uint64_t)self->");
         emit_snake(b, fn, fl);
         emit_lit(b, "));\n");
         if (has_present) {

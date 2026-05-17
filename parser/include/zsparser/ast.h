@@ -203,7 +203,8 @@ struct zsp_ast_node {
 
         /* types */
         struct { zsp_builtin_code_t code;
-                 uint32_t           width; }  type_builtin;
+                 uint32_t           width;
+                 zsp_ast_node_t  *width_expr; }  type_builtin;
         struct { zsp_ast_node_t  *name;            /**< DOTTED_NAME or IDENT */
                  zsp_ast_node_t **template_args;   /**< Types */
                  size_t            n_template_args;

@@ -425,13 +425,14 @@ static zsp_ast_node_t *parse_bitfield(parser_t *p, zsp_builtin_code_t code)
     advance(p);
 
     uint32_t width = 0U;
+    zsp_ast_node_t *width_expr = NULL;
     if (eat(p, ZSP_TOK_COLON)) {
         if (check(p, ZSP_TOK_INT_LIT)) {
             width = (uint32_t)p->cur.value.u64;
             advance(p);
         }
         else if (eat(p, ZSP_TOK_LPAREN)) {
-            (void)parse_expression(p);
+            width_expr = parse_expression(p);
             (void)expect(p, ZSP_TOK_RPAREN, "expected ')' to close bit width");
         }
         else {
@@ -454,6 +455,7 @@ static zsp_ast_node_t *parse_bitfield(parser_t *p, zsp_builtin_code_t code)
         if (cond != NULL) {
             cond = parse_binop_rhs(p, 8, cond);
         }
+        width_expr = cond;
         if ((cond != NULL) && eat(p, ZSP_TOK_QUESTION)) {
             /* Inside the THEN/ELSE branches, comparisons in
              * sub-expressions are still constrained — schemas
@@ -471,6 +473,7 @@ static zsp_ast_node_t *parse_bitfield(parser_t *p, zsp_builtin_code_t code)
                 tn->u.ternary.then_expr = then_e;
                 tn->u.ternary.else_expr = else_e;
             }
+            width_expr = tn;
         }
         try_split_rshift(p);
         if (!expect(p, ZSP_TOK_GT, "expected '>' to close bit width")) {
@@ -488,6 +491,7 @@ static zsp_ast_node_t *parse_bitfield(parser_t *p, zsp_builtin_code_t code)
     if (n != NULL) {
         n->u.type_builtin.code  = code;
         n->u.type_builtin.width = width;
+        n->u.type_builtin.width_expr = width_expr;
     }
     return n;
 }
