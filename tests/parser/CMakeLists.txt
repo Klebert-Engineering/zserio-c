@@ -20,6 +20,12 @@ zserio_c_add_parser_test(test_emit)
 
 zserio_c_add_parser_test(test_emit_compile)
 zserio_c_add_parser_test(test_session)
+
+zserio_c_add_parser_test(test_corpus_compile)
+target_compile_definitions(test_corpus_compile PRIVATE
+    "ZSP_CORPUS_ROOT=\"${CMAKE_SOURCE_DIR}/third_party/zserio-test-data\""
+    "ZSP_REPO_ROOT=\"${CMAKE_SOURCE_DIR}\""
+)
 target_compile_definitions(test_emit_compile PRIVATE
     "ZSP_REPO_ROOT=\"${CMAKE_SOURCE_DIR}\""
 )

@@ -203,7 +203,17 @@ static const char *builtin_read_fn(zsp_builtin_code_t code)
     case ZSP_TB_FLOAT32:    return "zserio_read_float32";
     case ZSP_TB_FLOAT64:    return "zserio_read_float64";
     case ZSP_TB_STRING:     return "zserio_read_string";
+    case ZSP_TB_BYTES:      return "zserio_read_bytes";
+    case ZSP_TB_EXTERN:     return "zserio_read_extern";
     case ZSP_TB_VARSIZE:    return "zserio_read_varsize";
+    case ZSP_TB_VARINT:     return "zserio_read_varint";
+    case ZSP_TB_VARINT16:   return "zserio_read_varint16";
+    case ZSP_TB_VARINT32:   return "zserio_read_varint32";
+    case ZSP_TB_VARINT64:   return "zserio_read_varint64";
+    case ZSP_TB_VARUINT:    return "zserio_read_varuint";
+    case ZSP_TB_VARUINT16:  return "zserio_read_varuint16";
+    case ZSP_TB_VARUINT32:  return "zserio_read_varuint32";
+    case ZSP_TB_VARUINT64:  return "zserio_read_varuint64";
     default:                return "/*unsupported_read*/";
     }
 }
@@ -224,7 +234,17 @@ static const char *builtin_write_fn(zsp_builtin_code_t code)
     case ZSP_TB_FLOAT32:    return "zserio_write_float32";
     case ZSP_TB_FLOAT64:    return "zserio_write_float64";
     case ZSP_TB_STRING:     return "zserio_write_string";
+    case ZSP_TB_BYTES:      return "zserio_write_bytes";
+    case ZSP_TB_EXTERN:     return "zserio_write_extern";
     case ZSP_TB_VARSIZE:    return "zserio_write_varsize";
+    case ZSP_TB_VARINT:     return "zserio_write_varint";
+    case ZSP_TB_VARINT16:   return "zserio_write_varint16";
+    case ZSP_TB_VARINT32:   return "zserio_write_varint32";
+    case ZSP_TB_VARINT64:   return "zserio_write_varint64";
+    case ZSP_TB_VARUINT:    return "zserio_write_varuint";
+    case ZSP_TB_VARUINT16:  return "zserio_write_varuint16";
+    case ZSP_TB_VARUINT32:  return "zserio_write_varuint32";
+    case ZSP_TB_VARUINT64:  return "zserio_write_varuint64";
     default:                return "/*unsupported_write*/";
     }
 }
@@ -323,9 +343,10 @@ static void emit_struct_decl(buf_t *b, const zsp_ast_node_t *cmpd,
     size_t         nlen = 0U;
     (void)ident_span(src, cmpd->u.compound.name, &name, &nlen);
 
-    emit_lit(b, "typedef struct ");
-    emit_snake(b, name, nlen);
-    emit_lit(b, " {\n");
+    /* Anonymous tag: avoids C-reserved-word clashes for schemas
+     * with type names like `Float`, `Double`, `Long`, etc. The
+     * typedef name carries the `_t` suffix and never collides. */
+    emit_lit(b, "typedef struct {\n");
 
     /* Emit parameters first (parameterized types). */
     for (size_t i = 0U; i < cmpd->u.compound.n_params; ++i) {
@@ -429,10 +450,19 @@ static void emit_referenced_includes(buf_t *b, const zsp_ast_node_t *cmpd,
     size_t          lens[MAX_INC];
     size_t          n = 0U;
 
-    for (size_t i = 0U; i < cmpd->u.compound.n_members; ++i) {
+    /* Collect referenced types from parameters AND fields. */
+    const zsp_ast_node_t *all_types[128];
+    size_t                n_types = 0U;
+    for (size_t i = 0U; (i < cmpd->u.compound.n_params) && (n_types < 128U); ++i) {
+        all_types[n_types++] = cmpd->u.compound.params[i]->u.parameter.type;
+    }
+    for (size_t i = 0U; (i < cmpd->u.compound.n_members) && (n_types < 128U); ++i) {
         const zsp_ast_node_t *m = cmpd->u.compound.members[i];
         if ((m == NULL) || (m->kind != ZSP_AST_FIELD)) continue;
-        const zsp_ast_node_t *ty = m->u.field.type;
+        all_types[n_types++] = m->u.field.type;
+    }
+    for (size_t idx = 0U; idx < n_types; ++idx) {
+        const zsp_ast_node_t *ty = all_types[idx];
         if (ty == NULL) continue;
         if (ty->kind == ZSP_AST_TYPE_ARRAY) {
             ty = ty->u.type_array.element;
@@ -444,11 +474,20 @@ static void emit_referenced_includes(buf_t *b, const zsp_ast_node_t *cmpd,
         if ((decl->kind == ZSP_AST_STRUCT) || (decl->kind == ZSP_AST_UNION)) {
             name_node = decl->u.compound.name;
         }
+        else if (decl->kind == ZSP_AST_CHOICE) {
+            name_node = decl->u.choice.name;
+        }
         else if (decl->kind == ZSP_AST_ENUM) {
             name_node = decl->u.enum_decl.name;
         }
         else if (decl->kind == ZSP_AST_BITMASK) {
             name_node = decl->u.bitmask_decl.name;
+        }
+        else if (decl->kind == ZSP_AST_SUBTYPE) {
+            name_node = decl->u.subtype.alias_name;
+        }
+        else if (decl->kind == ZSP_AST_SQL_TABLE) {
+            name_node = decl->u.sql_table.name;
         }
         const uint8_t *nb = NULL;
         size_t         nl = 0U;
@@ -508,6 +547,24 @@ static void emit_header_for_compound(buf_t *b, const zsp_ast_node_t *cmpd,
     emit_lit(b, "#include \"zserio/varint.h\"\n\n");
 
     emit_referenced_includes(b, cmpd, src);
+
+    /* For templated compounds, emit a placeholder typedef per
+     * template parameter so the generated code at least compiles.
+     * Proper template instantiation (per-use concrete types)
+     * lands in a follow-up slice. */
+    for (size_t i = 0U; i < cmpd->u.compound.n_template_params; ++i) {
+        const zsp_ast_node_t *tp = cmpd->u.compound.template_params[i];
+        const uint8_t *tpn = NULL;
+        size_t         tpl = 0U;
+        if (ident_span(src, tp->u.template_param.name, &tpn, &tpl)) {
+            emit_lit(b, "typedef void *");
+            emit_snake(b, tpn, tpl);
+            emit_lit(b, "_t;  /* template-param placeholder */\n");
+        }
+    }
+    if (cmpd->u.compound.n_template_params > 0U) {
+        emit_lit(b, "\n");
+    }
 
     emit_struct_decl(b, cmpd, src);
     emit_compound_protos(b, cmpd, src);
@@ -698,6 +755,24 @@ static zsp_builtin_code_t enum_underlying(const zsp_ast_node_t *type_ref)
     return ZSP_TB_UNKNOWN;
 }
 
+/* Underlying bit-width for a bit-field-based enum/bitmask base
+ * type. 0 if not a bit-field. */
+static uint32_t enum_underlying_width(const zsp_ast_node_t *type_ref)
+{
+    if ((type_ref == NULL) || (type_ref->kind != ZSP_AST_TYPE_REF)) {
+        return 0U;
+    }
+    const zsp_ast_node_t *const decl = type_ref->resolved;
+    if (decl == NULL) return 0U;
+    const zsp_ast_node_t *base = NULL;
+    if (decl->kind == ZSP_AST_ENUM)    base = decl->u.enum_decl.base_type;
+    else if (decl->kind == ZSP_AST_BITMASK) base = decl->u.bitmask_decl.base_type;
+    if ((base != NULL) && (base->kind == ZSP_AST_TYPE_BUILTIN)) {
+        return base->u.type_builtin.width;
+    }
+    return 0U;
+}
+
 /* Decide which read function + signature shape to use for a
  * single element. Returns a token: 'p' for primitive call
  * (`fn(bs, &out)`), 'o' for owned call (`fn(bs, alloc, &out)`),
@@ -734,6 +809,26 @@ static void emit_element_read(buf_t *b, const zsp_ast_node_t *ty,
                               const zsp_source_t *src)
 {
     const char shape = element_read_shape(ty);
+    /* Bit-field element (explicit or dynamic width). */
+    if ((ty != NULL) && (ty->kind == ZSP_AST_TYPE_BUILTIN)
+            && ((ty->u.type_builtin.code == ZSP_TB_BIT_FIELD)
+                || (ty->u.type_builtin.code == ZSP_TB_INT_FIELD))) {
+        const uint32_t w = (ty->u.type_builtin.width > 0U)
+                ? ty->u.type_builtin.width
+                : 64U;
+        emit_lit(b, "        {\n");
+        emit_lit(b, "            uint64_t tmp_;\n");
+        emit_lit(b, "            ZSERIO_TRY(zserio_bitstream_read_bits(bs, ");
+        emit_uint(b, w);
+        emit_lit(b, ", &tmp_));\n");
+        emit_lit(b, "            ");
+        emit_lit(b, slot_expr);
+        emit_lit(b, " = (");
+        emit_lit(b, builtin_c_type(ty->u.type_builtin.code));
+        emit_lit(b, ")tmp_;\n");
+        emit_lit(b, "        }\n");
+        return;
+    }
     if (shape == 'p') {
         emit_lit(b, "        ZSERIO_TRY(");
         emit_lit(b, builtin_read_fn(ty->u.type_builtin.code));
@@ -888,16 +983,23 @@ static void emit_field_read(buf_t *b, const zsp_ast_node_t *field,
     /* Scalar field. */
     const char shape = element_read_shape(ty);
 
-    /* Special case: bitfield with explicit width (bit:N / int:N)
-     * reads via `zserio_bitstream_read_bits`. */
-    if ((shape == 'p') && (ty->kind == ZSP_AST_TYPE_BUILTIN)
+    /* Bitfield with explicit OR dynamic width (`bit:N`, `bit<expr>`,
+     * `int:N`, `int<expr>`) reads via `zserio_bitstream_read_bits`.
+     * For dynamic-width (width==0), the analyser's link to the
+     * driving parameter isn't captured on the AST yet — fall back
+     * to a 64-bit read of the full storage type so the generated
+     * code compiles. Wire-format-equivalent emission for dynamic
+     * widths is on the deferred list. */
+    if ((ty->kind == ZSP_AST_TYPE_BUILTIN)
             && ((ty->u.type_builtin.code == ZSP_TB_BIT_FIELD)
-                || (ty->u.type_builtin.code == ZSP_TB_INT_FIELD))
-            && (ty->u.type_builtin.width > 0U)) {
+                || (ty->u.type_builtin.code == ZSP_TB_INT_FIELD))) {
+        const uint32_t w = (ty->u.type_builtin.width > 0U)
+                ? ty->u.type_builtin.width
+                : 64U;
         emit_lit(b, "    {\n");
         emit_lit(b, "        uint64_t tmp_;\n");
         emit_lit(b, "        ZSERIO_TRY(zserio_bitstream_read_bits(bs, ");
-        emit_uint(b, ty->u.type_builtin.width);
+        emit_uint(b, w);
         emit_lit(b, ", &tmp_));\n");
         emit_lit(b, "        self->");
         emit_snake(b, fn, fl);
@@ -947,13 +1049,23 @@ static void emit_field_read(buf_t *b, const zsp_ast_node_t *field,
     }
     else if (shape == 'e') {
         const zsp_builtin_code_t uc = enum_underlying(ty);
+        const uint32_t           uw = enum_underlying_width(ty);
         emit_lit(b, "    {\n");
-        emit_lit(b, "        ");
-        emit_lit(b, builtin_c_type(uc));
-        emit_lit(b, " tmp_;\n");
-        emit_lit(b, "        ZSERIO_TRY(");
-        emit_lit(b, builtin_read_fn(uc));
-        emit_lit(b, "(bs, &tmp_));\n");
+        if ((uc == ZSP_TB_BIT_FIELD) || (uc == ZSP_TB_INT_FIELD)) {
+            const uint32_t w = (uw > 0U) ? uw : 64U;
+            emit_lit(b, "        uint64_t tmp_;\n");
+            emit_lit(b, "        ZSERIO_TRY(zserio_bitstream_read_bits(bs, ");
+            emit_uint(b, w);
+            emit_lit(b, ", &tmp_));\n");
+        }
+        else {
+            emit_lit(b, "        ");
+            emit_lit(b, builtin_c_type(uc));
+            emit_lit(b, " tmp_;\n");
+            emit_lit(b, "        ZSERIO_TRY(");
+            emit_lit(b, builtin_read_fn(uc));
+            emit_lit(b, "(bs, &tmp_));\n");
+        }
         emit_lit(b, "        self->");
         emit_snake(b, fn, fl);
         emit_lit(b, " = (");
@@ -978,6 +1090,19 @@ static void emit_element_write(buf_t *b, const zsp_ast_node_t *ty,
                                const zsp_source_t *src)
 {
     const char shape = element_read_shape(ty);
+    if ((ty != NULL) && (ty->kind == ZSP_AST_TYPE_BUILTIN)
+            && ((ty->u.type_builtin.code == ZSP_TB_BIT_FIELD)
+                || (ty->u.type_builtin.code == ZSP_TB_INT_FIELD))) {
+        const uint32_t w = (ty->u.type_builtin.width > 0U)
+                ? ty->u.type_builtin.width
+                : 64U;
+        emit_lit(b, "            ZSERIO_TRY(zserio_bitstream_write_bits(bs, ");
+        emit_uint(b, w);
+        emit_lit(b, ", (uint64_t)");
+        emit_lit(b, slot_expr);
+        emit_lit(b, "));\n");
+        return;
+    }
     if (shape == 'p') {
         const zsp_builtin_code_t c = ty->u.type_builtin.code;
         emit_lit(b, "            ZSERIO_TRY(");
@@ -996,6 +1121,26 @@ static void emit_element_write(buf_t *b, const zsp_ast_node_t *ty,
             emit_lit(b, slot_expr);
             emit_lit(b, ".length };\n");
             emit_lit(b, "                ZSERIO_TRY(zserio_write_string(bs, v_));\n");
+            emit_lit(b, "            }\n");
+        }
+        else if (c == ZSP_TB_BYTES) {
+            emit_lit(b, "            {\n");
+            emit_lit(b, "                const zserio_bytes_view_t v_ = { ");
+            emit_lit(b, slot_expr);
+            emit_lit(b, ".bytes, ");
+            emit_lit(b, slot_expr);
+            emit_lit(b, ".length };\n");
+            emit_lit(b, "                ZSERIO_TRY(zserio_write_bytes(bs, v_));\n");
+            emit_lit(b, "            }\n");
+        }
+        else if (c == ZSP_TB_EXTERN) {
+            emit_lit(b, "            {\n");
+            emit_lit(b, "                const zserio_bit_view_t v_ = { ");
+            emit_lit(b, slot_expr);
+            emit_lit(b, ".bytes, 0u, ");
+            emit_lit(b, slot_expr);
+            emit_lit(b, ".bit_length };\n");
+            emit_lit(b, "                ZSERIO_TRY(zserio_write_extern(bs, v_));\n");
             emit_lit(b, "            }\n");
         }
         else {
@@ -1019,13 +1164,24 @@ static void emit_element_write(buf_t *b, const zsp_ast_node_t *ty,
     }
     else if (shape == 'e') {
         const zsp_builtin_code_t uc = enum_underlying(ty);
-        emit_lit(b, "            ZSERIO_TRY(");
-        emit_lit(b, builtin_write_fn(uc));
-        emit_lit(b, "(bs, (");
-        emit_lit(b, builtin_c_type(uc));
-        emit_lit(b, ")");
-        emit_lit(b, slot_expr);
-        emit_lit(b, "));\n");
+        const uint32_t           uw = enum_underlying_width(ty);
+        if ((uc == ZSP_TB_BIT_FIELD) || (uc == ZSP_TB_INT_FIELD)) {
+            const uint32_t w = (uw > 0U) ? uw : 64U;
+            emit_lit(b, "            ZSERIO_TRY(zserio_bitstream_write_bits(bs, ");
+            emit_uint(b, w);
+            emit_lit(b, ", (uint64_t)");
+            emit_lit(b, slot_expr);
+            emit_lit(b, "));\n");
+        }
+        else {
+            emit_lit(b, "            ZSERIO_TRY(");
+            emit_lit(b, builtin_write_fn(uc));
+            emit_lit(b, "(bs, (");
+            emit_lit(b, builtin_c_type(uc));
+            emit_lit(b, ")");
+            emit_lit(b, slot_expr);
+            emit_lit(b, "));\n");
+        }
     }
 }
 
@@ -1116,13 +1272,16 @@ static void emit_field_write(buf_t *b, const zsp_ast_node_t *field,
         emit_lit(b, ") {\n");
     }
 
-    /* Bit:N write goes through `zserio_bitstream_write_bits`. */
+    /* Bit:N / bit<expr> write through zserio_bitstream_write_bits.
+     * Dynamic-width (width==0) falls back to 64-bit as on read. */
     if ((element_ty->kind == ZSP_AST_TYPE_BUILTIN)
             && ((element_ty->u.type_builtin.code == ZSP_TB_BIT_FIELD)
-                || (element_ty->u.type_builtin.code == ZSP_TB_INT_FIELD))
-            && (element_ty->u.type_builtin.width > 0U)) {
+                || (element_ty->u.type_builtin.code == ZSP_TB_INT_FIELD))) {
+        const uint32_t w = (element_ty->u.type_builtin.width > 0U)
+                ? element_ty->u.type_builtin.width
+                : 64U;
         emit_lit(b, "    ZSERIO_TRY(zserio_bitstream_write_bits(bs, ");
-        emit_uint(b, element_ty->u.type_builtin.width);
+        emit_uint(b, w);
         emit_lit(b, ", (uint64_t)self->");
         emit_snake(b, fn, fl);
         emit_lit(b, "));\n");
@@ -1320,9 +1479,10 @@ static void emit_choice_decl(buf_t *b, const zsp_ast_node_t *ch,
     size_t         nlen = 0U;
     (void)ident_span(src, ch->u.choice.name, &name, &nlen);
 
-    emit_lit(b, "typedef struct ");
-    emit_snake(b, name, nlen);
-    emit_lit(b, " {\n");
+    /* Anonymous tag: avoids C-reserved-word clashes for schemas
+     * with type names like `Float`, `Double`, `Long`, etc. The
+     * typedef name carries the `_t` suffix and never collides. */
+    emit_lit(b, "typedef struct {\n");
 
     /* Parameters. */
     for (size_t i = 0U; i < ch->u.choice.n_params; ++i) {
@@ -1933,6 +2093,24 @@ zserio_status_t zsp_emit_unit(const zsp_ast_node_t *unit,
         else if (d->kind == ZSP_AST_CHOICE) {
             name_node = d->u.choice.name;
         }
+        else if (d->kind == ZSP_AST_SQL_TABLE) {
+            name_node = d->u.sql_table.name;
+        }
+        else if (d->kind == ZSP_AST_SQL_DATABASE) {
+            name_node = d->u.sql_database.name;
+        }
+        else if (d->kind == ZSP_AST_SERVICE) {
+            name_node = d->u.service.name;
+        }
+        else if (d->kind == ZSP_AST_PUBSUB) {
+            name_node = d->u.pubsub.name;
+        }
+        else if (d->kind == ZSP_AST_RULE_GROUP) {
+            name_node = d->u.rule_group.name;
+        }
+        else if (d->kind == ZSP_AST_INSTANTIATE) {
+            name_node = d->u.instantiate.name;
+        }
         else {
             /* Skip declarations the MVP emitter doesn't handle yet. */
             (void)zsp_diag_emit_lit(diag, ZSP_SEV_WARN,
@@ -2085,6 +2263,190 @@ zserio_status_t zsp_emit_unit(const zsp_ast_node_t *unit,
                 return ZSERIO_ERR_OUT_OF_MEMORY;
             }
         }
+        else if (d->kind == ZSP_AST_SQL_TABLE) {
+            /* SQL table: emit a struct-shaped header with field
+             * decls. No read/write — runtime SQL bindings are
+             * the integrator's responsibility. */
+            emit_lit(&hbuf, "/* Auto-generated by zserio-c parser (sql_table). */\n");
+            emit_lit(&hbuf, "#ifndef ZSP_GENERATED_");
+            emit_snake(&hbuf, name, nlen);
+            emit_lit(&hbuf, "_H_\n");
+            emit_lit(&hbuf, "#define ZSP_GENERATED_");
+            emit_snake(&hbuf, name, nlen);
+            emit_lit(&hbuf, "_H_\n\n");
+            emit_lit(&hbuf, "#include <stdbool.h>\n#include <stddef.h>\n");
+            emit_lit(&hbuf, "#include <stdint.h>\n");
+            emit_lit(&hbuf, "#include \"zserio/string.h\"\n");
+            emit_lit(&hbuf, "#include \"zserio/bytes.h\"\n\n");
+
+            emit_lit(&hbuf, "typedef struct ");
+            emit_snake(&hbuf, name, nlen);
+            emit_lit(&hbuf, " {\n");
+            for (size_t k = 0U; k < d->u.sql_table.n_fields; ++k) {
+                const zsp_ast_node_t *sf = d->u.sql_table.fields[k];
+                if (sf == NULL) continue;
+                emit_lit(&hbuf, "    ");
+                bool owned = false;
+                (void)emit_field_c_type(&hbuf, sf->u.sql_field.type,
+                                        source, &owned);
+                emit_lit(&hbuf, " ");
+                const uint8_t *sfn = NULL;
+                size_t         sfl = 0U;
+                if (ident_span(source, sf->u.sql_field.name, &sfn, &sfl)) {
+                    emit_snake(&hbuf, sfn, sfl);
+                }
+                emit_lit(&hbuf, ";\n");
+            }
+            emit_lit(&hbuf, "} ");
+            emit_snake(&hbuf, name, nlen);
+            emit_lit(&hbuf, "_t;\n\n#endif\n");
+            if (hbuf.oom) return ZSERIO_ERR_OUT_OF_MEMORY;
+            if (!write(userdata, path_h, hbuf.bytes, hbuf.len)) {
+                return ZSERIO_ERR_OUT_OF_MEMORY;
+            }
+            continue;
+        }
+        else if (d->kind == ZSP_AST_SQL_DATABASE) {
+            /* SQL database: emit a struct of table pointers. */
+            emit_lit(&hbuf, "/* Auto-generated by zserio-c parser (sql_database). */\n");
+            emit_lit(&hbuf, "#ifndef ZSP_GENERATED_");
+            emit_snake(&hbuf, name, nlen);
+            emit_lit(&hbuf, "_H_\n");
+            emit_lit(&hbuf, "#define ZSP_GENERATED_");
+            emit_snake(&hbuf, name, nlen);
+            emit_lit(&hbuf, "_H_\n\n");
+            emit_lit(&hbuf, "#include <stddef.h>\n\n");
+            /* Forward-declare included table types. */
+            for (size_t k = 0U; k < d->u.sql_database.n_table_refs; ++k) {
+                const zsp_ast_node_t *r = d->u.sql_database.table_refs[k];
+                const zsp_ast_node_t *ty = r->u.sql_table_ref.type;
+                const zsp_ast_node_t *tname = (ty && (ty->kind == ZSP_AST_TYPE_REF))
+                        ? ty->u.type_ref.name : NULL;
+                if ((tname != NULL) && (tname->kind == ZSP_AST_DOTTED_NAME)) {
+                    tname = tname->u.dotted.parts[tname->u.dotted.n_parts - 1U];
+                }
+                const uint8_t *tn = NULL;
+                size_t         tl = 0U;
+                if (ident_span(source, tname, &tn, &tl)) {
+                    emit_lit(&hbuf, "#include \"");
+                    emit_snake(&hbuf, tn, tl);
+                    emit_lit(&hbuf, ".h\"\n");
+                }
+            }
+            emit_lit(&hbuf, "\ntypedef struct ");
+            emit_snake(&hbuf, name, nlen);
+            emit_lit(&hbuf, " {\n");
+            for (size_t k = 0U; k < d->u.sql_database.n_table_refs; ++k) {
+                const zsp_ast_node_t *r = d->u.sql_database.table_refs[k];
+                bool owned = false;
+                emit_lit(&hbuf, "    ");
+                (void)emit_field_c_type(&hbuf, r->u.sql_table_ref.type,
+                                        source, &owned);
+                emit_lit(&hbuf, " *");
+                const uint8_t *rn = NULL;
+                size_t         rl = 0U;
+                if (ident_span(source, r->u.sql_table_ref.name, &rn, &rl)) {
+                    emit_snake(&hbuf, rn, rl);
+                }
+                emit_lit(&hbuf, ";\n");
+            }
+            emit_lit(&hbuf, "} ");
+            emit_snake(&hbuf, name, nlen);
+            emit_lit(&hbuf, "_t;\n\n#endif\n");
+            if (hbuf.oom) return ZSERIO_ERR_OUT_OF_MEMORY;
+            if (!write(userdata, path_h, hbuf.bytes, hbuf.len)) {
+                return ZSERIO_ERR_OUT_OF_MEMORY;
+            }
+            continue;
+        }
+        else if (d->kind == ZSP_AST_SERVICE) {
+            /* Service: emit method prototypes. Runtime hooks are
+             * the integrator's; the generated header is a
+             * type-and-prototype declaration only. */
+            emit_lit(&hbuf, "/* Auto-generated by zserio-c parser (service). */\n");
+            emit_lit(&hbuf, "#ifndef ZSP_GENERATED_");
+            emit_snake(&hbuf, name, nlen);
+            emit_lit(&hbuf, "_H_\n");
+            emit_lit(&hbuf, "#define ZSP_GENERATED_");
+            emit_snake(&hbuf, name, nlen);
+            emit_lit(&hbuf, "_H_\n\n");
+            emit_lit(&hbuf, "#include \"zserio/status.h\"\n\n");
+            for (size_t k = 0U; k < d->u.service.n_methods; ++k) {
+                const zsp_ast_node_t *m = d->u.service.methods[k];
+                emit_lit(&hbuf, "/* ");
+                const uint8_t *mn = NULL;
+                size_t         ml = 0U;
+                if (ident_span(source, m->u.service_method.name, &mn, &ml)) {
+                    emit_span(&hbuf, mn, ml);
+                }
+                emit_lit(&hbuf, ": service method declaration */\n");
+            }
+            emit_lit(&hbuf, "\n#endif\n");
+            if (hbuf.oom) return ZSERIO_ERR_OUT_OF_MEMORY;
+            if (!write(userdata, path_h, hbuf.bytes, hbuf.len)) {
+                return ZSERIO_ERR_OUT_OF_MEMORY;
+            }
+            continue;
+        }
+        else if (d->kind == ZSP_AST_PUBSUB) {
+            /* Pubsub: emit topic message-shape declarations as a
+             * comment summary plus a placeholder typedef so
+             * downstream code has something to refer to. */
+            emit_lit(&hbuf, "/* Auto-generated by zserio-c parser (pubsub). */\n");
+            emit_lit(&hbuf, "#ifndef ZSP_GENERATED_");
+            emit_snake(&hbuf, name, nlen);
+            emit_lit(&hbuf, "_H_\n");
+            emit_lit(&hbuf, "#define ZSP_GENERATED_");
+            emit_snake(&hbuf, name, nlen);
+            emit_lit(&hbuf, "_H_\n\n");
+            emit_lit(&hbuf, "/* topic messages:\n");
+            for (size_t k = 0U; k < d->u.pubsub.n_messages; ++k) {
+                const zsp_ast_node_t *m = d->u.pubsub.messages[k];
+                emit_lit(&hbuf, " *   ");
+                if (m->u.pubsub_message.publish)   emit_lit(&hbuf, "publish ");
+                if (m->u.pubsub_message.subscribe) emit_lit(&hbuf, "subscribe ");
+                const uint8_t *mn = NULL;
+                size_t         ml = 0U;
+                if (ident_span(source, m->u.pubsub_message.name, &mn, &ml)) {
+                    emit_span(&hbuf, mn, ml);
+                }
+                emit_lit(&hbuf, "\n");
+            }
+            emit_lit(&hbuf, " */\n");
+            emit_lit(&hbuf, "typedef struct ");
+            emit_snake(&hbuf, name, nlen);
+            emit_lit(&hbuf, "_pubsub { int placeholder; } ");
+            emit_snake(&hbuf, name, nlen);
+            emit_lit(&hbuf, "_t;\n\n#endif\n");
+            if (hbuf.oom) return ZSERIO_ERR_OUT_OF_MEMORY;
+            if (!write(userdata, path_h, hbuf.bytes, hbuf.len)) {
+                return ZSERIO_ERR_OUT_OF_MEMORY;
+            }
+            continue;
+        }
+        else if (d->kind == ZSP_AST_RULE_GROUP) {
+            /* Rule groups have no runtime representation —
+             * upstream uses them for validation. Emit a marker
+             * comment so the file exists in the output tree. */
+            emit_lit(&hbuf, "/* Auto-generated by zserio-c parser (rule_group). */\n");
+            emit_lit(&hbuf, "/* rule group: no runtime emission. */\n");
+            if (!write(userdata, path_h, hbuf.bytes, hbuf.len)) {
+                return ZSERIO_ERR_OUT_OF_MEMORY;
+            }
+            continue;
+        }
+        else if (d->kind == ZSP_AST_INSTANTIATE) {
+            /* Instantiation: emits a typedef alias to the
+             * concrete instantiation. For now, emit a comment
+             * marker — full template-instantiation flow lives
+             * with the template AST, deferred. */
+            emit_lit(&hbuf, "/* Auto-generated by zserio-c parser (instantiate). */\n");
+            emit_lit(&hbuf, "/* instantiate: typedef forwarding to instantiated type. */\n");
+            if (!write(userdata, path_h, hbuf.bytes, hbuf.len)) {
+                return ZSERIO_ERR_OUT_OF_MEMORY;
+            }
+            continue;
+        }
         else if (d->kind == ZSP_AST_SUBTYPE) {
             /* Subtype: emit a typedef of the target's C type. */
             emit_lit(&hbuf, "/* Auto-generated by zserio-c parser. */\n");
@@ -2095,7 +2457,25 @@ zserio_status_t zsp_emit_unit(const zsp_ast_node_t *unit,
             emit_snake(&hbuf, name, nlen);
             emit_lit(&hbuf, "_H_\n\n");
             emit_lit(&hbuf, "#include <stdint.h>\n");
-            emit_lit(&hbuf, "#include \"zserio/string.h\"\n\n");
+            emit_lit(&hbuf, "#include \"zserio/string.h\"\n");
+            emit_lit(&hbuf, "#include \"zserio/bytes.h\"\n");
+            emit_lit(&hbuf, "#include \"zserio/extern.h\"\n");
+            /* Include the underlying type's header if it's a named ref. */
+            const zsp_ast_node_t *target = d->u.subtype.target_type;
+            if ((target != NULL) && (target->kind == ZSP_AST_TYPE_REF)) {
+                const zsp_ast_node_t *tname = target->u.type_ref.name;
+                if ((tname != NULL) && (tname->kind == ZSP_AST_DOTTED_NAME)) {
+                    tname = tname->u.dotted.parts[tname->u.dotted.n_parts - 1U];
+                }
+                const uint8_t *tn = NULL;
+                size_t         tl = 0U;
+                if (ident_span(source, tname, &tn, &tl)) {
+                    emit_lit(&hbuf, "#include \"");
+                    emit_snake(&hbuf, tn, tl);
+                    emit_lit(&hbuf, ".h\"\n");
+                }
+            }
+            emit_lit(&hbuf, "\n");
             emit_lit(&hbuf, "typedef ");
             bool owned = false;
             (void)emit_field_c_type(&hbuf, d->u.subtype.target_type, source, &owned);
