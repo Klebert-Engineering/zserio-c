@@ -395,5 +395,14 @@ zserio_status_t zsp_session_analyse(zsp_session_t *s)
             ZSERIO_TRY(zsp_sema_resolve_unit(&s->sema, s->files[i].unit));
         }
     }
+    /* Phase 3: template instantiation across all units. Runs
+     * after all units are resolved so cloning sees fully-
+     * resolved template bodies regardless of unit order. */
+    for (size_t i = 0U; i < s->n_files; ++i) {
+        if (s->files[i].unit != NULL) {
+            ZSERIO_TRY(zsp_sema_instantiate_templates(
+                    &s->sema, s->files[i].unit));
+        }
+    }
     return ZSERIO_OK;
 }

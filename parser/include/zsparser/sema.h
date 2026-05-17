@@ -151,4 +151,20 @@ const zsp_sema_const_t *zsp_sema_eval(zsp_sema_t *s, zsp_ast_node_t *expr);
 /** Sentinel used to detect cycles during const-eval. */
 const zsp_sema_const_t *zsp_sema_const_cycle_marker(void);
 
+/* ----- Template instantiation -------------------------------- */
+
+/**
+ * Scan the loaded units' AST for TYPE_REF nodes that supply
+ * template arguments, then clone each used template into a
+ * concrete instantiation (one per unique arg-list signature).
+ * Each cloned decl is added to the templated decl's enclosing
+ * unit's decls list. TYPE_REF nodes that drove an instantiation
+ * are rewritten to point at the concrete clone.
+ *
+ * Called automatically as part of `zsp_sema_resolve_unit` and
+ * `zsp_sema_analyse_unit` after name resolution completes.
+ */
+zserio_status_t zsp_sema_instantiate_templates(zsp_sema_t     *s,
+                                               zsp_ast_node_t *unit);
+
 #endif /* ZSPARSER_SEMA_H_ */

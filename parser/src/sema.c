@@ -1290,6 +1290,595 @@ zserio_status_t zsp_sema_register_unit(zsp_sema_t *s, zsp_ast_node_t *unit)
     return collect_top_level(s, unit);
 }
 
+/* ============================================================ */
+/* Template instantiation                                        */
+/* ============================================================ */
+
+/* Substitution table for cloning a templated decl. Each entry
+ * maps a TEMPLATE_PARAM decl node to the concrete TYPE_REF
+ * argument it should resolve to. */
+typedef struct subst {
+    const zsp_ast_node_t *param;   /* TEMPLATE_PARAM */
+    const zsp_ast_node_t *arg;     /* concrete TYPE_REF (cloned-or-borrowed) */
+} subst_t;
+
+typedef struct subst_table {
+    const subst_t *entries;
+    size_t         n;
+} subst_table_t;
+
+static const zsp_ast_node_t *find_subst(const subst_table_t *tbl,
+                                        const zsp_ast_node_t *param)
+{
+    if (tbl == NULL) return NULL;
+    for (size_t i = 0U; i < tbl->n; ++i) {
+        if (tbl->entries[i].param == param) {
+            return tbl->entries[i].arg;
+        }
+    }
+    return NULL;
+}
+
+/* Clone a single AST node. Recursively clones referenced
+ * children with substitution applied at TYPE_REF nodes that
+ * resolve to template parameters in `tbl`. */
+static zsp_ast_node_t *clone_node(zsp_arena_t *arena,
+                                  const zsp_ast_node_t *src,
+                                  const subst_table_t *tbl);
+
+/* Clone an array of node pointers. Returns NULL on OOM. */
+static zsp_ast_node_t **clone_list(zsp_arena_t *arena,
+                                   zsp_ast_node_t * const *src, size_t n,
+                                   const subst_table_t *tbl)
+{
+    if (n == 0U) return NULL;
+    zsp_ast_node_t **out = (zsp_ast_node_t **)zsp_arena_alloc(
+            arena, n * sizeof(zsp_ast_node_t *), sizeof(zsp_ast_node_t *));
+    if (out == NULL) return NULL;
+    for (size_t i = 0U; i < n; ++i) {
+        out[i] = clone_node(arena, src[i], tbl);
+    }
+    return out;
+}
+
+static zsp_ast_node_t *clone_node(zsp_arena_t *arena,
+                                  const zsp_ast_node_t *src,
+                                  const subst_table_t *tbl)
+{
+    if (src == NULL) return NULL;
+
+    /* Substitution: a TYPE_REF whose resolved decl is a template
+     * parameter is replaced by a fresh TYPE_REF cloned from the
+     * substitution target. */
+    if ((src->kind == ZSP_AST_TYPE_REF) && (src->resolved != NULL)
+            && (src->resolved->kind == ZSP_AST_TEMPLATE_PARAM)) {
+        const zsp_ast_node_t *const arg = find_subst(tbl, src->resolved);
+        if (arg != NULL) {
+            return clone_node(arena, arg, NULL);
+        }
+    }
+
+    zsp_ast_node_t *dst = (zsp_ast_node_t *)zsp_arena_alloc(
+            arena, sizeof(zsp_ast_node_t), sizeof(void *));
+    if (dst == NULL) return NULL;
+    (void)memcpy(dst, src, sizeof(zsp_ast_node_t));
+
+    /* Per-kind recursive clone of children that may contain
+     * template-param references. Other children stay shared. */
+    switch (src->kind) {
+    case ZSP_AST_TYPE_REF:
+        dst->u.type_ref.template_args = clone_list(
+                arena, src->u.type_ref.template_args,
+                src->u.type_ref.n_template_args, tbl);
+        dst->u.type_ref.type_args = clone_list(
+                arena, src->u.type_ref.type_args,
+                src->u.type_ref.n_type_args, tbl);
+        break;
+    case ZSP_AST_TYPE_ARRAY:
+        dst->u.type_array.element = clone_node(arena, src->u.type_array.element, tbl);
+        dst->u.type_array.length_expr = clone_node(arena, src->u.type_array.length_expr, tbl);
+        break;
+    case ZSP_AST_FIELD:
+        dst->u.field.type        = clone_node(arena, src->u.field.type, tbl);
+        dst->u.field.if_clause   = clone_node(arena, src->u.field.if_clause, tbl);
+        dst->u.field.init_expr   = clone_node(arena, src->u.field.init_expr, tbl);
+        dst->u.field.constraint_expr = clone_node(arena, src->u.field.constraint_expr, tbl);
+        dst->u.field.align_expr  = clone_node(arena, src->u.field.align_expr, tbl);
+        dst->u.field.offset_expr = clone_node(arena, src->u.field.offset_expr, tbl);
+        break;
+    case ZSP_AST_PARAMETER:
+        dst->u.parameter.type = clone_node(arena, src->u.parameter.type, tbl);
+        break;
+    case ZSP_AST_STRUCT:
+    case ZSP_AST_UNION:
+        /* The compound's template_params don't need cloning
+         * — we strip them in the concrete instance. */
+        dst->u.compound.template_params   = NULL;
+        dst->u.compound.n_template_params = 0U;
+        dst->u.compound.params = clone_list(
+                arena, src->u.compound.params, src->u.compound.n_params, tbl);
+        dst->u.compound.members = clone_list(
+                arena, src->u.compound.members, src->u.compound.n_members, tbl);
+        /* Clear `resolved` (was pointing at template unit) */
+        dst->resolved = NULL;
+        break;
+    case ZSP_AST_CHOICE:
+        dst->u.choice.template_params   = NULL;
+        dst->u.choice.n_template_params = 0U;
+        dst->u.choice.params = clone_list(
+                arena, src->u.choice.params, src->u.choice.n_params, tbl);
+        dst->u.choice.selector = clone_node(arena, src->u.choice.selector, tbl);
+        dst->u.choice.cases = clone_list(
+                arena, src->u.choice.cases, src->u.choice.n_cases, tbl);
+        dst->u.choice.default_case = clone_node(arena, src->u.choice.default_case, tbl);
+        dst->resolved = NULL;
+        break;
+    case ZSP_AST_CHOICE_CASE:
+        dst->u.choice_case.labels = clone_list(
+                arena, src->u.choice_case.labels, src->u.choice_case.n_labels, tbl);
+        dst->u.choice_case.field = clone_node(arena, src->u.choice_case.field, tbl);
+        break;
+    case ZSP_AST_CHOICE_DEFAULT:
+        dst->u.choice_default.field = clone_node(arena, src->u.choice_default.field, tbl);
+        break;
+    case ZSP_AST_EXPR_BINARY:
+        dst->u.binop.lhs = clone_node(arena, src->u.binop.lhs, tbl);
+        dst->u.binop.rhs = clone_node(arena, src->u.binop.rhs, tbl);
+        break;
+    case ZSP_AST_EXPR_UNARY:
+        dst->u.unop.operand = clone_node(arena, src->u.unop.operand, tbl);
+        break;
+    case ZSP_AST_EXPR_TERNARY:
+        dst->u.ternary.cond      = clone_node(arena, src->u.ternary.cond, tbl);
+        dst->u.ternary.then_expr = clone_node(arena, src->u.ternary.then_expr, tbl);
+        dst->u.ternary.else_expr = clone_node(arena, src->u.ternary.else_expr, tbl);
+        break;
+    case ZSP_AST_EXPR_MEMBER:
+        dst->u.member.lhs = clone_node(arena, src->u.member.lhs, tbl);
+        /* RHS name node stays shared */
+        break;
+    case ZSP_AST_EXPR_INDEX:
+        dst->u.index.lhs   = clone_node(arena, src->u.index.lhs, tbl);
+        dst->u.index.index = clone_node(arena, src->u.index.index, tbl);
+        break;
+    case ZSP_AST_EXPR_CALL:
+        dst->u.call.callee = clone_node(arena, src->u.call.callee, tbl);
+        dst->u.call.args = clone_list(arena, src->u.call.args, src->u.call.n_args, tbl);
+        break;
+    default:
+        /* Atomic kinds: shallow copy is sufficient. */
+        break;
+    }
+    return dst;
+}
+
+/* Construct a concrete instance name from a template name +
+ * its argument types. Writes into `out` (snake-cased). */
+static size_t mangle_name(const zsp_sema_t *s, const uint8_t *base,
+                          size_t base_len,
+                          zsp_ast_node_t * const *args, size_t n_args,
+                          char *out, size_t out_cap)
+{
+    size_t pos = 0U;
+    if (base_len >= out_cap) base_len = out_cap - 1U;
+    (void)memcpy(out, base, base_len);
+    pos = base_len;
+    for (size_t i = 0U; i < n_args; ++i) {
+        if ((pos + 1U) >= out_cap) break;
+        out[pos++] = '_';
+        const zsp_ast_node_t *arg = args[i];
+        const uint8_t *arg_name = NULL;
+        size_t         arg_len  = 0U;
+        if ((arg != NULL) && (arg->kind == ZSP_AST_TYPE_REF)) {
+            const zsp_ast_node_t *n = arg->u.type_ref.name;
+            if ((n != NULL) && (n->kind == ZSP_AST_DOTTED_NAME)) {
+                n = n->u.dotted.parts[n->u.dotted.n_parts - 1U];
+            }
+            (void)extract_simple_name(s, n, &arg_name, &arg_len);
+        }
+        else if ((arg != NULL) && (arg->kind == ZSP_AST_TYPE_BUILTIN)) {
+            static const char *names[] = {
+                [ZSP_TB_BOOL]="bool", [ZSP_TB_INT8]="int8",
+                [ZSP_TB_INT16]="int16", [ZSP_TB_INT32]="int32",
+                [ZSP_TB_INT64]="int64", [ZSP_TB_UINT8]="uint8",
+                [ZSP_TB_UINT16]="uint16", [ZSP_TB_UINT32]="uint32",
+                [ZSP_TB_UINT64]="uint64", [ZSP_TB_FLOAT16]="float16",
+                [ZSP_TB_FLOAT32]="float32", [ZSP_TB_FLOAT64]="float64",
+                [ZSP_TB_STRING]="string", [ZSP_TB_BYTES]="bytes",
+                [ZSP_TB_EXTERN]="extern", [ZSP_TB_VARINT]="varint",
+                [ZSP_TB_VARUINT]="varuint", [ZSP_TB_VARSIZE]="varsize",
+            };
+            if ((size_t)arg->u.type_builtin.code < sizeof(names)/sizeof(names[0])
+                    && names[arg->u.type_builtin.code] != NULL) {
+                arg_name = (const uint8_t *)names[arg->u.type_builtin.code];
+                arg_len  = strlen(names[arg->u.type_builtin.code]);
+            }
+        }
+        if ((arg_name != NULL) && (arg_len > 0U)) {
+            const size_t copy = (arg_len < (out_cap - pos - 1U))
+                    ? arg_len : (out_cap - pos - 1U);
+            (void)memcpy(&out[pos], arg_name, copy);
+            pos += copy;
+        }
+    }
+    out[pos] = '\0';
+    return pos;
+}
+
+/* Tracking of already-instantiated combinations. */
+typedef struct inst_record {
+    const zsp_ast_node_t  *template_decl;
+    zsp_ast_node_t       **args;      /* the arg list (borrowed) */
+    size_t                 n_args;
+    zsp_ast_node_t        *concrete;  /* the cloned decl */
+    char                   mangled[256];
+    size_t                 mangled_len;
+} inst_record_t;
+
+static bool type_arg_equal(const zsp_ast_node_t *a, const zsp_ast_node_t *b)
+{
+    if (a == b) return true;
+    if ((a == NULL) || (b == NULL)) return false;
+    if (a->kind != b->kind) return false;
+    if (a->kind == ZSP_AST_TYPE_BUILTIN) {
+        return a->u.type_builtin.code == b->u.type_builtin.code;
+    }
+    if (a->kind == ZSP_AST_TYPE_REF) {
+        if ((a->resolved != NULL) && (a->resolved == b->resolved)) {
+            return true;
+        }
+        return false;
+    }
+    return false;
+}
+
+static bool args_equal(zsp_ast_node_t * const *a, size_t na,
+                       zsp_ast_node_t * const *b, size_t nb)
+{
+    if (na != nb) return false;
+    for (size_t i = 0U; i < na; ++i) {
+        if (!type_arg_equal(a[i], b[i])) return false;
+    }
+    return true;
+}
+
+static zsp_ast_node_t *get_decl_name_node(zsp_ast_node_t *d)
+{
+    switch (d->kind) {
+    case ZSP_AST_STRUCT:
+    case ZSP_AST_UNION:  return d->u.compound.name;
+    case ZSP_AST_CHOICE: return d->u.choice.name;
+    default:             return NULL;
+    }
+}
+
+static void set_decl_name(zsp_ast_node_t *d, zsp_ast_node_t *name_node)
+{
+    switch (d->kind) {
+    case ZSP_AST_STRUCT:
+    case ZSP_AST_UNION:  d->u.compound.name = name_node; break;
+    case ZSP_AST_CHOICE: d->u.choice.name   = name_node; break;
+    default:             break;
+    }
+}
+
+/* Build a synthetic IDENT node whose `span_off`/`span_len`
+ * reference a freshly arena-allocated string. */
+static zsp_ast_node_t *make_synthetic_ident(zsp_sema_t *s,
+                                            zsp_ast_node_t *template_decl,
+                                            const char *mangled, size_t len)
+{
+    /* Copy into arena so the storage outlives this call. */
+    char *buf = (char *)zsp_arena_alloc(s->arena, len + 1U, 1U);
+    if (buf == NULL) return NULL;
+    (void)memcpy(buf, mangled, len);
+    buf[len] = '\0';
+
+    /* Add a synthetic "file" entry so the IDENT's span references
+     * real bytes the source manager can look up. We register the
+     * string itself as a borrowed file in the source manager. */
+    /* Simpler: use the template's existing file_id and a sentinel
+     * span_off that points beyond the file. Source-manager lookup
+     * for diagnostics will fail gracefully, but emit just memcpys
+     * via ident_span which reads file.bytes[span_off] — which
+     * would be UB on out-of-range.
+     *
+     * Solution: register the mangled name as a borrowed buffer
+     * in the source manager and use the returned file_id. */
+    zsp_file_id_t fid = (zsp_file_id_t)0;
+    /* Borrowed registration (we own `buf` in the arena, source
+     * manager won't free it). */
+    if (zsp_source_add_borrowed(
+            (zsp_source_t *)(uintptr_t)s->source,
+            buf, len, (const uint8_t *)buf, len, &fid) != ZSERIO_OK) {
+        return NULL;
+    }
+    zsp_ast_node_t *id = (zsp_ast_node_t *)zsp_arena_alloc(
+            s->arena, sizeof(zsp_ast_node_t), sizeof(void *));
+    if (id == NULL) return NULL;
+    (void)memset(id, 0, sizeof(*id));
+    id->kind            = ZSP_AST_EXPR_IDENT;
+    id->file_id         = fid;
+    id->offset          = 0U;
+    id->length          = (uint32_t)len;
+    id->u.ident.span_off = 0U;
+    id->u.ident.span_len = (uint32_t)len;
+    (void)template_decl;
+    return id;
+}
+
+/* Per-unit context for the instantiation pass. */
+typedef struct inst_ctx {
+    zsp_sema_t      *s;
+    zsp_ast_node_t  *unit;
+    inst_record_t  **records;
+    size_t           n_records;
+    size_t           cap;
+} inst_ctx_t;
+
+static zsp_ast_node_t *get_or_instantiate(inst_ctx_t *ctx,
+                                          zsp_ast_node_t *template_decl,
+                                          zsp_ast_node_t * const *args,
+                                          size_t n_args);
+
+static void replace_template_refs(inst_ctx_t *ctx, zsp_ast_node_t *node);
+
+/* Build a sub-decl from a template, returning its (cached or new)
+ * concrete clone. Mutates context's records list. */
+static zsp_ast_node_t *get_or_instantiate(inst_ctx_t *ctx,
+                                          zsp_ast_node_t *template_decl,
+                                          zsp_ast_node_t * const *args,
+                                          size_t n_args)
+{
+    /* Lookup existing in per-unit records. */
+    for (size_t i = 0U; i < ctx->n_records; ++i) {
+        inst_record_t *r = ctx->records[i];
+        if ((r->template_decl == template_decl)
+                && args_equal(r->args, r->n_args,
+                              (zsp_ast_node_t * const *)args, n_args)) {
+            return r->concrete;
+        }
+    }
+    /* Mangle name first so we can check global scope for an
+     * already-instantiated concrete clone (e.g., produced when
+     * another unit's pass visited this same template). */
+    char    pre_mangled[256];
+    size_t  pre_mangled_len = 0U;
+    const zsp_ast_node_t *pre_base_name = get_decl_name_node(template_decl);
+    const uint8_t *pre_base_bytes = NULL;
+    size_t         pre_base_len   = 0U;
+    if (extract_simple_name(ctx->s, pre_base_name, &pre_base_bytes,
+                            &pre_base_len)) {
+        pre_mangled_len = mangle_name(ctx->s, pre_base_bytes, pre_base_len,
+                                      (zsp_ast_node_t * const *)args, n_args,
+                                      pre_mangled, sizeof(pre_mangled));
+        zsp_ast_node_t *existing = zsp_sema_scope_find(
+                ctx->s->root, (const uint8_t *)pre_mangled,
+                pre_mangled_len);
+        if ((existing != NULL) && (existing != template_decl)
+                && (existing->kind == template_decl->kind)) {
+            return existing;
+        }
+    }
+    /* Grow records list. */
+    if (ctx->n_records == ctx->cap) {
+        const size_t nc = (ctx->cap == 0U) ? 16U : (ctx->cap * 2U);
+        inst_record_t **g = (inst_record_t **)zsp_arena_alloc(
+                ctx->s->arena, nc * sizeof(inst_record_t *), sizeof(void *));
+        if (g == NULL) return NULL;
+        if (ctx->records != NULL) {
+            (void)memcpy(g, ctx->records, ctx->n_records * sizeof(inst_record_t *));
+        }
+        ctx->records = g;
+        ctx->cap     = nc;
+    }
+    inst_record_t *rec = (inst_record_t *)zsp_arena_alloc(
+            ctx->s->arena, sizeof(inst_record_t), sizeof(void *));
+    if (rec == NULL) return NULL;
+    (void)memset(rec, 0, sizeof(*rec));
+    rec->template_decl = template_decl;
+    rec->args = (zsp_ast_node_t **)zsp_arena_alloc(
+            ctx->s->arena, n_args * sizeof(zsp_ast_node_t *), sizeof(void *));
+    if (rec->args == NULL) return NULL;
+    (void)memcpy(rec->args, args, n_args * sizeof(zsp_ast_node_t *));
+    rec->n_args = n_args;
+
+    /* Get template params count. */
+    const size_t n_template_params =
+            (template_decl->kind == ZSP_AST_STRUCT
+             || template_decl->kind == ZSP_AST_UNION)
+            ? template_decl->u.compound.n_template_params
+            : (template_decl->kind == ZSP_AST_CHOICE
+               ? template_decl->u.choice.n_template_params : 0U);
+    if (n_template_params != n_args) {
+        return NULL;
+    }
+    zsp_ast_node_t **tparams =
+            (template_decl->kind == ZSP_AST_CHOICE)
+            ? template_decl->u.choice.template_params
+            : template_decl->u.compound.template_params;
+
+    /* Build substitution table. */
+    subst_t *entries = (subst_t *)zsp_arena_alloc(
+            ctx->s->arena, n_args * sizeof(subst_t), sizeof(void *));
+    if (entries == NULL) return NULL;
+    for (size_t i = 0U; i < n_args; ++i) {
+        entries[i].param = tparams[i];
+        entries[i].arg   = args[i];
+    }
+    subst_table_t tbl = { entries, n_args };
+
+    /* Clone the decl with substitution. */
+    zsp_ast_node_t *concrete = clone_node(ctx->s->arena, template_decl, &tbl);
+    if (concrete == NULL) return NULL;
+
+    /* Compute mangled name + replace the name node. */
+    const zsp_ast_node_t *base_name = get_decl_name_node(template_decl);
+    const uint8_t *base_bytes = NULL;
+    size_t         base_len   = 0U;
+    if (extract_simple_name(ctx->s, base_name, &base_bytes, &base_len)) {
+        rec->mangled_len = mangle_name(ctx->s, base_bytes, base_len,
+                                       (zsp_ast_node_t * const *)args, n_args,
+                                       rec->mangled, sizeof(rec->mangled));
+        zsp_ast_node_t *id = make_synthetic_ident(ctx->s, template_decl,
+                                                  rec->mangled,
+                                                  rec->mangled_len);
+        if (id != NULL) {
+            set_decl_name(concrete, id);
+        }
+    }
+    rec->concrete = concrete;
+    ctx->records[ctx->n_records++] = rec;
+
+    /* Add concrete to the template_decl's enclosing unit. We
+     * find it via template_decl->resolved (which we set at
+     * register-time to point at the unit). */
+    zsp_ast_node_t *target_unit = template_decl->resolved;
+    if ((target_unit == NULL) || (target_unit->kind != ZSP_AST_UNIT)) {
+        target_unit = ctx->unit;
+    }
+    /* Grow the unit's decls array. */
+    const size_t old_n = target_unit->u.unit.n_decls;
+    zsp_ast_node_t **grown = (zsp_ast_node_t **)zsp_arena_alloc(
+            ctx->s->arena, (old_n + 1U) * sizeof(zsp_ast_node_t *),
+            sizeof(void *));
+    if (grown == NULL) return concrete;
+    (void)memcpy(grown, target_unit->u.unit.decls,
+                 old_n * sizeof(zsp_ast_node_t *));
+    grown[old_n] = concrete;
+    target_unit->u.unit.decls   = grown;
+    target_unit->u.unit.n_decls = old_n + 1U;
+    /* Also bind the concrete into the root scope so future
+     * references to its mangled name resolve. */
+    concrete->resolved = target_unit;
+    (void)scope_bind(ctx->s, ctx->s->root,
+                     (const uint8_t *)rec->mangled,
+                     rec->mangled_len, concrete);
+
+    /* Recursively scan the concrete for further template uses. */
+    replace_template_refs(ctx, concrete);
+
+    return concrete;
+}
+
+/* Walk a node and replace any TYPE_REF that has template args
+ * by setting its `resolved` to the concrete clone and clearing
+ * its template_args (so the emitter sees a plain reference).
+ * Also dereferences TYPE_REFs that resolve to an INSTANTIATE
+ * alias into the underlying concrete clone. */
+static void replace_template_refs(inst_ctx_t *ctx, zsp_ast_node_t *node)
+{
+    if (node == NULL) return;
+    if ((node->kind == ZSP_AST_TYPE_REF)
+            && (node->u.type_ref.n_template_args > 0U)
+            && (node->resolved != NULL)
+            && ((node->resolved->kind == ZSP_AST_STRUCT)
+                || (node->resolved->kind == ZSP_AST_UNION)
+                || (node->resolved->kind == ZSP_AST_CHOICE))) {
+        zsp_ast_node_t *templ = node->resolved;
+        zsp_ast_node_t **args = node->u.type_ref.template_args;
+        size_t           n    = node->u.type_ref.n_template_args;
+        /* Recurse into args first so nested template uses get
+         * resolved. */
+        for (size_t i = 0U; i < n; ++i) {
+            replace_template_refs(ctx, args[i]);
+        }
+        /* Skip if any arg is still a template parameter — the
+         * enclosing template hasn't been instantiated yet. The
+         * outer instantiation pass will revisit this use through
+         * the substituted body. */
+        bool has_open_param = false;
+        for (size_t i = 0U; i < n; ++i) {
+            if ((args[i] != NULL)
+                    && (args[i]->kind == ZSP_AST_TYPE_REF)
+                    && (args[i]->resolved != NULL)
+                    && (args[i]->resolved->kind == ZSP_AST_TEMPLATE_PARAM)) {
+                has_open_param = true;
+                break;
+            }
+        }
+        if (has_open_param) {
+            return;
+        }
+        zsp_ast_node_t *concrete = get_or_instantiate(ctx, templ, args, n);
+        if (concrete != NULL) {
+            node->resolved = concrete;
+            node->u.type_ref.template_args   = NULL;
+            node->u.type_ref.n_template_args = 0U;
+            /* Rewrite the type-ref's name to the concrete's
+             * mangled name so the emitter's name-based code
+             * generation produces the right C symbol. */
+            zsp_ast_node_t *new_name = get_decl_name_node(concrete);
+            if (new_name != NULL) {
+                node->u.type_ref.name = new_name;
+            }
+        }
+    }
+    /* Dereference TYPE_REFs that resolve to an INSTANTIATE alias.
+     * The INSTANTIATE's target is itself a templated TYPE_REF;
+     * after processing that target the chain yields the concrete
+     * clone we should point at. */
+    else if ((node->kind == ZSP_AST_TYPE_REF)
+            && (node->resolved != NULL)
+            && (node->resolved->kind == ZSP_AST_INSTANTIATE)) {
+        zsp_ast_node_t *inst = node->resolved;
+        zsp_ast_node_t *tgt  = inst->u.instantiate.target;
+        if (tgt != NULL) {
+            replace_template_refs(ctx, tgt);
+            if ((tgt->kind == ZSP_AST_TYPE_REF)
+                    && (tgt->resolved != NULL)
+                    && ((tgt->resolved->kind == ZSP_AST_STRUCT)
+                        || (tgt->resolved->kind == ZSP_AST_UNION)
+                        || (tgt->resolved->kind == ZSP_AST_CHOICE))) {
+                node->resolved = tgt->resolved;
+                zsp_ast_node_t *new_name = get_decl_name_node(tgt->resolved);
+                if (new_name != NULL) {
+                    node->u.type_ref.name = new_name;
+                }
+            }
+        }
+    }
+
+    /* Recurse into all children. */
+    walk_stack_t st = { NULL, 0U, 0U, ctx->s->arena, false };
+    enqueue_children(&st, node);
+    for (size_t i = 0U; i < st.count; ++i) {
+        replace_template_refs(ctx, st.items[i]);
+    }
+}
+
+zserio_status_t zsp_sema_instantiate_templates(zsp_sema_t *s,
+                                               zsp_ast_node_t *unit)
+{
+    if ((s == NULL) || (unit == NULL)) {
+        return ZSERIO_ERR_INVALID_ARGUMENT;
+    }
+    if (unit->kind != ZSP_AST_UNIT) {
+        return ZSERIO_OK;
+    }
+    inst_ctx_t ctx = { s, unit, NULL, 0U, 0U };
+    /* Snapshot the original decl count so newly-added clones
+     * aren't iterated again (their internals are already
+     * processed inside get_or_instantiate). */
+    const size_t orig_n = unit->u.unit.n_decls;
+    for (size_t i = 0U; i < orig_n; ++i) {
+        zsp_ast_node_t *d = unit->u.unit.decls[i];
+        if (d == NULL) continue;
+        /* Skip templated decls themselves — only walk their uses
+         * (from non-templated decls). The concrete clones added
+         * inside get_or_instantiate ARE walked recursively from
+         * within that function. */
+        const size_t n_tp =
+                ((d->kind == ZSP_AST_STRUCT) || (d->kind == ZSP_AST_UNION))
+                ? d->u.compound.n_template_params
+                : (d->kind == ZSP_AST_CHOICE)
+                ? d->u.choice.n_template_params : 0U;
+        if (n_tp > 0U) continue;
+        replace_template_refs(&ctx, d);
+    }
+    return ZSERIO_OK;
+}
+
 zserio_status_t zsp_sema_resolve_unit(zsp_sema_t *s, zsp_ast_node_t *unit)
 {
     if ((s == NULL) || (unit == NULL)) {
@@ -1297,6 +1886,10 @@ zserio_status_t zsp_sema_resolve_unit(zsp_sema_t *s, zsp_ast_node_t *unit)
     }
     ZSERIO_TRY(resolve_pass(s, unit));
     ZSERIO_TRY(evaluate_known_constants(s, unit));
+    /* Template instantiation runs in its own session-level
+     * phase so that it sees fully-resolved AST across all
+     * units (templates and their uses may live in different
+     * files). See `zsp_session_analyse`. */
     return ZSERIO_OK;
 }
 
