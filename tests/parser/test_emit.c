@@ -139,7 +139,7 @@ static void test_emit_simple_struct(void)
     TEST_ASSERT_NOT_NULL(c);
 
     /* Header contains the struct definition + prototypes. */
-    TEST_ASSERT_NOT_NULL(strstr(h->bytes, "typedef struct {"));
+    TEST_ASSERT_NOT_NULL(strstr(h->bytes, "typedef struct frame_s frame_t;"));
     TEST_ASSERT_NOT_NULL(strstr(h->bytes, "uint32_t sensor_id;"));
     TEST_ASSERT_NOT_NULL(strstr(h->bytes, "zserio_string_t device_label;"));
     TEST_ASSERT_NOT_NULL(strstr(h->bytes, "frame_t;"));

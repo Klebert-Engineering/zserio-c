@@ -773,9 +773,118 @@ static zserio_status_t resolve_walk(zsp_sema_t *s, zsp_ast_node_t *n)
     return ZSERIO_OK;
 }
 
+/* Get the resolved enum/bitmask declaration that a selector
+ * expression's value would have. Walks through field/parameter
+ * resolution to find the type's resolved decl. */
+static zsp_ast_node_t *selector_enum_decl(const zsp_ast_node_t *selector)
+{
+    if (selector == NULL) return NULL;
+    const zsp_ast_node_t *d = NULL;
+    if (selector->kind == ZSP_AST_EXPR_IDENT) {
+        d = selector->resolved;
+    }
+    else if (selector->kind == ZSP_AST_EXPR_MEMBER) {
+        d = selector->resolved;
+    }
+    if (d == NULL) return NULL;
+    const zsp_ast_node_t *type = NULL;
+    if (d->kind == ZSP_AST_FIELD) {
+        type = d->u.field.type;
+    }
+    else if (d->kind == ZSP_AST_PARAMETER) {
+        type = d->u.parameter.type;
+    }
+    if ((type != NULL) && (type->kind == ZSP_AST_TYPE_REF)
+            && (type->resolved != NULL)) {
+        zsp_ast_node_t *target = type->resolved;
+        /* Peel subtypes. */
+        while ((target != NULL) && (target->kind == ZSP_AST_SUBTYPE)
+                && (target->u.subtype.target_type != NULL)
+                && (target->u.subtype.target_type->resolved != NULL)) {
+            target = target->u.subtype.target_type->resolved;
+        }
+        if (target && ((target->kind == ZSP_AST_ENUM)
+                || (target->kind == ZSP_AST_BITMASK))) {
+            return target;
+        }
+    }
+    return NULL;
+}
+
+/* Look up `name` among an enum/bitmask's items. */
+static zsp_ast_node_t *enum_find_item(const zsp_sema_t *s,
+                                      const zsp_ast_node_t *decl,
+                                      const uint8_t *name, size_t len)
+{
+    const zsp_ast_node_t * const *items;
+    size_t n;
+    if (decl->kind == ZSP_AST_ENUM) {
+        items = (const zsp_ast_node_t * const *)decl->u.enum_decl.items;
+        n     = decl->u.enum_decl.n_items;
+    }
+    else if (decl->kind == ZSP_AST_BITMASK) {
+        items = (const zsp_ast_node_t * const *)decl->u.bitmask_decl.items;
+        n     = decl->u.bitmask_decl.n_items;
+    }
+    else {
+        return NULL;
+    }
+    for (size_t i = 0U; i < n; ++i) {
+        const zsp_ast_node_t *item = items[i];
+        const zsp_ast_node_t *iname = (decl->kind == ZSP_AST_ENUM)
+                ? item->u.enum_item.name : item->u.bitmask_item.name;
+        const uint8_t *ib = NULL;
+        size_t         il = 0U;
+        if (extract_simple_name(s, iname, &ib, &il)
+                && (il == len) && (memcmp(ib, name, len) == 0)) {
+            return (zsp_ast_node_t *)(uintptr_t)item;
+        }
+    }
+    return NULL;
+}
+
+/* Post-pass: for each CHOICE, resolve any unresolved case-label
+ * idents against the selector's enum/bitmask items. */
+static void resolve_choice_labels(zsp_sema_t *s, zsp_ast_node_t *n)
+{
+    if (n == NULL) return;
+    if (n->kind == ZSP_AST_CHOICE) {
+        zsp_ast_node_t *const enum_decl = selector_enum_decl(n->u.choice.selector);
+        if (enum_decl != NULL) {
+            for (size_t i = 0U; i < n->u.choice.n_cases; ++i) {
+                zsp_ast_node_t *c = n->u.choice.cases[i];
+                for (size_t j = 0U; j < c->u.choice_case.n_labels; ++j) {
+                    zsp_ast_node_t *lbl = c->u.choice_case.labels[j];
+                    if ((lbl != NULL) && (lbl->kind == ZSP_AST_EXPR_IDENT)
+                            && (lbl->resolved == NULL)) {
+                        const zsp_file_t *f = NULL;
+                        if (zsp_source_get(s->source, lbl->file_id, &f)) {
+                            const uint8_t *nm = &f->bytes[lbl->u.ident.span_off];
+                            const size_t   nl = (size_t)lbl->u.ident.span_len;
+                            zsp_ast_node_t *item = enum_find_item(s, enum_decl, nm, nl);
+                            if (item != NULL) {
+                                lbl->resolved = item;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /* Recurse into children — small, bounded. */
+    walk_stack_t st = { NULL, 0U, 0U, s->arena, false };
+    enqueue_children(&st, n);
+    for (size_t i = 0U; i < st.count; ++i) {
+        resolve_choice_labels(s, st.items[i]);
+    }
+}
+
 static zserio_status_t resolve_pass(zsp_sema_t *s, zsp_ast_node_t *unit)
 {
-    return resolve_walk(s, unit);
+    ZSERIO_TRY(resolve_walk(s, unit));
+    resolve_choice_labels(s, unit);
+    return ZSERIO_OK;
 }
 
 /* ============================================================ */

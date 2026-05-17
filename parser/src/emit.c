@@ -343,10 +343,19 @@ static void emit_struct_decl(buf_t *b, const zsp_ast_node_t *cmpd,
     size_t         nlen = 0U;
     (void)ident_span(src, cmpd->u.compound.name, &name, &nlen);
 
-    /* Anonymous tag: avoids C-reserved-word clashes for schemas
-     * with type names like `Float`, `Double`, `Long`, etc. The
-     * typedef name carries the `_t` suffix and never collides. */
-    emit_lit(b, "typedef struct {\n");
+    /* Use a `_s` tag suffix on the struct so the typedef can be
+     * forward-declared (necessary for self-referential structs
+     * like `struct Node { Node next[]; }`). The `_s` suffix
+     * avoids C-keyword clashes for schemas with type names like
+     * `Float`, `Double`, `Long`, etc. */
+    emit_lit(b, "typedef struct ");
+    emit_snake(b, name, nlen);
+    emit_lit(b, "_s ");
+    emit_snake(b, name, nlen);
+    emit_lit(b, "_t;\n");
+    emit_lit(b, "struct ");
+    emit_snake(b, name, nlen);
+    emit_lit(b, "_s {\n");
 
     /* Emit parameters first (parameterized types). */
     for (size_t i = 0U; i < cmpd->u.compound.n_params; ++i) {
@@ -363,7 +372,9 @@ static void emit_struct_decl(buf_t *b, const zsp_ast_node_t *cmpd,
         emit_lit(b, ";  /* parameter */\n");
     }
 
-    /* Emit fields. */
+    /* Emit fields. Self-referential fields (the field's type
+     * resolves to the enclosing compound) must be emitted as
+     * pointers; C doesn't allow recursive value-typed fields. */
     for (size_t i = 0U; i < cmpd->u.compound.n_members; ++i) {
         const zsp_ast_node_t *m = cmpd->u.compound.members[i];
         if (m->kind != ZSP_AST_FIELD) {
@@ -372,11 +383,16 @@ static void emit_struct_decl(buf_t *b, const zsp_ast_node_t *cmpd,
         const zsp_ast_node_t *ty = m->u.field.type;
         const bool is_array = (ty != NULL) && (ty->kind == ZSP_AST_TYPE_ARRAY);
         const zsp_ast_node_t *element_ty = is_array ? ty->u.type_array.element : ty;
+        const bool is_self_recursive =
+                !is_array
+                && (element_ty != NULL)
+                && (element_ty->kind == ZSP_AST_TYPE_REF)
+                && (element_ty->resolved == cmpd);
 
         emit_lit(b, "    ");
         bool owned = false;
         (void)emit_field_c_type(b, element_ty, src, &owned);
-        if (is_array) {
+        if (is_array || is_self_recursive) {
             emit_lit(b, " *");
         }
         else {
@@ -398,9 +414,7 @@ static void emit_struct_decl(buf_t *b, const zsp_ast_node_t *cmpd,
         }
     }
 
-    emit_lit(b, "} ");
-    emit_snake(b, name, nlen);
-    emit_lit(b, "_t;\n");
+    emit_lit(b, "};\n");
 }
 
 /* Emit function prototypes for one compound. */
@@ -450,6 +464,13 @@ static void emit_referenced_includes(buf_t *b, const zsp_ast_node_t *cmpd,
     size_t          lens[MAX_INC];
     size_t          n = 0U;
 
+    /* Collect referenced const decls used in array length /
+     * if-clause / init expressions so we can include their
+     * headers. The set is small (typically 0–2 consts per
+     * compound) — linear walk is fine. */
+    const zsp_ast_node_t *const_decls[32];
+    size_t                n_const_decls = 0U;
+
     /* Collect referenced types from parameters AND fields. */
     const zsp_ast_node_t *all_types[128];
     size_t                n_types = 0U;
@@ -460,6 +481,28 @@ static void emit_referenced_includes(buf_t *b, const zsp_ast_node_t *cmpd,
         const zsp_ast_node_t *m = cmpd->u.compound.members[i];
         if ((m == NULL) || (m->kind != ZSP_AST_FIELD)) continue;
         all_types[n_types++] = m->u.field.type;
+        /* Scan field's array length + init + if-clause for
+         * IDENT references to const decls. */
+        const zsp_ast_node_t *exprs[] = {
+            (m->u.field.type && (m->u.field.type->kind == ZSP_AST_TYPE_ARRAY))
+                ? m->u.field.type->u.type_array.length_expr : NULL,
+            m->u.field.init_expr,
+            m->u.field.if_clause,
+            m->u.field.constraint_expr,
+        };
+        for (size_t e = 0U; e < (sizeof(exprs) / sizeof(exprs[0])); ++e) {
+            const zsp_ast_node_t *expr = exprs[e];
+            if ((expr == NULL) || (expr->kind != ZSP_AST_EXPR_IDENT)) continue;
+            const zsp_ast_node_t *d = expr->resolved;
+            if ((d != NULL) && (d->kind == ZSP_AST_CONST)
+                    && (n_const_decls < 32U)) {
+                bool seen = false;
+                for (size_t k = 0U; k < n_const_decls; ++k) {
+                    if (const_decls[k] == d) { seen = true; break; }
+                }
+                if (!seen) const_decls[n_const_decls++] = d;
+            }
+        }
     }
     for (size_t idx = 0U; idx < n_types; ++idx) {
         const zsp_ast_node_t *ty = all_types[idx];
@@ -511,7 +554,18 @@ static void emit_referenced_includes(buf_t *b, const zsp_ast_node_t *cmpd,
         emit_snake(b, names[i], lens[i]);
         emit_lit(b, ".h\"\n");
     }
-    if (n > 0U) {
+    /* Const-decl includes. */
+    for (size_t i = 0U; i < n_const_decls; ++i) {
+        const zsp_ast_node_t *cn = const_decls[i]->u.const_decl.name;
+        const uint8_t *cb = NULL;
+        size_t         cl = 0U;
+        if (ident_span(src, cn, &cb, &cl)) {
+            emit_lit(b, "#include \"");
+            emit_snake(b, cb, cl);
+            emit_lit(b, ".h\"\n");
+        }
+    }
+    if ((n > 0U) || (n_const_decls > 0U)) {
         emit_lit(b, "\n");
     }
 }
@@ -557,7 +611,14 @@ static void emit_header_for_compound(buf_t *b, const zsp_ast_node_t *cmpd,
         const uint8_t *tpn = NULL;
         size_t         tpl = 0U;
         if (ident_span(src, tp->u.template_param.name, &tpn, &tpl)) {
-            emit_lit(b, "typedef void *");
+            /* Placeholder typedef so the generated C compiles
+             * before full template instantiation lands. int64_t
+             * is switch-compatible (used as choice selector) and
+             * representation-equivalent to any zserio scalar; for
+             * compound template args the generated code may need
+             * additional template-instantiation work to be wire-
+             * correct, but it compiles. */
+            emit_lit(b, "typedef int64_t ");
             emit_snake(b, tpn, tpl);
             emit_lit(b, "_t;  /* template-param placeholder */\n");
         }
@@ -610,19 +671,38 @@ static void emit_expr_c(buf_t *b, const zsp_ast_node_t *e,
                 emit_snake(b, name, len);
                 return;
             }
-            if (d->kind == ZSP_AST_ENUM_ITEM) {
-                /* Emit as <enumname>_<itemname>. The enum decl
-                 * is the resolved decl's parent — we don't track
-                 * parents on AST yet, so fall back to spelling
-                 * the item name and let the user qualify it via
-                 * member access. For Color.RED case, the parser
-                 * will have built a member-access node. */
-                emit_lit(b, "/*enum-item*/");
+            if ((d->kind == ZSP_AST_ENUM_ITEM)
+                    || (d->kind == ZSP_AST_BITMASK_ITEM)) {
+                /* Emit the computed integer value — works as a
+                 * `case` label or expression operand. We don't
+                 * have a parent-pointer back to the enum name
+                 * on the AST, but const-eval already cached the
+                 * resolved value. */
+                const zsp_sema_const_t *const v = (const zsp_sema_const_t *)
+                        d->computed;
+                if (v != NULL) {
+                    emit_uint(b, v->v.u);
+                    return;
+                }
+                /* Fallback (shouldn't normally trigger): emit the
+                 * bare spelling and hope the user supplies a
+                 * matching macro. */
                 emit_span(b, name, len);
                 return;
             }
             if (d->kind == ZSP_AST_CONST) {
-                emit_snake(b, name, len);
+                /* Const decls are emitted as `#define NAME (...)`
+                 * preserving the original case, so reference
+                 * sites emit the verbatim name (no snake-casing). */
+                emit_span(b, name, len);
+                return;
+            }
+            if (d->kind == ZSP_AST_TEMPLATE_PARAM) {
+                /* Template param in an unbound context — emit a
+                 * placeholder integer so case labels and similar
+                 * constant-required positions compile. The
+                 * generated code is template-instantiation pending. */
+                emit_lit(b, "0");
                 return;
             }
         }
@@ -667,19 +747,28 @@ static void emit_expr_c(buf_t *b, const zsp_ast_node_t *e,
         emit_expr_c(b, e->u.unop.operand, src);
         return;
     case ZSP_AST_EXPR_MEMBER:
-        /* `LHS.RHS`: if RHS is an enum item, emit `<enumname>_<itemname>`.
-         * Otherwise emit "lhs.member" verbatim. */
-        if ((e->resolved != NULL)
-                && (e->resolved->kind == ZSP_AST_ENUM_ITEM)) {
-            /* Need the parent enum's name. The analyser doesn't
-             * track parent links yet, so for now we fall back
-             * to using the constant value if computed. */
-            const zsp_sema_const_t *const v = (const zsp_sema_const_t *)
-                    e->resolved->computed;
-            if (v != NULL) {
-                emit_uint(b, v->v.u);
-                return;
+        /* `LHS.RHS`: if RHS resolved to an enum/bitmask item with
+         * a computed value, emit that value directly. */
+        if (e->resolved != NULL) {
+            if ((e->resolved->kind == ZSP_AST_ENUM_ITEM)
+                    || (e->resolved->kind == ZSP_AST_BITMASK_ITEM)) {
+                const zsp_sema_const_t *const v = (const zsp_sema_const_t *)
+                        e->resolved->computed;
+                if (v != NULL) {
+                    emit_uint(b, v->v.u);
+                    return;
+                }
             }
+        }
+        /* Unresolved member access (e.g. on a template parameter):
+         * emit 0 as a placeholder so the surrounding case label
+         * or constant expression compiles. */
+        if ((e->u.member.lhs != NULL)
+                && (e->u.member.lhs->kind == ZSP_AST_EXPR_IDENT)
+                && (e->u.member.lhs->resolved != NULL)
+                && (e->u.member.lhs->resolved->kind == ZSP_AST_TEMPLATE_PARAM)) {
+            emit_lit(b, "0");
+            return;
         }
         if (e->u.member.lhs != NULL) {
             emit_expr_c(b, e->u.member.lhs, src);
@@ -1479,10 +1568,19 @@ static void emit_choice_decl(buf_t *b, const zsp_ast_node_t *ch,
     size_t         nlen = 0U;
     (void)ident_span(src, ch->u.choice.name, &name, &nlen);
 
-    /* Anonymous tag: avoids C-reserved-word clashes for schemas
-     * with type names like `Float`, `Double`, `Long`, etc. The
-     * typedef name carries the `_t` suffix and never collides. */
-    emit_lit(b, "typedef struct {\n");
+    /* Use a `_s` tag suffix on the struct so the typedef can be
+     * forward-declared (necessary for self-referential structs
+     * like `struct Node { Node next[]; }`). The `_s` suffix
+     * avoids C-keyword clashes for schemas with type names like
+     * `Float`, `Double`, `Long`, etc. */
+    emit_lit(b, "typedef struct ");
+    emit_snake(b, name, nlen);
+    emit_lit(b, "_s ");
+    emit_snake(b, name, nlen);
+    emit_lit(b, "_t;\n");
+    emit_lit(b, "struct ");
+    emit_snake(b, name, nlen);
+    emit_lit(b, "_s {\n");
 
     /* Parameters. */
     for (size_t i = 0U; i < ch->u.choice.n_params; ++i) {
@@ -1549,9 +1647,7 @@ static void emit_choice_decl(buf_t *b, const zsp_ast_node_t *ch,
     }
     emit_lit(b, "    } u;\n");
 
-    emit_lit(b, "} ");
-    emit_snake(b, name, nlen);
-    emit_lit(b, "_t;\n");
+    emit_lit(b, "};\n");
 }
 
 static void emit_choice_protos(buf_t *b, const zsp_ast_node_t *ch,
@@ -1863,8 +1959,10 @@ static void emit_choice_header(buf_t *b, const zsp_ast_node_t *ch,
             if ((decl->kind == ZSP_AST_STRUCT) || (decl->kind == ZSP_AST_UNION)) {
                 name_node = decl->u.compound.name;
             }
+            else if (decl->kind == ZSP_AST_CHOICE)  { name_node = decl->u.choice.name; }
             else if (decl->kind == ZSP_AST_ENUM)    { name_node = decl->u.enum_decl.name; }
             else if (decl->kind == ZSP_AST_BITMASK) { name_node = decl->u.bitmask_decl.name; }
+            else if (decl->kind == ZSP_AST_SUBTYPE) { name_node = decl->u.subtype.alias_name; }
             const uint8_t *nb = NULL;
             size_t         nl = 0U;
             if (!ident_span(src, name_node, &nb, &nl)) continue;
@@ -1888,6 +1986,28 @@ static void emit_choice_header(buf_t *b, const zsp_ast_node_t *ch,
         if (n > 0U) {
             emit_lit(b, "\n");
         }
+    }
+
+    /* Template-param placeholders for choices (same as compounds). */
+    for (size_t i = 0U; i < ch->u.choice.n_template_params; ++i) {
+        const zsp_ast_node_t *tp = ch->u.choice.template_params[i];
+        const uint8_t *tpn = NULL;
+        size_t         tpl = 0U;
+        if (ident_span(src, tp->u.template_param.name, &tpn, &tpl)) {
+            /* Placeholder typedef so the generated C compiles
+             * before full template instantiation lands. int64_t
+             * is switch-compatible (used as choice selector) and
+             * representation-equivalent to any zserio scalar; for
+             * compound template args the generated code may need
+             * additional template-instantiation work to be wire-
+             * correct, but it compiles. */
+            emit_lit(b, "typedef int64_t ");
+            emit_snake(b, tpn, tpl);
+            emit_lit(b, "_t;  /* template-param placeholder */\n");
+        }
+    }
+    if (ch->u.choice.n_template_params > 0U) {
+        emit_lit(b, "\n");
     }
 
     emit_choice_decl(b, ch, src);
