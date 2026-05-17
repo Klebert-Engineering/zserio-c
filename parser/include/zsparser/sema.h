@@ -52,6 +52,9 @@ typedef struct zsp_sema {
     zsp_diag_collector_t *diag;
     zsp_sema_scope_t     *root;     /**< Top-level (file) scope. */
     zsp_sema_scope_t     *current;  /**< Tip of the scope stack. */
+    zsp_file_id_t         current_file_id;  /**< Set during resolve to bias
+                                                 same-file bindings on conflict. */
+    bool                  current_file_valid;
 } zsp_sema_t;
 
 zserio_status_t zsp_sema_init(zsp_sema_t           *s,

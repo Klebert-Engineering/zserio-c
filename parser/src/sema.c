@@ -116,6 +116,38 @@ zsp_ast_node_t *zsp_sema_scope_find(const zsp_sema_scope_t *scope,
     return NULL;
 }
 
+/* File-aware lookup: when there are multiple bindings for the
+ * same name (cross-package conflict), prefer one whose decl
+ * lives in the given file. Falls back to any match. */
+static zsp_ast_node_t *scope_find_prefer(const zsp_sema_scope_t *scope,
+                                         const uint8_t *name, size_t len,
+                                         zsp_file_id_t preferred_fid,
+                                         bool preferred_valid)
+{
+    if (!preferred_valid) {
+        return zsp_sema_scope_find(scope, name, len);
+    }
+    const zsp_sema_scope_t *sc = scope;
+    zsp_ast_node_t *fallback = NULL;
+    while (sc != NULL) {
+        for (size_t i = 0U; i < sc->count; ++i) {
+            const zsp_sema_binding_t *const b = &sc->bindings[i];
+            if ((b->name_len == len)
+                    && (memcmp(b->name, name, len) == 0)) {
+                if ((b->decl != NULL)
+                        && (b->decl->file_id == preferred_fid)) {
+                    return b->decl;
+                }
+                if (fallback == NULL) {
+                    fallback = b->decl;
+                }
+            }
+        }
+        sc = sc->parent;
+    }
+    return fallback;
+}
+
 static zserio_status_t scope_bind(zsp_sema_t *s, zsp_sema_scope_t *sc,
                                   const uint8_t *name, size_t len,
                                   zsp_ast_node_t *decl)
@@ -123,19 +155,18 @@ static zserio_status_t scope_bind(zsp_sema_t *s, zsp_sema_scope_t *sc,
     for (size_t i = 0U; i < sc->count; ++i) {
         const zsp_sema_binding_t *const b = &sc->bindings[i];
         if ((b->name_len == len) && (memcmp(b->name, name, len) == 0)) {
-            /* Duplicate name. If the existing binding and the
-             * incoming decl live in different files, treat as
-             * a cross-package overload (separate packages may
-             * legitimately reuse the same simple name). Just
-             * keep the first binding; cross-file resolution is
-             * best-effort. Same-file duplicates are still an
-             * error. */
+            /* Same-file duplicate is an error. Cross-file
+             * duplicate is silently accepted as an additional
+             * binding — the file-aware lookup will pick the
+             * right one based on the resolver's current file_id. */
             if (b->decl != NULL && b->decl->file_id == decl->file_id) {
                 (void)zsp_diag_emit_lit(s->diag, ZSP_SEV_ERROR,
                                         decl->file_id, decl->offset,
                                         "duplicate top-level declaration");
+                return ZSERIO_OK;
             }
-            return ZSERIO_OK;
+            /* Cross-file: fall through to add as a new binding. */
+            break;
         }
     }
     ZSERIO_TRY(scope_grow(s, sc));
@@ -214,7 +245,8 @@ static void resolve_type_ref(zsp_sema_t *s, zsp_ast_node_t *t)
     if (!extract_simple_name(s, t->u.type_ref.name, &bytes, &len)) {
         return;
     }
-    zsp_ast_node_t *const decl = zsp_sema_scope_find(s->current, bytes, len);
+    zsp_ast_node_t *const decl = scope_find_prefer(
+            s->current, bytes, len, t->file_id, true);
     if (decl == NULL) {
         (void)zsp_diag_emit_lit(s->diag, ZSP_SEV_ERROR,
                                 t->file_id, t->offset,
@@ -619,7 +651,8 @@ static void resolve_expr_ident(zsp_sema_t *s, zsp_ast_node_t *e)
     if ((len > 0U) && (name[0] == (uint8_t)'@')) {
         return;
     }
-    zsp_ast_node_t *const decl = zsp_sema_scope_find(s->current, name, len);
+    zsp_ast_node_t *const decl = scope_find_prefer(
+            s->current, name, len, e->file_id, true);
     if (decl == NULL) {
         /* Identifier resolution is best-effort: it may legitimately
          * fail for member-access RHS, package-qualified references,
