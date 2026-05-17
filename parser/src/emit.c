@@ -115,6 +115,29 @@ static void emit_uint(buf_t *b, uint64_t v)
  * defined alongside other name helpers further below. */
 static bool emit_type_id(buf_t *b, const zsp_ast_node_t *decl,
                          const zsp_source_t *src);
+
+/* Peel SUBTYPE / INSTANTIATE aliases so call-site emission
+ * lands on the concrete decl that actually owns the `_init`,
+ * `_read`, `_write`, `_free` symbols. */
+static const zsp_ast_node_t *peel_alias(const zsp_ast_node_t *decl)
+{
+    while (decl != NULL) {
+        if ((decl->kind == ZSP_AST_SUBTYPE)
+                && (decl->u.subtype.target_type != NULL)
+                && (decl->u.subtype.target_type->resolved != NULL)) {
+            decl = decl->u.subtype.target_type->resolved;
+            continue;
+        }
+        if ((decl->kind == ZSP_AST_INSTANTIATE)
+                && (decl->u.instantiate.target != NULL)
+                && (decl->u.instantiate.target->resolved != NULL)) {
+            decl = decl->u.instantiate.target->resolved;
+            continue;
+        }
+        break;
+    }
+    return decl;
+}
 static void emit_pkg_prefix(buf_t *b, const zsp_ast_node_t *decl,
                             const zsp_source_t *src);
 /* Choice case helpers are reused by the union (struct/union)
@@ -880,10 +903,16 @@ static void emit_referenced_includes(buf_t *b, const zsp_ast_node_t *cmpd,
         const uint8_t *nb = NULL;
         size_t         nl = 0U;
         if (!ident_span(src, name_node, &nb, &nl)) continue;
-        /* Dedup. */
+        /* Dedup by (name, package) — same simple name from
+         * different packages must each contribute a distinct
+         * include line. */
         bool seen = false;
         for (size_t k = 0U; k < n; ++k) {
-            if ((lens[k] == nl) && (memcmp(names[k], nb, nl) == 0)) {
+            if ((lens[k] != nl) || (memcmp(names[k], nb, nl) != 0)) continue;
+            char a_pkg[1024], b_pkg[1024];
+            const size_t la = decl_package_path(decl, src, a_pkg, sizeof(a_pkg));
+            const size_t lb = decl_package_path(decls_for_pkg[k], src, b_pkg, sizeof(b_pkg));
+            if (la == lb && memcmp(a_pkg, b_pkg, la) == 0) {
                 seen = true;
                 break;
             }
@@ -1415,7 +1444,7 @@ static void emit_element_read(buf_t *b, const zsp_ast_node_t *ty,
         emit_lit(b, "));\n");
     }
     else if (shape == 'c') {
-        const zsp_ast_node_t *const decl = ty->resolved;
+        const zsp_ast_node_t *const decl = peel_alias(ty->resolved);
         emit_lit(b, "        ");
         (void)emit_type_id(b, decl, src);
         emit_lit(b, "_init(&");
@@ -1668,7 +1697,7 @@ static void emit_field_read(buf_t *b, const zsp_ast_node_t *field,
         emit_lit(b, "));\n");
     }
     else if (shape == 'c') {
-        const zsp_ast_node_t *const decl = ty->resolved;
+        const zsp_ast_node_t *const decl = peel_alias(ty->resolved);
         emit_lit(b, "    ");
         (void)emit_type_id(b, decl, src);
         emit_lit(b, "_init(&self->");
@@ -1795,7 +1824,7 @@ static void emit_element_write(buf_t *b, const zsp_ast_node_t *ty,
         }
     }
     else if (shape == 'c') {
-        const zsp_ast_node_t *const decl = ty->resolved;
+        const zsp_ast_node_t *const decl = peel_alias(ty->resolved);
         emit_lit(b, "            ZSERIO_TRY(");
         (void)emit_type_id(b, decl, src);
         emit_lit(b, "_write(&");
@@ -2022,7 +2051,7 @@ static void emit_field_free(buf_t *b, const zsp_ast_node_t *field,
                     emit_lit(b, "[i_], alloc);\n");
                 }
                 else {
-                    const zsp_ast_node_t *const decl = element_ty->resolved;
+                    const zsp_ast_node_t *const decl = peel_alias(element_ty->resolved);
                     emit_lit(b, "        ");
                     (void)emit_type_id(b, decl, src);
                     emit_lit(b, "_free(&self->");
@@ -2050,7 +2079,7 @@ static void emit_field_free(buf_t *b, const zsp_ast_node_t *field,
                 emit_lit(b, "[i_], alloc);\n");
             }
             else {
-                const zsp_ast_node_t *const decl = element_ty->resolved;
+                const zsp_ast_node_t *const decl = peel_alias(element_ty->resolved);
                 emit_lit(b, "            ");
                 (void)emit_type_id(b, decl, src);
                 emit_lit(b, "_free(&self->");
@@ -2092,10 +2121,11 @@ static void emit_field_free(buf_t *b, const zsp_ast_node_t *field,
         }
     }
     else if (ty->kind == ZSP_AST_TYPE_REF) {
-        const zsp_ast_node_t *const decl = ty->resolved;
+        const zsp_ast_node_t *const decl = peel_alias(ty->resolved);
         if ((decl != NULL)
                 && ((decl->kind == ZSP_AST_STRUCT)
-                    || (decl->kind == ZSP_AST_UNION))) {
+                    || (decl->kind == ZSP_AST_UNION)
+                    || (decl->kind == ZSP_AST_CHOICE))) {
             emit_lit(b, "    ");
             (void)emit_type_id(b, decl, src);
             emit_lit(b, "_free(&self->");
@@ -2451,7 +2481,7 @@ static void emit_choice_case_read(buf_t *b, const zsp_ast_node_t *f,
         emit_lit(b, "(bs, alloc, &"); emit_lit(b, slot); emit_lit(b, "));\n");
     }
     else if (shape == 'c') {
-        const zsp_ast_node_t *decl = ty->resolved;
+        const zsp_ast_node_t *decl = peel_alias(ty->resolved);
         (void)emit_type_id(b, decl, src);
         emit_lit(b, "_init(&"); emit_lit(b, slot); emit_lit(b, ");\n");
         emit_lit(b, "        ZSERIO_TRY("); (void)emit_type_id(b, decl, src);
@@ -2521,9 +2551,10 @@ static void emit_choice_case_free(buf_t *b, const zsp_ast_node_t *f,
         }
     }
     else if (ty->kind == ZSP_AST_TYPE_REF) {
-        const zsp_ast_node_t *decl = ty->resolved;
+        const zsp_ast_node_t *decl = peel_alias(ty->resolved);
         if ((decl != NULL)
-                && ((decl->kind == ZSP_AST_STRUCT) || (decl->kind == ZSP_AST_UNION))) {
+                && ((decl->kind == ZSP_AST_STRUCT) || (decl->kind == ZSP_AST_UNION)
+                    || (decl->kind == ZSP_AST_CHOICE))) {
             emit_lit(b, "        ");
             (void)emit_type_id(b, decl, src);
             emit_lit(b, "_free(&self->u.");

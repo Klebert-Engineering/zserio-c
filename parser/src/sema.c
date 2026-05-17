@@ -308,8 +308,54 @@ static void resolve_type_ref(zsp_sema_t *s, zsp_ast_node_t *t)
     if (!extract_simple_name(s, t->u.type_ref.name, &bytes, &len)) {
         return;
     }
-    zsp_ast_node_t *const decl = scope_find_type_prefer(
-            s->current, bytes, len, t->file_id, true);
+    /* For fully-qualified type references (DOTTED_NAME with
+     * package prefix), pick the candidate whose enclosing
+     * package path matches the prefix. Without this, multiple
+     * decls sharing a simple name (e.g. several `Coordinate`s
+     * in different packages) all hash to the first lookup hit. */
+    zsp_ast_node_t *decl = NULL;
+    if ((t->u.type_ref.name != NULL)
+            && (t->u.type_ref.name->kind == ZSP_AST_DOTTED_NAME)
+            && (t->u.type_ref.name->u.dotted.n_parts > 1U)) {
+        /* Collect prefix segments. */
+        const zsp_ast_node_t *const dn = t->u.type_ref.name;
+        const size_t n_prefix = dn->u.dotted.n_parts - 1U;
+        /* Scan every binding for matches whose decl's unit package
+         * ends with the requested prefix. */
+        for (const zsp_sema_scope_t *sc = s->current; sc != NULL && decl == NULL; sc = sc->parent) {
+            for (size_t i = 0U; i < sc->count; ++i) {
+                const zsp_sema_binding_t *const b = &sc->bindings[i];
+                if ((b->name_len != len) || (memcmp(b->name, bytes, len) != 0)) continue;
+                if (!is_type_decl(b->decl)) continue;
+                /* Compare package suffix. */
+                const zsp_ast_node_t *unit = b->decl->resolved;
+                if ((unit == NULL) || (unit->kind != ZSP_AST_UNIT)) continue;
+                const zsp_ast_node_t *pname = (unit->u.unit.package != NULL)
+                        ? unit->u.unit.package->u.package.name : NULL;
+                if (pname == NULL) continue;
+                const zsp_ast_node_t * const *pkg_parts = NULL;
+                size_t pkg_n = 0U;
+                if (pname->kind == ZSP_AST_DOTTED_NAME) {
+                    pkg_parts = (const zsp_ast_node_t * const *)pname->u.dotted.parts;
+                    pkg_n     = pname->u.dotted.n_parts;
+                }
+                else { pkg_parts = (const zsp_ast_node_t * const *)&pname; pkg_n = 1U; }
+                if (pkg_n < n_prefix) continue;
+                bool match = true;
+                for (size_t k = 0U; k < n_prefix; ++k) {
+                    const uint8_t *pa = NULL, *pb = NULL;
+                    size_t la = 0U, lb = 0U;
+                    extract_simple_name(s, dn->u.dotted.parts[k], &pa, &la);
+                    extract_simple_name(s, pkg_parts[pkg_n - n_prefix + k], &pb, &lb);
+                    if (la != lb || memcmp(pa, pb, la) != 0) { match = false; break; }
+                }
+                if (match) { decl = b->decl; break; }
+            }
+        }
+    }
+    if (decl == NULL) {
+        decl = scope_find_type_prefer(s->current, bytes, len, t->file_id, true);
+    }
     if (decl == NULL) {
         (void)zsp_diag_emit_lit(s->diag, ZSP_SEV_ERROR,
                                 t->file_id, t->offset,
@@ -987,6 +1033,47 @@ static zsp_ast_node_t *enum_find_item(const zsp_sema_t *s,
 
 /* Post-pass: for each CHOICE, resolve any unresolved case-label
  * idents against the selector's enum/bitmask items. */
+/* Walk an expression and resolve any bare IDENT that names an
+ * item of `enum_decl`. The bitmask flag-OR pattern `case (RED |
+ * GREEN):` lands here so each operand resolves to its item. */
+static void resolve_label_expr(zsp_sema_t *s, zsp_ast_node_t *e,
+                               zsp_ast_node_t *enum_decl)
+{
+    if ((e == NULL) || (enum_decl == NULL)) return;
+    if ((e->kind == ZSP_AST_EXPR_IDENT) && (e->resolved == NULL)) {
+        const zsp_file_t *f = NULL;
+        if (zsp_source_get(s->source, e->file_id, &f)) {
+            const uint8_t *nm = &f->bytes[e->u.ident.span_off];
+            const size_t   nl = (size_t)e->u.ident.span_len;
+            zsp_ast_node_t *item = enum_find_item(s, enum_decl, nm, nl);
+            if (item != NULL) {
+                e->resolved = item;
+            }
+        }
+        return;
+    }
+    switch (e->kind) {
+    case ZSP_AST_EXPR_BINARY:
+        resolve_label_expr(s, e->u.binop.lhs, enum_decl);
+        resolve_label_expr(s, e->u.binop.rhs, enum_decl);
+        break;
+    case ZSP_AST_EXPR_UNARY:
+        resolve_label_expr(s, e->u.unop.operand, enum_decl);
+        break;
+    case ZSP_AST_EXPR_TERNARY:
+        resolve_label_expr(s, e->u.ternary.cond, enum_decl);
+        resolve_label_expr(s, e->u.ternary.then_expr, enum_decl);
+        resolve_label_expr(s, e->u.ternary.else_expr, enum_decl);
+        break;
+    case ZSP_AST_EXPR_MEMBER:
+        /* `<Type>.<ITEM>` references resolve through the regular
+         * member-access path; nothing to do here. */
+        break;
+    default:
+        break;
+    }
+}
+
 static void resolve_choice_labels(zsp_sema_t *s, zsp_ast_node_t *n)
 {
     if (n == NULL) return;
@@ -996,19 +1083,7 @@ static void resolve_choice_labels(zsp_sema_t *s, zsp_ast_node_t *n)
             for (size_t i = 0U; i < n->u.choice.n_cases; ++i) {
                 zsp_ast_node_t *c = n->u.choice.cases[i];
                 for (size_t j = 0U; j < c->u.choice_case.n_labels; ++j) {
-                    zsp_ast_node_t *lbl = c->u.choice_case.labels[j];
-                    if ((lbl != NULL) && (lbl->kind == ZSP_AST_EXPR_IDENT)
-                            && (lbl->resolved == NULL)) {
-                        const zsp_file_t *f = NULL;
-                        if (zsp_source_get(s->source, lbl->file_id, &f)) {
-                            const uint8_t *nm = &f->bytes[lbl->u.ident.span_off];
-                            const size_t   nl = (size_t)lbl->u.ident.span_len;
-                            zsp_ast_node_t *item = enum_find_item(s, enum_decl, nm, nl);
-                            if (item != NULL) {
-                                lbl->resolved = item;
-                            }
-                        }
-                    }
+                    resolve_label_expr(s, c->u.choice_case.labels[j], enum_decl);
                 }
             }
         }
