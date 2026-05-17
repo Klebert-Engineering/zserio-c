@@ -614,6 +614,16 @@ static void emit_referenced_includes(buf_t *b, const zsp_ast_node_t *cmpd,
         n += 1U;
     }
 
+    /* Count `..` levels needed to climb from the current
+     * compound's directory to the output root. */
+    const size_t self_len = strlen(self_pkg);
+    size_t levels_up = 0U;
+    if (self_len > 0U) {
+        levels_up = 1U;   /* the package dir itself */
+        for (size_t k = 0U; k < self_len; ++k) {
+            if (self_pkg[k] == '/') levels_up += 1U;
+        }
+    }
     /* Helper inline: emit `#include "..."` with path-prefix when
      * the referenced decl is in a different package than the
      * current compound. */
@@ -622,24 +632,17 @@ static void emit_referenced_includes(buf_t *b, const zsp_ast_node_t *cmpd,
         const size_t dep_pkg_len = decl_package_path(
                 decls_for_pkg[i], src, dep_pkg, sizeof(dep_pkg));
         const bool same_pkg =
-                ((strlen(self_pkg) == dep_pkg_len)
+                ((self_len == dep_pkg_len)
                  && (memcmp(self_pkg, dep_pkg, dep_pkg_len) == 0));
         emit_lit(b, "#include \"");
-        if (!same_pkg && (dep_pkg_len > 0U)) {
-            emit_lit(b, "../../");
-            /* Climb the current package's depth back to the root.
-             * Each component in `self_pkg` is one slash → one
-             * `../` to climb. */
-            const size_t self_len = strlen(self_pkg);
-            size_t slashes = 0U;
-            for (size_t k = 0U; k < self_len; ++k) {
-                if (self_pkg[k] == '/') slashes += 1U;
-            }
-            for (size_t k = 1U; k < slashes; ++k) {
+        if (!same_pkg) {
+            for (size_t k = 0U; k < levels_up; ++k) {
                 emit_lit(b, "../");
             }
-            emit_bytes(b, dep_pkg, dep_pkg_len);
-            emit_lit(b, "/");
+            if (dep_pkg_len > 0U) {
+                emit_bytes(b, dep_pkg, dep_pkg_len);
+                emit_lit(b, "/");
+            }
         }
         emit_snake(b, names[i], lens[i]);
         emit_lit(b, ".h\"\n");
@@ -654,21 +657,17 @@ static void emit_referenced_includes(buf_t *b, const zsp_ast_node_t *cmpd,
             const size_t dep_pkg_len = decl_package_path(
                     const_decls[i], src, dep_pkg, sizeof(dep_pkg));
             const bool same_pkg =
-                    ((strlen(self_pkg) == dep_pkg_len)
+                    ((self_len == dep_pkg_len)
                      && (memcmp(self_pkg, dep_pkg, dep_pkg_len) == 0));
             emit_lit(b, "#include \"");
-            if (!same_pkg && (dep_pkg_len > 0U)) {
-                emit_lit(b, "../../");
-                const size_t self_len = strlen(self_pkg);
-                size_t slashes = 0U;
-                for (size_t k = 0U; k < self_len; ++k) {
-                    if (self_pkg[k] == '/') slashes += 1U;
-                }
-                for (size_t k = 1U; k < slashes; ++k) {
+            if (!same_pkg) {
+                for (size_t k = 0U; k < levels_up; ++k) {
                     emit_lit(b, "../");
                 }
-                emit_bytes(b, dep_pkg, dep_pkg_len);
-                emit_lit(b, "/");
+                if (dep_pkg_len > 0U) {
+                    emit_bytes(b, dep_pkg, dep_pkg_len);
+                    emit_lit(b, "/");
+                }
             }
             emit_snake(b, cb, cl);
             emit_lit(b, ".h\"\n");
@@ -1626,9 +1625,21 @@ static void emit_source_for_compound(buf_t *b, const zsp_ast_node_t *cmpd,
     emit_lit(b, "    (void)alloc;\n");
     for (size_t i = 0U; i < cmpd->u.compound.n_members; ++i) {
         const zsp_ast_node_t *m = cmpd->u.compound.members[i];
-        if (m->kind == ZSP_AST_FIELD) {
-            emit_field_read(b, m, src);
+        if (m->kind != ZSP_AST_FIELD) continue;
+        /* Skip read/write/free for self-recursive fields (the
+         * field's type resolves to the enclosing compound).
+         * They emit as pointers; reading would require an
+         * allocator-aware allocate-then-recurse path we don't
+         * have yet. Field defaults to NULL via init. */
+        const zsp_ast_node_t *ty = m->u.field.type;
+        const bool is_self_rec =
+                (ty != NULL) && (ty->kind == ZSP_AST_TYPE_REF)
+                && (ty->resolved == cmpd);
+        if (is_self_rec) {
+            emit_lit(b, "    /* self-recursive field skipped */\n");
+            continue;
         }
+        emit_field_read(b, m, src);
     }
     emit_lit(b, "    return ZSERIO_OK;\n");
     emit_lit(b, "}\n\n");
@@ -1643,9 +1654,13 @@ static void emit_source_for_compound(buf_t *b, const zsp_ast_node_t *cmpd,
     emit_lit(b, "    (void)bs;\n");
     for (size_t i = 0U; i < cmpd->u.compound.n_members; ++i) {
         const zsp_ast_node_t *m = cmpd->u.compound.members[i];
-        if (m->kind == ZSP_AST_FIELD) {
-            emit_field_write(b, m, src);
-        }
+        if (m->kind != ZSP_AST_FIELD) continue;
+        const zsp_ast_node_t *ty = m->u.field.type;
+        const bool is_self_rec =
+                (ty != NULL) && (ty->kind == ZSP_AST_TYPE_REF)
+                && (ty->resolved == cmpd);
+        if (is_self_rec) continue;
+        emit_field_write(b, m, src);
     }
     emit_lit(b, "    return ZSERIO_OK;\n");
     emit_lit(b, "}\n\n");
@@ -1660,9 +1675,13 @@ static void emit_source_for_compound(buf_t *b, const zsp_ast_node_t *cmpd,
     emit_lit(b, "    (void)alloc;\n");
     for (size_t i = 0U; i < cmpd->u.compound.n_members; ++i) {
         const zsp_ast_node_t *m = cmpd->u.compound.members[i];
-        if (m->kind == ZSP_AST_FIELD) {
-            emit_field_free(b, m, src);
-        }
+        if (m->kind != ZSP_AST_FIELD) continue;
+        const zsp_ast_node_t *ty = m->u.field.type;
+        const bool is_self_rec =
+                (ty != NULL) && (ty->kind == ZSP_AST_TYPE_REF)
+                && (ty->resolved == cmpd);
+        if (is_self_rec) continue;
+        emit_field_free(b, m, src);
     }
     emit_lit(b, "}\n");
 }

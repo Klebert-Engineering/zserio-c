@@ -154,19 +154,28 @@ int main(int argc, char **argv)
     if (rc == 0) {
         (void)zsp_session_analyse(&session);
     }
-    if ((rc == 0) && (zsp_diag_error_count(&session.diag) == 0U)
-            && (top_unit != NULL)) {
+    if ((rc == 0) && (top_unit != NULL)) {
+        /* Emit every loaded unit (top + transitively imported
+         * dependencies) so cross-package references resolve in
+         * the generated output tree. Diagnostics are kept and
+         * still gate the exit code; emission proceeds best-
+         * effort when only cross-file conflicts are present. */
         out_ctx_t out = { outdir, true, 0U };
-        if (zsp_emit_unit(top_unit, &session.arena, &session.diag,
-                          &session.source, out_write, &out) != ZSERIO_OK) {
-            (void)fprintf(stderr, "error: emit failed\n");
-            rc = 1;
+        for (size_t i = 0U; i < session.n_files; ++i) {
+            if (session.files[i].unit == NULL) continue;
+            if (zsp_emit_unit(session.files[i].unit, &session.arena,
+                              &session.diag, &session.source,
+                              out_write, &out) != ZSERIO_OK) {
+                (void)fprintf(stderr, "error: emit failed\n");
+                rc = 1;
+                break;
+            }
         }
-        else if (!out.ok) {
+        if ((rc == 0) && !out.ok) {
             (void)fprintf(stderr, "error: file write failed\n");
             rc = 1;
         }
-        else {
+        else if (rc == 0) {
             (void)fprintf(stderr, "wrote %zu files under %s\n",
                           out.files, outdir);
         }
