@@ -552,8 +552,13 @@ static void emit_struct_decl(buf_t *b, const zsp_ast_node_t *cmpd,
                 ? ty->u.type_array.length_expr : NULL;
         const zsp_sema_const_t *len_cv = (len_expr != NULL)
                 ? (const zsp_sema_const_t *)len_expr->computed : NULL;
+        /* Only treat as fixed-storage when the const length is
+         * non-zero; C99 forbids zero-element arrays, so the
+         * degenerate `array[0]` case falls back to pointer +
+         * count (always empty at runtime but legal). */
         const bool is_fixed_array = is_array && (len_cv != NULL)
-                && (len_cv->kind == ZSP_CONST_UINT);
+                && (len_cv->kind == ZSP_CONST_UINT)
+                && (len_cv->v.u > 0U);
         const uint64_t fixed_n = is_fixed_array ? len_cv->v.u : 0U;
 
         emit_lit(b, "    ");
@@ -597,10 +602,19 @@ static void emit_struct_decl(buf_t *b, const zsp_ast_node_t *cmpd,
         emit_lit(b, "    } u;\n");
     }
     /* C99 forbids zero-member structs; insert a placeholder when
-     * the compound has no parameters and no fields. */
-    if ((cmpd->u.compound.n_params == 0U)
-            && (cmpd->u.compound.n_members == 0U) && !is_union) {
-        emit_lit(b, "    char _zsp_empty;\n");
+     * the compound has no parameters and no FIELD members (non-
+     * field members like functions don't contribute storage). */
+    if (!is_union) {
+        bool any_storage = (cmpd->u.compound.n_params > 0U);
+        for (size_t i = 0U; !any_storage && i < cmpd->u.compound.n_members; ++i) {
+            const zsp_ast_node_t *m = cmpd->u.compound.members[i];
+            if (m != NULL && m->kind == ZSP_AST_FIELD) {
+                any_storage = true;
+            }
+        }
+        if (!any_storage) {
+            emit_lit(b, "    char _zsp_empty;\n");
+        }
     }
     emit_lit(b, "};\n");
 }
@@ -832,17 +846,18 @@ static void emit_referenced_includes(buf_t *b, const zsp_ast_node_t *cmpd,
             while ((sp > 0U) && (n_const_decls < 32U)) {
                 const zsp_ast_node_t *x = stack[--sp];
                 if (x == NULL) continue;
-                if (x->kind == ZSP_AST_EXPR_IDENT) {
-                    const zsp_ast_node_t *d = x->resolved;
-                    if ((d != NULL) && (d->kind == ZSP_AST_CONST)) {
-                        bool seen = false;
-                        for (size_t k = 0U; k < n_const_decls; ++k) {
-                            if (const_decls[k] == d) { seen = true; break; }
-                        }
-                        if (!seen) const_decls[n_const_decls++] = d;
+                /* A dotted reference may resolve to a CONST on
+                 * its outer MEMBER node (package-qualified const)
+                 * or on a bare IDENT (unqualified const). */
+                const zsp_ast_node_t *d = x->resolved;
+                if ((d != NULL) && (d->kind == ZSP_AST_CONST)) {
+                    bool seen = false;
+                    for (size_t k = 0U; k < n_const_decls; ++k) {
+                        if (const_decls[k] == d) { seen = true; break; }
                     }
+                    if (!seen) const_decls[n_const_decls++] = d;
                 }
-                else if (x->kind == ZSP_AST_EXPR_BINARY) {
+                if (x->kind == ZSP_AST_EXPR_BINARY) {
                     if ((sp + 1U) < 64U) { stack[sp++] = x->u.binop.lhs; stack[sp++] = x->u.binop.rhs; }
                 }
                 else if (x->kind == ZSP_AST_EXPR_UNARY) {
@@ -1208,6 +1223,19 @@ static void emit_expr_c(buf_t *b, const zsp_ast_node_t *e,
                     return;
                 }
             }
+            /* `pkg.NAME` resolving to a top-level CONST — emit the
+             * package-qualified macro name; the const-decl scan
+             * pulled in the matching #include earlier. */
+            if (e->resolved->kind == ZSP_AST_CONST) {
+                const zsp_ast_node_t *cname = e->u.member.name;
+                const uint8_t *cb = NULL;
+                size_t         cl = 0U;
+                if (ident_span(src, cname, &cb, &cl)) {
+                    emit_pkg_prefix(b, e->resolved, src);
+                    emit_span(b, cb, cl);
+                    return;
+                }
+            }
         }
         /* Unresolved member access (e.g. on a template parameter):
          * emit 0 as a placeholder so the surrounding case label
@@ -1316,7 +1344,7 @@ static zsp_builtin_code_t enum_underlying(const zsp_ast_node_t *type_ref)
     if ((type_ref == NULL) || (type_ref->kind != ZSP_AST_TYPE_REF)) {
         return ZSP_TB_UNKNOWN;
     }
-    const zsp_ast_node_t *const decl = type_ref->resolved;
+    const zsp_ast_node_t *const decl = peel_alias(type_ref->resolved);
     if (decl == NULL) {
         return ZSP_TB_UNKNOWN;
     }
@@ -1340,7 +1368,7 @@ static uint32_t enum_underlying_width(const zsp_ast_node_t *type_ref)
     if ((type_ref == NULL) || (type_ref->kind != ZSP_AST_TYPE_REF)) {
         return 0U;
     }
-    const zsp_ast_node_t *const decl = type_ref->resolved;
+    const zsp_ast_node_t *const decl = peel_alias(type_ref->resolved);
     if (decl == NULL) return 0U;
     const zsp_ast_node_t *base = NULL;
     if (decl->kind == ZSP_AST_ENUM)    base = decl->u.enum_decl.base_type;
@@ -1521,7 +1549,8 @@ static void emit_field_read(buf_t *b, const zsp_ast_node_t *field,
         const zsp_ast_node_t *const lenexpr = ty->u.type_array.length_expr;
         const zsp_sema_const_t *const lenc = (lenexpr != NULL)
                 ? (const zsp_sema_const_t *)lenexpr->computed : NULL;
-        const bool fixed = (lenc != NULL) && (lenc->kind == ZSP_CONST_UINT);
+        const bool fixed = (lenc != NULL) && (lenc->kind == ZSP_CONST_UINT)
+                && (lenc->v.u > 0U);
         const zsp_ast_node_t *const if_clause = field->u.field.if_clause;
         const bool has_present =
                 field->u.field.optional || (if_clause != NULL);
@@ -1880,7 +1909,8 @@ static void emit_field_write(buf_t *b, const zsp_ast_node_t *field,
         const zsp_ast_node_t *const lenexpr = ty->u.type_array.length_expr;
         const zsp_sema_const_t *const lenc = (lenexpr != NULL)
                 ? (const zsp_sema_const_t *)lenexpr->computed : NULL;
-        const bool fixed = (lenc != NULL) && (lenc->kind == ZSP_CONST_UINT);
+        const bool fixed = (lenc != NULL) && (lenc->kind == ZSP_CONST_UINT)
+                && (lenc->v.u > 0U);
         const zsp_ast_node_t *const if_clause_a = field->u.field.if_clause;
         const bool has_present_a =
                 field->u.field.optional || (if_clause_a != NULL);
@@ -2036,7 +2066,8 @@ static void emit_field_free(buf_t *b, const zsp_ast_node_t *field,
         const zsp_ast_node_t *const lenexpr = ty->u.type_array.length_expr;
         const zsp_sema_const_t *const lenc = (lenexpr != NULL)
                 ? (const zsp_sema_const_t *)lenexpr->computed : NULL;
-        const bool fixed = (lenc != NULL) && (lenc->kind == ZSP_CONST_UINT);
+        const bool fixed = (lenc != NULL) && (lenc->kind == ZSP_CONST_UINT)
+                && (lenc->v.u > 0U);
         if (fixed) {
             const char shape = element_read_shape(element_ty);
             if ((shape == 'o') || (shape == 'c')) {
@@ -2470,6 +2501,34 @@ static void emit_choice_case_read(buf_t *b, const zsp_ast_node_t *f,
     pos = snake_into(slot, pos, fn, fl);
     slot[pos] = '\0';
 
+    /* Bit/int fields inside choice cases need the same special
+     * casing as field reads outside the choice. */
+    if ((ty->kind == ZSP_AST_TYPE_BUILTIN)
+            && ((ty->u.type_builtin.code == ZSP_TB_BIT_FIELD)
+                || (ty->u.type_builtin.code == ZSP_TB_INT_FIELD))) {
+        const bool is_signed = (ty->u.type_builtin.code == ZSP_TB_INT_FIELD);
+        emit_lit(b, "{ ");
+        emit_lit(b, is_signed ? "int64_t tmp_; " : "uint64_t tmp_; ");
+        emit_lit(b, is_signed
+                ? "ZSERIO_TRY(zserio_bitstream_read_signed(bs, "
+                : "ZSERIO_TRY(zserio_bitstream_read_bits(bs, ");
+        if (ty->u.type_builtin.width > 0U) {
+            emit_uint(b, ty->u.type_builtin.width);
+        }
+        else if (ty->u.type_builtin.width_expr != NULL) {
+            emit_lit(b, "(size_t)(");
+            emit_expr_c(b, ty->u.type_builtin.width_expr, src);
+            emit_lit(b, ")");
+        }
+        else {
+            emit_lit(b, "64");
+        }
+        emit_lit(b, ", &tmp_)); ");
+        emit_lit(b, slot);
+        emit_lit(b, " = ("); emit_element_type(b, ty, src);
+        emit_lit(b, ")tmp_; }\n");
+        return;
+    }
     const char shape = element_read_shape(ty);
     emit_lit(b, "        ");
     if (shape == 'p') {

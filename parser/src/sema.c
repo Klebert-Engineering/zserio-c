@@ -827,7 +827,22 @@ static void resolve_member_access(zsp_sema_t *s, zsp_ast_node_t *m)
             }
         }
     }
+    /* Top-level decl reached via package path: `pkg1.pkg2.CONST`
+     * or `pkg1.pkg2.Type` where the LHS chain is just packages
+     * (no nested type). Look up the rhs name at the root scope
+     * and shortcut: resolve the member directly. */
     if (base == NULL) {
+        const uint8_t *rb = NULL;
+        size_t         rl = 0U;
+        if (extract_simple_name(s, rhs, &rb, &rl)) {
+            zsp_ast_node_t *const found = scope_find_prefer(
+                    s->root, rb, rl, m->file_id, true);
+            if (found != NULL) {
+                m->resolved   = found;
+                rhs->resolved = found;
+                return;
+            }
+        }
         return;
     }
 
