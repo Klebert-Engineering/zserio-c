@@ -826,6 +826,22 @@ static void emit_referenced_includes(buf_t *b, const zsp_ast_node_t *cmpd,
         all_types[n_types++] = m->u.field.type;
         /* Scan field's array length + init + if-clause + align +
          * offset for IDENT references to const decls. */
+        /* Dynamic-width bitfield references its width expr from
+         * the type node. Include both that and the array-length
+         * expr along with the field-level guards. */
+        const zsp_ast_node_t *bf_width_expr = NULL;
+        if ((m->u.field.type != NULL)
+                && (m->u.field.type->kind == ZSP_AST_TYPE_BUILTIN)) {
+            bf_width_expr = m->u.field.type->u.type_builtin.width_expr;
+        }
+        const zsp_ast_node_t *arr_elem_width_expr = NULL;
+        if ((m->u.field.type != NULL)
+                && (m->u.field.type->kind == ZSP_AST_TYPE_ARRAY)
+                && (m->u.field.type->u.type_array.element != NULL)
+                && (m->u.field.type->u.type_array.element->kind == ZSP_AST_TYPE_BUILTIN)) {
+            arr_elem_width_expr =
+                    m->u.field.type->u.type_array.element->u.type_builtin.width_expr;
+        }
         const zsp_ast_node_t *exprs[] = {
             (m->u.field.type && (m->u.field.type->kind == ZSP_AST_TYPE_ARRAY))
                 ? m->u.field.type->u.type_array.length_expr : NULL,
@@ -834,6 +850,8 @@ static void emit_referenced_includes(buf_t *b, const zsp_ast_node_t *cmpd,
             m->u.field.constraint_expr,
             m->u.field.align_expr,
             m->u.field.offset_expr,
+            bf_width_expr,
+            arr_elem_width_expr,
         };
         for (size_t e = 0U; e < (sizeof(exprs) / sizeof(exprs[0])); ++e) {
             /* DFS through the expression tree looking for IDENT
@@ -2501,6 +2519,19 @@ static void emit_choice_case_read(buf_t *b, const zsp_ast_node_t *f,
     pos = snake_into(slot, pos, fn, fl);
     slot[pos] = '\0';
 
+    /* Peel SUBTYPE aliases so a choice case `subtype int8 Black;
+     * black` reads/writes as int8 rather than failing on a
+     * TYPE_REF whose `.u.type_builtin` is garbage. */
+    {
+        const zsp_ast_node_t *peeled = ty;
+        while ((peeled != NULL) && (peeled->kind == ZSP_AST_TYPE_REF)
+                && (peeled->resolved != NULL)
+                && (peeled->resolved->kind == ZSP_AST_SUBTYPE)
+                && (peeled->resolved->u.subtype.target_type != NULL)) {
+            peeled = peeled->resolved->u.subtype.target_type;
+        }
+        ty = peeled;
+    }
     /* Bit/int fields inside choice cases need the same special
      * casing as field reads outside the choice. */
     if ((ty->kind == ZSP_AST_TYPE_BUILTIN)
@@ -2575,6 +2606,13 @@ static void emit_choice_case_write(buf_t *b, const zsp_ast_node_t *f,
     if (f == NULL) return;
     const zsp_ast_node_t *ty = f->u.field.type;
     if (ty == NULL) return;
+    /* Peel subtype aliases — mirror the read path. */
+    while ((ty != NULL) && (ty->kind == ZSP_AST_TYPE_REF)
+            && (ty->resolved != NULL)
+            && (ty->resolved->kind == ZSP_AST_SUBTYPE)
+            && (ty->resolved->u.subtype.target_type != NULL)) {
+        ty = ty->resolved->u.subtype.target_type;
+    }
     const uint8_t *fn = NULL;
     size_t         fl = 0U;
     if (!ident_span(src, f->u.field.name, &fn, &fl)) return;
