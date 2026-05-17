@@ -1298,11 +1298,32 @@ static void emit_expr_c(buf_t *b, const zsp_ast_node_t *e,
         if (e->u.ternary.else_expr != NULL) emit_expr_c(b, e->u.ternary.else_expr, src);
         emit_lit(b, ")");
         return;
-    case ZSP_AST_EXPR_CALL:
-        /* Bare function call — emit as 0 since we don't have a
-         * function-call lowering yet. */
+    case ZSP_AST_EXPR_CALL: {
+        /* `isset(bitmask, flag)` is the only schema-level builtin
+         * we lower; user-defined function calls remain
+         * unsupported (would need full function emission). */
+        const zsp_ast_node_t *callee = e->u.call.callee;
+        if (callee && (callee->kind == ZSP_AST_EXPR_IDENT)) {
+            const zsp_file_t *f = NULL;
+            if (zsp_source_get(src, callee->file_id, &f)) {
+                const uint8_t *n = &f->bytes[callee->u.ident.span_off];
+                const size_t   nl = (size_t)callee->u.ident.span_len;
+                if ((nl == 5U) && (memcmp(n, "isset", 5U) == 0)
+                        && (e->u.call.n_args == 2U)) {
+                    emit_lit(b, "(((");
+                    emit_expr_c(b, e->u.call.args[0], src);
+                    emit_lit(b, ") & (");
+                    emit_expr_c(b, e->u.call.args[1], src);
+                    emit_lit(b, ")) == (");
+                    emit_expr_c(b, e->u.call.args[1], src);
+                    emit_lit(b, "))");
+                    return;
+                }
+            }
+        }
         emit_lit(b, "0 /*unsupported-call*/");
         return;
+    }
     default:
         emit_lit(b, "0 /*unsupported-expr*/");
         return;
@@ -1441,6 +1462,14 @@ static void emit_element_read(buf_t *b, const zsp_ast_node_t *ty,
                               const char *slot_expr,
                               const zsp_source_t *src)
 {
+    /* Peel subtype aliases so the read uses the underlying type's
+     * read function, not the alias name. */
+    while ((ty != NULL) && (ty->kind == ZSP_AST_TYPE_REF)
+            && (ty->resolved != NULL)
+            && (ty->resolved->kind == ZSP_AST_SUBTYPE)
+            && (ty->resolved->u.subtype.target_type != NULL)) {
+        ty = ty->resolved->u.subtype.target_type;
+    }
     const char shape = element_read_shape(ty);
     /* Bit-field element (explicit or dynamic width). Signed
      * (`int:N` / `int<expr>`) goes through the runtime's
@@ -1806,6 +1835,12 @@ static void emit_element_write(buf_t *b, const zsp_ast_node_t *ty,
                                const char *slot_expr,
                                const zsp_source_t *src)
 {
+    while ((ty != NULL) && (ty->kind == ZSP_AST_TYPE_REF)
+            && (ty->resolved != NULL)
+            && (ty->resolved->kind == ZSP_AST_SUBTYPE)
+            && (ty->resolved->u.subtype.target_type != NULL)) {
+        ty = ty->resolved->u.subtype.target_type;
+    }
     const char shape = element_read_shape(ty);
     if ((ty != NULL) && (ty->kind == ZSP_AST_TYPE_BUILTIN)
             && ((ty->u.type_builtin.code == ZSP_TB_BIT_FIELD)
