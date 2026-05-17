@@ -753,6 +753,31 @@ static void resolve_member_access(zsp_sema_t *s, zsp_ast_node_t *m)
     else if (lhs->kind == ZSP_AST_EXPR_MEMBER) {
         base = lhs->resolved;
     }
+    /* Fully-qualified package path fallback: when LHS is an
+     * unresolved dotted chain (e.g. `pkg1.pkg2.Color`), treat
+     * the rightmost segment as a type name and look it up via
+     * the root scope. This is how zserio's enum literals are
+     * spelled across package boundaries. */
+    if ((base == NULL) && (lhs->kind == ZSP_AST_EXPR_MEMBER)) {
+        const zsp_ast_node_t *type_ident = lhs->u.member.name;
+        if ((type_ident != NULL) && (type_ident->kind == ZSP_AST_EXPR_IDENT)) {
+            const uint8_t *tb = NULL;
+            size_t         tl = 0U;
+            if (extract_simple_name(s, type_ident, &tb, &tl)) {
+                zsp_ast_node_t *const found = scope_find_type_prefer(
+                        s->root, tb, tl, m->file_id, true);
+                if ((found != NULL)
+                        && ((found->kind == ZSP_AST_ENUM)
+                            || (found->kind == ZSP_AST_BITMASK)
+                            || (found->kind == ZSP_AST_STRUCT)
+                            || (found->kind == ZSP_AST_UNION)
+                            || (found->kind == ZSP_AST_SUBTYPE))) {
+                    base = found;
+                    lhs->resolved = found;
+                }
+            }
+        }
+    }
     if (base == NULL) {
         return;
     }
@@ -1316,6 +1341,20 @@ static zserio_status_t evaluate_known_constants(zsp_sema_t *s,
         else if (d->kind == ZSP_AST_CONST) {
             if (d->u.const_decl.value_expr != NULL) {
                 (void)zsp_sema_eval(s, d->u.const_decl.value_expr);
+            }
+        }
+        else if ((d->kind == ZSP_AST_STRUCT) || (d->kind == ZSP_AST_UNION)) {
+            /* Pre-evaluate every field's array length expression so
+             * the emitter can decide between fixed-size (T name[N])
+             * and dynamic (T *name; size_t name_count) storage. */
+            for (size_t j = 0U; j < d->u.compound.n_members; ++j) {
+                zsp_ast_node_t *const mem = d->u.compound.members[j];
+                if ((mem == NULL) || (mem->kind != ZSP_AST_FIELD)) continue;
+                zsp_ast_node_t *t = mem->u.field.type;
+                if ((t != NULL) && (t->kind == ZSP_AST_TYPE_ARRAY)
+                        && (t->u.type_array.length_expr != NULL)) {
+                    (void)zsp_sema_eval(s, t->u.type_array.length_expr);
+                }
             }
         }
     }

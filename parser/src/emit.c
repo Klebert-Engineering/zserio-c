@@ -508,11 +508,21 @@ static void emit_struct_decl(buf_t *b, const zsp_ast_node_t *cmpd,
                 && (element_ty->resolved == cmpd);
         const bool has_present =
                 m->u.field.optional || (m->u.field.if_clause != NULL);
+        /* Fixed-size array if the length expression const-evals
+         * to a concrete value. Emit as `T name[N];` so the harness
+         * (and Java-generator parity) can index it directly. */
+        const zsp_ast_node_t *len_expr = is_array
+                ? ty->u.type_array.length_expr : NULL;
+        const zsp_sema_const_t *len_cv = (len_expr != NULL)
+                ? (const zsp_sema_const_t *)len_expr->computed : NULL;
+        const bool is_fixed_array = is_array && (len_cv != NULL)
+                && (len_cv->kind == ZSP_CONST_UINT);
+        const uint64_t fixed_n = is_fixed_array ? len_cv->v.u : 0U;
 
         emit_lit(b, "    ");
         bool owned = false;
         (void)emit_field_c_type(b, element_ty, src, &owned);
-        if (is_array || is_self_recursive) {
+        if ((is_array && !is_fixed_array) || is_self_recursive) {
             emit_lit(b, " *");
         }
         else {
@@ -523,9 +533,14 @@ static void emit_struct_decl(buf_t *b, const zsp_ast_node_t *cmpd,
         if (ident_span(src, m->u.field.name, &fn, &fl)) {
             emit_snake(b, fn, fl);
         }
+        if (is_fixed_array) {
+            emit_lit(b, "[");
+            emit_uint(b, fixed_n);
+            emit_lit(b, "]");
+        }
         emit_lit(b, ";\n");
 
-        if (is_array) {
+        if (is_array && !is_fixed_array) {
             emit_lit(b, "    size_t ");
             if (ident_span(src, m->u.field.name, &fn, &fl)) {
                 emit_snake(b, fn, fl);
@@ -543,6 +558,12 @@ static void emit_struct_decl(buf_t *b, const zsp_ast_node_t *cmpd,
 
     if (is_union) {
         emit_lit(b, "    } u;\n");
+    }
+    /* C99 forbids zero-member structs; insert a placeholder when
+     * the compound has no parameters and no fields. */
+    if ((cmpd->u.compound.n_params == 0U)
+            && (cmpd->u.compound.n_members == 0U) && !is_union) {
+        emit_lit(b, "    char _zsp_empty;\n");
     }
     emit_lit(b, "};\n");
 }
@@ -1379,8 +1400,27 @@ static void emit_field_read(buf_t *b, const zsp_ast_node_t *field,
 
     if (is_array) {
         /* Array path. Length: explicit expression or auto
-         * (varsize length-prefix when length_expr is NULL). */
+         * (varsize length-prefix when length_expr is NULL).
+         * Fixed-size arrays (compile-time-constant length) are
+         * stored as `T name[N]` inline and read in place — no
+         * length prefix, no allocation. */
         const zsp_ast_node_t *const lenexpr = ty->u.type_array.length_expr;
+        const zsp_sema_const_t *const lenc = (lenexpr != NULL)
+                ? (const zsp_sema_const_t *)lenexpr->computed : NULL;
+        const bool fixed = (lenc != NULL) && (lenc->kind == ZSP_CONST_UINT);
+
+        /* Build the slot expression `self->name[i_]`. */
+        char slot[256];
+        size_t pos = 0U;
+        const char *prefix = "self->";
+        const size_t plen = strlen(prefix);
+        (void)memcpy(slot, prefix, plen); pos = plen;
+        pos = snake_into(slot, pos, fn, fl);
+        const char *suffix = "[i_]";
+        (void)memcpy(&slot[pos], suffix, strlen(suffix));
+        pos += strlen(suffix);
+        slot[pos] = '\0';
+
         emit_lit(b, "    {\n");
         emit_lit(b, "        size_t arr_count_ = 0u;\n");
         if (lenexpr != NULL) {
@@ -1393,53 +1433,39 @@ static void emit_field_read(buf_t *b, const zsp_ast_node_t *field,
             emit_lit(b, "        ZSERIO_TRY(zserio_read_varsize(bs, &arr_len_));\n");
             emit_lit(b, "        arr_count_ = (size_t)arr_len_;\n");
         }
-        emit_lit(b, "        self->");
-        emit_snake(b, fn, fl);
-        emit_lit(b, "_count = arr_count_;\n");
-        emit_lit(b, "        self->");
-        emit_snake(b, fn, fl);
-        emit_lit(b, " = NULL;\n");
-        emit_lit(b, "        if (arr_count_ > 0u) {\n");
-        emit_lit(b, "            self->");
-        emit_snake(b, fn, fl);
-        emit_lit(b, " = (");
-        emit_element_type(b, element_ty, src);
-        emit_lit(b, " *)alloc->vtable->alloc(alloc->userdata,\n");
-        emit_lit(b, "                    arr_count_ * sizeof(*self->");
-        emit_snake(b, fn, fl);
-        emit_lit(b, "), sizeof(*self->");
-        emit_snake(b, fn, fl);
-        emit_lit(b, "));\n");
-        emit_lit(b, "            if (self->");
-        emit_snake(b, fn, fl);
-        emit_lit(b, " == NULL) return ZSERIO_ERR_OUT_OF_MEMORY;\n");
-        emit_lit(b, "            (void)memset(self->");
-        emit_snake(b, fn, fl);
-        emit_lit(b, ", 0, arr_count_ * sizeof(*self->");
-        emit_snake(b, fn, fl);
-        emit_lit(b, "));\n");
-        emit_lit(b, "            for (size_t i_ = 0u; i_ < arr_count_; ++i_) {\n");
-
-        /* Build the slot expression `self->name[i_]` in a small
-         * scratch buffer. Snake-cases the field name with the same
-         * "only insert _ at lower→upper boundaries" rule as
-         * emit_snake so the struct member and the access here
-         * match. */
-        char slot[256];
-        size_t pos = 0U;
-        const char *prefix = "self->";
-        const size_t plen = strlen(prefix);
-        (void)memcpy(slot, prefix, plen); pos = plen;
-        pos = snake_into(slot, pos, fn, fl);
-        const char *suffix = "[i_]";
-        (void)memcpy(&slot[pos], suffix, strlen(suffix));
-        pos += strlen(suffix);
-        slot[pos] = '\0';
-
+        if (!fixed) {
+            emit_lit(b, "        self->");
+            emit_snake(b, fn, fl);
+            emit_lit(b, "_count = arr_count_;\n");
+            emit_lit(b, "        self->");
+            emit_snake(b, fn, fl);
+            emit_lit(b, " = NULL;\n");
+            emit_lit(b, "        if (arr_count_ > 0u) {\n");
+            emit_lit(b, "            self->");
+            emit_snake(b, fn, fl);
+            emit_lit(b, " = (");
+            emit_element_type(b, element_ty, src);
+            emit_lit(b, " *)alloc->vtable->alloc(alloc->userdata,\n");
+            emit_lit(b, "                    arr_count_ * sizeof(*self->");
+            emit_snake(b, fn, fl);
+            emit_lit(b, "), sizeof(*self->");
+            emit_snake(b, fn, fl);
+            emit_lit(b, "));\n");
+            emit_lit(b, "            if (self->");
+            emit_snake(b, fn, fl);
+            emit_lit(b, " == NULL) return ZSERIO_ERR_OUT_OF_MEMORY;\n");
+            emit_lit(b, "            (void)memset(self->");
+            emit_snake(b, fn, fl);
+            emit_lit(b, ", 0, arr_count_ * sizeof(*self->");
+            emit_snake(b, fn, fl);
+            emit_lit(b, "));\n");
+        }
+        emit_lit(b, "        for (size_t i_ = 0u; i_ < arr_count_; ++i_) {\n");
         emit_element_read(b, element_ty, slot, src);
-
-        emit_lit(b, "            }\n");
         emit_lit(b, "        }\n");
+        if (!fixed) {
+            emit_lit(b, "        }\n");
+        }
         emit_lit(b, "    }\n");
         return;
     }
@@ -1690,6 +1716,9 @@ static void emit_field_write(buf_t *b, const zsp_ast_node_t *field,
 
     if (is_array) {
         const zsp_ast_node_t *const lenexpr = ty->u.type_array.length_expr;
+        const zsp_sema_const_t *const lenc = (lenexpr != NULL)
+                ? (const zsp_sema_const_t *)lenexpr->computed : NULL;
+        const bool fixed = (lenc != NULL) && (lenc->kind == ZSP_CONST_UINT);
         emit_lit(b, "    {\n");
         if (lenexpr == NULL) {
             /* Auto-array: write length prefix. */
@@ -1697,9 +1726,22 @@ static void emit_field_write(buf_t *b, const zsp_ast_node_t *field,
             emit_snake(b, fn, fl);
             emit_lit(b, "_count));\n");
         }
-        emit_lit(b, "        for (size_t i_ = 0u; i_ < self->");
-        emit_snake(b, fn, fl);
-        emit_lit(b, "_count; ++i_) {\n");
+        emit_lit(b, "        const size_t arr_count_ = ");
+        if (fixed) {
+            emit_uint(b, lenc->v.u);
+            emit_lit(b, "u;\n");
+        }
+        else if (lenexpr != NULL) {
+            emit_lit(b, "(size_t)(");
+            emit_expr_c(b, lenexpr, src);
+            emit_lit(b, ");\n");
+        }
+        else {
+            emit_lit(b, "self->");
+            emit_snake(b, fn, fl);
+            emit_lit(b, "_count;\n");
+        }
+        emit_lit(b, "        for (size_t i_ = 0u; i_ < arr_count_; ++i_) {\n");
 
         char slot[256];
         size_t pos = 0U;
@@ -1796,6 +1838,37 @@ static void emit_field_free(buf_t *b, const zsp_ast_node_t *field,
     const zsp_ast_node_t *element_ty = is_array ? ty->u.type_array.element : ty;
 
     if (is_array) {
+        /* Fixed-size arrays are stored inline; free per-element
+         * owned content (e.g. strings) but skip the buffer free. */
+        const zsp_ast_node_t *const lenexpr = ty->u.type_array.length_expr;
+        const zsp_sema_const_t *const lenc = (lenexpr != NULL)
+                ? (const zsp_sema_const_t *)lenexpr->computed : NULL;
+        const bool fixed = (lenc != NULL) && (lenc->kind == ZSP_CONST_UINT);
+        if (fixed) {
+            const char shape = element_read_shape(element_ty);
+            if ((shape == 'o') || (shape == 'c')) {
+                emit_lit(b, "    for (size_t i_ = 0u; i_ < ");
+                emit_uint(b, lenc->v.u);
+                emit_lit(b, "u; ++i_) {\n");
+                if (shape == 'o') {
+                    emit_lit(b, "        ");
+                    emit_lit(b, builtin_free_fn(element_ty->u.type_builtin.code));
+                    emit_lit(b, "(&self->");
+                    emit_snake(b, fn, fl);
+                    emit_lit(b, "[i_], alloc);\n");
+                }
+                else {
+                    const zsp_ast_node_t *const decl = element_ty->resolved;
+                    emit_lit(b, "        ");
+                    (void)emit_type_id(b, decl, src);
+                    emit_lit(b, "_free(&self->");
+                    emit_snake(b, fn, fl);
+                    emit_lit(b, "[i_], alloc);\n");
+                }
+                emit_lit(b, "    }\n");
+            }
+            return;
+        }
         emit_lit(b, "    if (self->");
         emit_snake(b, fn, fl);
         emit_lit(b, " != NULL) {\n");
