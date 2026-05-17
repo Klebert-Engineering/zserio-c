@@ -1682,6 +1682,12 @@ static void emit_field_read(buf_t *b, const zsp_ast_node_t *field,
             emit_lit(b, "));\n");
         }
         emit_lit(b, "        for (size_t i_ = 0u; i_ < arr_count_; ++i_) {\n");
+        /* Indexed offsets: byte-align before each element so the
+         * reader matches the writer's back-patched byte offsets. */
+        if ((field->u.field.offset_expr != NULL)
+                && (field->u.field.offset_expr->kind == ZSP_AST_EXPR_INDEX)) {
+            emit_lit(b, "        ZSERIO_TRY(zserio_bitstream_reader_align(bs, 8u));\n");
+        }
         emit_element_read(b, element_ty, slot, src);
         emit_lit(b, "        }\n");
         if (!fixed) {
@@ -2082,6 +2088,66 @@ static void emit_field_write(buf_t *b, const zsp_ast_node_t *field,
             emit_lit(b, "_count;\n");
         }
         emit_lit(b, "        for (size_t i_ = 0u; i_ < arr_count_; ++i_) {\n");
+
+        /* Indexed-offsets back-patch: when the array carries an
+         * `offset_expr` of the form `<source_arr>[@index]`, each
+         * iteration byte-aligns, captures cur_pos, then patches
+         * the source-array slot at index `i_` with the byte
+         * position. The source array must be a fixed-size
+         * (compile-time-constant length) array of a builtin int. */
+        if ((field->u.field.offset_expr != NULL)
+                && (field->u.field.offset_expr->kind == ZSP_AST_EXPR_INDEX)
+                && (field->u.field.offset_expr->u.index.lhs != NULL)
+                && (field->u.field.offset_expr->u.index.lhs->resolved != NULL)
+                && (field->u.field.offset_expr->u.index.lhs->resolved->kind == ZSP_AST_FIELD)) {
+            const zsp_ast_node_t *const src_arr_field =
+                    field->u.field.offset_expr->u.index.lhs->resolved;
+            const zsp_ast_node_t *const src_arr_ty = src_arr_field->u.field.type;
+            const uint8_t *sn = NULL;
+            size_t         sl = 0U;
+            if ((src_arr_ty != NULL) && (src_arr_ty->kind == ZSP_AST_TYPE_ARRAY)
+                    && (src_arr_ty->u.type_array.element != NULL)
+                    && (src_arr_ty->u.type_array.element->kind == ZSP_AST_TYPE_BUILTIN)
+                    && ident_span(src, src_arr_field->u.field.name, &sn, &sl)) {
+                const zsp_ast_node_t *const elem = src_arr_ty->u.type_array.element;
+                const zsp_builtin_code_t c = elem->u.type_builtin.code;
+                uint32_t elem_bits = 0U;
+                switch (c) {
+                case ZSP_TB_UINT8: case ZSP_TB_INT8: elem_bits = 8U; break;
+                case ZSP_TB_UINT16: case ZSP_TB_INT16: elem_bits = 16U; break;
+                case ZSP_TB_UINT32: case ZSP_TB_INT32: elem_bits = 32U; break;
+                case ZSP_TB_UINT64: case ZSP_TB_INT64: elem_bits = 64U; break;
+                case ZSP_TB_BIT_FIELD: case ZSP_TB_INT_FIELD:
+                    elem_bits = elem->u.type_builtin.width;
+                    break;
+                default: break;
+                }
+                if (elem_bits > 0U) {
+                    emit_lit(b, "        ZSERIO_TRY(zserio_bitstream_writer_align(bs, 8u));\n");
+                    emit_lit(b, "        {\n");
+                    emit_lit(b, "            const size_t cur_pos_ = zserio_bitstream_writer_position(bs);\n");
+                    emit_lit(b, "            ZSERIO_TRY(zserio_bitstream_writer_seek(bs, ");
+                    emit_snake(b, sn, sl);
+                    emit_lit(b, "_off_pos_ + i_ * ");
+                    emit_uint(b, elem_bits);
+                    emit_lit(b, "u));\n");
+                    if ((c == ZSP_TB_BIT_FIELD) || (c == ZSP_TB_INT_FIELD)) {
+                        emit_lit(b, "            ZSERIO_TRY(zserio_bitstream_write_bits(bs, ");
+                        emit_uint(b, elem_bits);
+                        emit_lit(b, ", (uint64_t)(cur_pos_ / 8u)));\n");
+                    }
+                    else {
+                        emit_lit(b, "            ZSERIO_TRY(");
+                        emit_lit(b, builtin_write_fn(c));
+                        emit_lit(b, "(bs, (");
+                        emit_lit(b, builtin_c_type(c));
+                        emit_lit(b, ")(cur_pos_ / 8u)));\n");
+                    }
+                    emit_lit(b, "            ZSERIO_TRY(zserio_bitstream_writer_seek(bs, cur_pos_));\n");
+                    emit_lit(b, "        }\n");
+                }
+            }
+        }
 
         char slot[256];
         size_t pos = 0U;
@@ -2488,7 +2554,8 @@ static void emit_source_for_compound(buf_t *b, const zsp_ast_node_t *cmpd,
                     && (ty->resolved == cmpd);
             if (is_self_rec) continue;
             /* Offsets feature: if any LATER field references this
-             * field via its `offset(<name>)` directive, emit a
+             * field via its `offset(<name>)` directive (or the
+             * indexed variant `offset(<name>[@index])`), emit a
              * save of the writer position so the back-patch in
              * the target field's write can rewind here and
              * overwrite the offset value. */
@@ -2500,8 +2567,15 @@ static void emit_source_for_compound(buf_t *b, const zsp_ast_node_t *cmpd,
                     const zsp_ast_node_t *o = cmpd->u.compound.members[j];
                     if ((o == NULL) || (o->kind != ZSP_AST_FIELD)) continue;
                     const zsp_ast_node_t *oe = o->u.field.offset_expr;
-                    if ((oe != NULL) && (oe->kind == ZSP_AST_EXPR_IDENT)
+                    if (oe == NULL) continue;
+                    if ((oe->kind == ZSP_AST_EXPR_IDENT)
                             && (oe->resolved == m)) {
+                        referenced = true;
+                        break;
+                    }
+                    if ((oe->kind == ZSP_AST_EXPR_INDEX)
+                            && (oe->u.index.lhs != NULL)
+                            && (oe->u.index.lhs->resolved == m)) {
                         referenced = true;
                         break;
                     }
