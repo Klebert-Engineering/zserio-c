@@ -164,13 +164,23 @@ static void compile_one_schema(const char *schema_path, compile_state_t *st)
 
     if ((zsp_session_load(&session, schema_path, &top_unit) == ZSERIO_OK)
             && (top_unit != NULL)
-            && (zsp_session_analyse(&session) == ZSERIO_OK)
-            && (zsp_emit_unit(top_unit, &session.arena, &session.diag,
-                              &session.source, disk_write, &sink)
-                == ZSERIO_OK)
-            && sink.ok) {
-        emit_ok = true;
-        st->emitted_schemas += 1U;
+            && (zsp_session_analyse(&session) == ZSERIO_OK)) {
+        /* Emit every loaded unit so cross-package references
+         * resolve in the generated output. */
+        bool ok = true;
+        for (size_t i = 0U; i < session.n_files; ++i) {
+            if (session.files[i].unit != NULL) {
+                if (zsp_emit_unit(session.files[i].unit, &session.arena,
+                                  &session.diag, &session.source,
+                                  disk_write, &sink) != ZSERIO_OK) {
+                    ok = false;
+                }
+            }
+        }
+        if (ok && sink.ok) {
+            emit_ok = true;
+            st->emitted_schemas += 1U;
+        }
     }
     zsp_session_dispose(&session);
 

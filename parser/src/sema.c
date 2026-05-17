@@ -170,6 +170,15 @@ static zserio_status_t collect_top_level(zsp_sema_t *s, zsp_ast_node_t *unit)
         if (d == NULL) {
             continue;
         }
+        /* For top-level decls, repurpose `resolved` to point to
+         * their enclosing unit. The emit layer reads this to
+         * derive the decl's package path for cross-package
+         * include emission. Top-level decls never have a
+         * "resolved declaration" of their own, so the slot is
+         * otherwise unused. */
+        if (d->resolved == NULL) {
+            d->resolved = unit;
+        }
         const zsp_ast_node_t *const name = decl_name_node(d);
         const uint8_t *bytes = NULL;
         size_t         len   = 0U;

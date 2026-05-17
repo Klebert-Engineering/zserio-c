@@ -451,6 +451,64 @@ static void emit_compound_protos(buf_t *b, const zsp_ast_node_t *cmpd,
     emit_lit(b, "_t *self, const zserio_allocator_t *alloc);\n");
 }
 
+/* Compute the dotted package name for a top-level decl. The
+ * sema repurposes `decl->resolved` on top-level decls to point
+ * to their enclosing UNIT; we read the unit's package decl
+ * here. Writes a `.`-separated lowercase path into `out`;
+ * returns the length written. Empty for the default (package-
+ * less) compilation unit. */
+static size_t decl_package_path(const zsp_ast_node_t *decl,
+                                const zsp_source_t *src,
+                                char *out, size_t out_cap)
+{
+    out[0] = '\0';
+    if ((decl == NULL) || (decl->resolved == NULL)) return 0U;
+    const zsp_ast_node_t *unit = decl->resolved;
+    if (unit->kind != ZSP_AST_UNIT) return 0U;
+    if (unit->u.unit.package == NULL) return 0U;
+    const zsp_ast_node_t *pname = unit->u.unit.package->u.package.name;
+    if (pname == NULL) return 0U;
+
+    size_t pos = 0U;
+    const zsp_ast_node_t *const *parts = NULL;
+    size_t n_parts = 0U;
+    if (pname->kind == ZSP_AST_DOTTED_NAME) {
+        parts   = (const zsp_ast_node_t * const *)pname->u.dotted.parts;
+        n_parts = pname->u.dotted.n_parts;
+    }
+    else if (pname->kind == ZSP_AST_EXPR_IDENT) {
+        const uint8_t *bytes = NULL;
+        size_t         len   = 0U;
+        if (ident_span(src, pname, &bytes, &len)) {
+            const size_t copy = (len < (out_cap - 1U)) ? len : (out_cap - 1U);
+            for (size_t i = 0U; i < copy; ++i) {
+                const uint8_t c = bytes[i];
+                out[pos++] = (char)(((c >= 'A') && (c <= 'Z'))
+                        ? (c - 'A' + 'a') : c);
+            }
+            out[pos] = '\0';
+        }
+        return pos;
+    }
+    for (size_t i = 0U; i < n_parts; ++i) {
+        const uint8_t *bytes = NULL;
+        size_t         len   = 0U;
+        if (!ident_span(src, parts[i], &bytes, &len)) continue;
+        if ((i > 0U) && ((pos + 1U) < out_cap)) {
+            out[pos++] = '/';
+        }
+        const size_t copy = (len < (out_cap - 1U - pos))
+                ? len : (out_cap - 1U - pos);
+        for (size_t k = 0U; k < copy; ++k) {
+            const uint8_t c = bytes[k];
+            out[pos++] = (char)(((c >= 'A') && (c <= 'Z'))
+                    ? (c - 'A' + 'a') : c);
+        }
+    }
+    out[pos] = '\0';
+    return pos;
+}
+
 /* Walk a compound's members and emit `#include "<typename>.h"`
  * for every referenced named type (enum / bitmask / nested
  * compound). Deduplicates by linear search through an
@@ -462,7 +520,13 @@ static void emit_referenced_includes(buf_t *b, const zsp_ast_node_t *cmpd,
     enum { MAX_INC = 64U };
     const uint8_t *names[MAX_INC];
     size_t          lens[MAX_INC];
+    const zsp_ast_node_t *decls_for_pkg[MAX_INC];  /* for path computation */
     size_t          n = 0U;
+
+    /* Compute the current compound's own package path so we
+     * can decide whether each include needs path-qualification. */
+    char self_pkg[1024];
+    (void)decl_package_path(cmpd, src, self_pkg, sizeof(self_pkg));
 
     /* Collect referenced const decls used in array length /
      * if-clause / init expressions so we can include their
@@ -546,21 +610,66 @@ static void emit_referenced_includes(buf_t *b, const zsp_ast_node_t *cmpd,
         if (seen || (n >= MAX_INC)) continue;
         names[n] = nb;
         lens[n]  = nl;
+        decls_for_pkg[n] = decl;
         n += 1U;
     }
 
+    /* Helper inline: emit `#include "..."` with path-prefix when
+     * the referenced decl is in a different package than the
+     * current compound. */
     for (size_t i = 0U; i < n; ++i) {
+        char dep_pkg[1024];
+        const size_t dep_pkg_len = decl_package_path(
+                decls_for_pkg[i], src, dep_pkg, sizeof(dep_pkg));
+        const bool same_pkg =
+                ((strlen(self_pkg) == dep_pkg_len)
+                 && (memcmp(self_pkg, dep_pkg, dep_pkg_len) == 0));
         emit_lit(b, "#include \"");
+        if (!same_pkg && (dep_pkg_len > 0U)) {
+            emit_lit(b, "../../");
+            /* Climb the current package's depth back to the root.
+             * Each component in `self_pkg` is one slash → one
+             * `../` to climb. */
+            const size_t self_len = strlen(self_pkg);
+            size_t slashes = 0U;
+            for (size_t k = 0U; k < self_len; ++k) {
+                if (self_pkg[k] == '/') slashes += 1U;
+            }
+            for (size_t k = 1U; k < slashes; ++k) {
+                emit_lit(b, "../");
+            }
+            emit_bytes(b, dep_pkg, dep_pkg_len);
+            emit_lit(b, "/");
+        }
         emit_snake(b, names[i], lens[i]);
         emit_lit(b, ".h\"\n");
     }
-    /* Const-decl includes. */
+    /* Const-decl includes (same package qualification logic). */
     for (size_t i = 0U; i < n_const_decls; ++i) {
         const zsp_ast_node_t *cn = const_decls[i]->u.const_decl.name;
         const uint8_t *cb = NULL;
         size_t         cl = 0U;
         if (ident_span(src, cn, &cb, &cl)) {
+            char dep_pkg[1024];
+            const size_t dep_pkg_len = decl_package_path(
+                    const_decls[i], src, dep_pkg, sizeof(dep_pkg));
+            const bool same_pkg =
+                    ((strlen(self_pkg) == dep_pkg_len)
+                     && (memcmp(self_pkg, dep_pkg, dep_pkg_len) == 0));
             emit_lit(b, "#include \"");
+            if (!same_pkg && (dep_pkg_len > 0U)) {
+                emit_lit(b, "../../");
+                const size_t self_len = strlen(self_pkg);
+                size_t slashes = 0U;
+                for (size_t k = 0U; k < self_len; ++k) {
+                    if (self_pkg[k] == '/') slashes += 1U;
+                }
+                for (size_t k = 1U; k < slashes; ++k) {
+                    emit_lit(b, "../");
+                }
+                emit_bytes(b, dep_pkg, dep_pkg_len);
+                emit_lit(b, "/");
+            }
             emit_snake(b, cb, cl);
             emit_lit(b, ".h\"\n");
         }
