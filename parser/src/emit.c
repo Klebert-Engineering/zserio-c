@@ -517,7 +517,7 @@ static void emit_referenced_includes(buf_t *b, const zsp_ast_node_t *cmpd,
                                      const zsp_source_t *src)
 {
     /* Small fixed-cap table; most compounds reference << 32 types. */
-    enum { MAX_INC = 64U };
+    enum { MAX_INC = 512U };
     const uint8_t *names[MAX_INC];
     size_t          lens[MAX_INC];
     const zsp_ast_node_t *decls_for_pkg[MAX_INC];  /* for path computation */
@@ -536,12 +536,12 @@ static void emit_referenced_includes(buf_t *b, const zsp_ast_node_t *cmpd,
     size_t                n_const_decls = 0U;
 
     /* Collect referenced types from parameters AND fields. */
-    const zsp_ast_node_t *all_types[128];
+    const zsp_ast_node_t *all_types[1024];
     size_t                n_types = 0U;
-    for (size_t i = 0U; (i < cmpd->u.compound.n_params) && (n_types < 128U); ++i) {
+    for (size_t i = 0U; (i < cmpd->u.compound.n_params) && (n_types < 1024U); ++i) {
         all_types[n_types++] = cmpd->u.compound.params[i]->u.parameter.type;
     }
-    for (size_t i = 0U; (i < cmpd->u.compound.n_members) && (n_types < 128U); ++i) {
+    for (size_t i = 0U; (i < cmpd->u.compound.n_members) && (n_types < 1024U); ++i) {
         const zsp_ast_node_t *m = cmpd->u.compound.members[i];
         if ((m == NULL) || (m->kind != ZSP_AST_FIELD)) continue;
         all_types[n_types++] = m->u.field.type;
@@ -555,16 +555,53 @@ static void emit_referenced_includes(buf_t *b, const zsp_ast_node_t *cmpd,
             m->u.field.constraint_expr,
         };
         for (size_t e = 0U; e < (sizeof(exprs) / sizeof(exprs[0])); ++e) {
-            const zsp_ast_node_t *expr = exprs[e];
-            if ((expr == NULL) || (expr->kind != ZSP_AST_EXPR_IDENT)) continue;
-            const zsp_ast_node_t *d = expr->resolved;
-            if ((d != NULL) && (d->kind == ZSP_AST_CONST)
-                    && (n_const_decls < 32U)) {
-                bool seen = false;
-                for (size_t k = 0U; k < n_const_decls; ++k) {
-                    if (const_decls[k] == d) { seen = true; break; }
+            /* DFS through the expression tree looking for IDENT
+             * references that resolve to CONST decls. The stack
+             * is bounded by expression depth which is small for
+             * field constraint/if-clause/length exprs. */
+            const zsp_ast_node_t *stack[64];
+            size_t                sp = 0U;
+            if (exprs[e] != NULL) stack[sp++] = exprs[e];
+            while ((sp > 0U) && (n_const_decls < 32U)) {
+                const zsp_ast_node_t *x = stack[--sp];
+                if (x == NULL) continue;
+                if (x->kind == ZSP_AST_EXPR_IDENT) {
+                    const zsp_ast_node_t *d = x->resolved;
+                    if ((d != NULL) && (d->kind == ZSP_AST_CONST)) {
+                        bool seen = false;
+                        for (size_t k = 0U; k < n_const_decls; ++k) {
+                            if (const_decls[k] == d) { seen = true; break; }
+                        }
+                        if (!seen) const_decls[n_const_decls++] = d;
+                    }
                 }
-                if (!seen) const_decls[n_const_decls++] = d;
+                else if (x->kind == ZSP_AST_EXPR_BINARY) {
+                    if ((sp + 1U) < 64U) { stack[sp++] = x->u.binop.lhs; stack[sp++] = x->u.binop.rhs; }
+                }
+                else if (x->kind == ZSP_AST_EXPR_UNARY) {
+                    if (sp < 64U) stack[sp++] = x->u.unop.operand;
+                }
+                else if (x->kind == ZSP_AST_EXPR_TERNARY) {
+                    if ((sp + 2U) < 64U) {
+                        stack[sp++] = x->u.ternary.cond;
+                        stack[sp++] = x->u.ternary.then_expr;
+                        stack[sp++] = x->u.ternary.else_expr;
+                    }
+                }
+                else if (x->kind == ZSP_AST_EXPR_MEMBER) {
+                    if (sp < 64U) stack[sp++] = x->u.member.lhs;
+                }
+                else if (x->kind == ZSP_AST_EXPR_INDEX) {
+                    if ((sp + 1U) < 64U) {
+                        stack[sp++] = x->u.index.lhs;
+                        stack[sp++] = x->u.index.index;
+                    }
+                }
+                else if (x->kind == ZSP_AST_EXPR_CALL) {
+                    for (size_t a = 0U; (a < x->u.call.n_args) && (sp < 64U); ++a) {
+                        stack[sp++] = x->u.call.args[a];
+                    }
+                }
             }
         }
     }
@@ -1058,13 +1095,23 @@ static void emit_element_read(buf_t *b, const zsp_ast_node_t *ty,
     }
     else if (shape == 'e') {
         const zsp_builtin_code_t uc = enum_underlying(ty);
+        const uint32_t           uw = enum_underlying_width(ty);
         emit_lit(b, "        {\n");
-        emit_lit(b, "            ");
-        emit_lit(b, builtin_c_type(uc));
-        emit_lit(b, " tmp_;\n");
-        emit_lit(b, "            ZSERIO_TRY(");
-        emit_lit(b, builtin_read_fn(uc));
-        emit_lit(b, "(bs, &tmp_));\n");
+        if ((uc == ZSP_TB_BIT_FIELD) || (uc == ZSP_TB_INT_FIELD)) {
+            const uint32_t w = (uw > 0U) ? uw : 64U;
+            emit_lit(b, "            uint64_t tmp_;\n");
+            emit_lit(b, "            ZSERIO_TRY(zserio_bitstream_read_bits(bs, ");
+            emit_uint(b, w);
+            emit_lit(b, ", &tmp_));\n");
+        }
+        else {
+            emit_lit(b, "            ");
+            emit_lit(b, builtin_c_type(uc));
+            emit_lit(b, " tmp_;\n");
+            emit_lit(b, "            ZSERIO_TRY(");
+            emit_lit(b, builtin_read_fn(uc));
+            emit_lit(b, "(bs, &tmp_));\n");
+        }
         emit_lit(b, "            ");
         emit_lit(b, slot_expr);
         emit_lit(b, " = (");
@@ -1134,24 +1181,28 @@ static void emit_field_read(buf_t *b, const zsp_ast_node_t *field,
         emit_lit(b, "            for (size_t i_ = 0u; i_ < arr_count_; ++i_) {\n");
 
         /* Build the slot expression `self->name[i_]` in a small
-         * scratch buffer. */
+         * scratch buffer. Snake-cases the field name with the same
+         * "only insert _ at lower→upper boundaries" rule as
+         * emit_snake so the struct member and the access here
+         * match. */
         char slot[256];
         size_t pos = 0U;
         const char *prefix = "self->";
         const size_t plen = strlen(prefix);
         (void)memcpy(slot, prefix, plen); pos = plen;
-        /* lowercase + snake-case the field name */
+        bool prev_lower = false;
         for (size_t i = 0U; i < fl; ++i) {
             const uint8_t c = fn[i];
             if ((c >= (uint8_t)'A') && (c <= (uint8_t)'Z')) {
-                if ((pos > plen)
-                        && (slot[pos - 1U] >= 'a') && (slot[pos - 1U] <= 'z')) {
+                if (prev_lower) {
                     slot[pos++] = '_';
                 }
                 slot[pos++] = (char)(c - 'A' + 'a');
+                prev_lower = false;
             }
             else {
                 slot[pos++] = (char)c;
+                prev_lower = (c >= (uint8_t)'a') && (c <= (uint8_t)'z');
             }
         }
         const char *suffix = "[i_]";
@@ -1415,17 +1466,19 @@ static void emit_field_write(buf_t *b, const zsp_ast_node_t *field,
         const char *prefix = "self->";
         const size_t plen = strlen(prefix);
         (void)memcpy(slot, prefix, plen); pos = plen;
+        bool prev_lower = false;
         for (size_t i = 0U; i < fl; ++i) {
             const uint8_t c = fn[i];
             if ((c >= (uint8_t)'A') && (c <= (uint8_t)'Z')) {
-                if ((pos > plen)
-                        && (slot[pos - 1U] >= 'a') && (slot[pos - 1U] <= 'z')) {
+                if (prev_lower) {
                     slot[pos++] = '_';
                 }
                 slot[pos++] = (char)(c - 'A' + 'a');
+                prev_lower = false;
             }
             else {
                 slot[pos++] = (char)c;
+                prev_lower = (c >= (uint8_t)'a') && (c <= (uint8_t)'z');
             }
         }
         const char *suffix = "[i_]";
@@ -1446,17 +1499,19 @@ static void emit_field_write(buf_t *b, const zsp_ast_node_t *field,
     const char *prefix = "self->";
     const size_t plen = strlen(prefix);
     (void)memcpy(slot, prefix, plen); pos = plen;
-    for (size_t i = 0U; i < fl; ++i) {
-        const uint8_t c = fn[i];
-        if ((c >= (uint8_t)'A') && (c <= (uint8_t)'Z')) {
-            if ((pos > plen)
-                    && (slot[pos - 1U] >= 'a') && (slot[pos - 1U] <= 'z')) {
-                slot[pos++] = '_';
+    {
+        bool prev_lower = false;
+        for (size_t i = 0U; i < fl; ++i) {
+            const uint8_t c = fn[i];
+            if ((c >= (uint8_t)'A') && (c <= (uint8_t)'Z')) {
+                if (prev_lower) slot[pos++] = '_';
+                slot[pos++] = (char)(c - 'A' + 'a');
+                prev_lower = false;
             }
-            slot[pos++] = (char)(c - 'A' + 'a');
-        }
-        else {
-            slot[pos++] = (char)c;
+            else {
+                slot[pos++] = (char)c;
+                prev_lower = (c >= (uint8_t)'a') && (c <= (uint8_t)'z');
+            }
         }
     }
     slot[pos] = '\0';
@@ -1821,16 +1876,19 @@ static void emit_choice_case_read(buf_t *b, const zsp_ast_node_t *f,
     const char *prefix = "self->u.";
     const size_t plen = strlen(prefix);
     (void)memcpy(slot, prefix, plen); pos = plen;
-    for (size_t i = 0U; i < fl; ++i) {
-        const uint8_t c = fn[i];
-        if ((c >= (uint8_t)'A') && (c <= (uint8_t)'Z')) {
-            if ((pos > plen) && (slot[pos - 1U] >= 'a') && (slot[pos - 1U] <= 'z')) {
-                slot[pos++] = '_';
+    {
+        bool prev_lower = false;
+        for (size_t i = 0U; i < fl; ++i) {
+            const uint8_t c = fn[i];
+            if ((c >= (uint8_t)'A') && (c <= (uint8_t)'Z')) {
+                if (prev_lower) slot[pos++] = '_';
+                slot[pos++] = (char)(c - 'A' + 'a');
+                prev_lower = false;
             }
-            slot[pos++] = (char)(c - 'A' + 'a');
-        }
-        else {
-            slot[pos++] = (char)c;
+            else {
+                slot[pos++] = (char)c;
+                prev_lower = (c >= (uint8_t)'a') && (c <= (uint8_t)'z');
+            }
         }
     }
     slot[pos] = '\0';
@@ -1857,9 +1915,20 @@ static void emit_choice_case_read(buf_t *b, const zsp_ast_node_t *f,
     }
     else if (shape == 'e') {
         const zsp_builtin_code_t uc = enum_underlying(ty);
-        emit_lit(b, "{ "); emit_lit(b, builtin_c_type(uc)); emit_lit(b, " tmp_; ");
-        emit_lit(b, "ZSERIO_TRY("); emit_lit(b, builtin_read_fn(uc));
-        emit_lit(b, "(bs, &tmp_)); "); emit_lit(b, slot);
+        const uint32_t           uw = enum_underlying_width(ty);
+        if ((uc == ZSP_TB_BIT_FIELD) || (uc == ZSP_TB_INT_FIELD)) {
+            const uint32_t w = (uw > 0U) ? uw : 64U;
+            emit_lit(b, "{ uint64_t tmp_; ");
+            emit_lit(b, "ZSERIO_TRY(zserio_bitstream_read_bits(bs, ");
+            emit_uint(b, w);
+            emit_lit(b, ", &tmp_)); ");
+        }
+        else {
+            emit_lit(b, "{ "); emit_lit(b, builtin_c_type(uc)); emit_lit(b, " tmp_; ");
+            emit_lit(b, "ZSERIO_TRY("); emit_lit(b, builtin_read_fn(uc));
+            emit_lit(b, "(bs, &tmp_)); ");
+        }
+        emit_lit(b, slot);
         emit_lit(b, " = ("); emit_element_type(b, ty, src); emit_lit(b, ")tmp_; }\n");
     }
     else {
@@ -1881,16 +1950,19 @@ static void emit_choice_case_write(buf_t *b, const zsp_ast_node_t *f,
     const char *prefix = "self->u.";
     const size_t plen = strlen(prefix);
     (void)memcpy(slot, prefix, plen); pos = plen;
-    for (size_t i = 0U; i < fl; ++i) {
-        const uint8_t c = fn[i];
-        if ((c >= (uint8_t)'A') && (c <= (uint8_t)'Z')) {
-            if ((pos > plen) && (slot[pos - 1U] >= 'a') && (slot[pos - 1U] <= 'z')) {
-                slot[pos++] = '_';
+    {
+        bool prev_lower = false;
+        for (size_t i = 0U; i < fl; ++i) {
+            const uint8_t c = fn[i];
+            if ((c >= (uint8_t)'A') && (c <= (uint8_t)'Z')) {
+                if (prev_lower) slot[pos++] = '_';
+                slot[pos++] = (char)(c - 'A' + 'a');
+                prev_lower = false;
             }
-            slot[pos++] = (char)(c - 'A' + 'a');
-        }
-        else {
-            slot[pos++] = (char)c;
+            else {
+                slot[pos++] = (char)c;
+                prev_lower = (c >= (uint8_t)'a') && (c <= (uint8_t)'z');
+            }
         }
     }
     slot[pos] = '\0';
@@ -2050,19 +2122,25 @@ static void emit_choice_header(buf_t *b, const zsp_ast_node_t *ch,
     emit_lit(b, "#include \"zserio/status.h\"\n#include \"zserio/string.h\"\n");
     emit_lit(b, "#include \"zserio/varint.h\"\n\n");
     /* Collect referenced types from parameters, union members,
-     * and default field. Same dedup approach as for compounds. */
+     * and default field. Same dedup approach as for compounds.
+     * Qualify cross-package includes with the relative `../<pkg>/`
+     * path so the emitter output compiles. */
     {
-        enum { MAX_INC = 64U };
+        enum { MAX_INC = 512U };
         const uint8_t *names[MAX_INC];
         size_t          lens[MAX_INC];
+        const zsp_ast_node_t *decls_for_pkg[MAX_INC];
         size_t          n = 0U;
 
-        const zsp_ast_node_t *referenced_types[256];
+        char self_pkg[1024];
+        const size_t self_len = decl_package_path(ch, src, self_pkg, sizeof(self_pkg));
+
+        const zsp_ast_node_t *referenced_types[1024];
         size_t n_refs = 0U;
-        for (size_t i = 0U; (i < ch->u.choice.n_params) && (n_refs < 256U); ++i) {
+        for (size_t i = 0U; (i < ch->u.choice.n_params) && (n_refs < 1024U); ++i) {
             referenced_types[n_refs++] = ch->u.choice.params[i]->u.parameter.type;
         }
-        for (size_t i = 0U; (i < ch->u.choice.n_cases) && (n_refs < 256U); ++i) {
+        for (size_t i = 0U; (i < ch->u.choice.n_cases) && (n_refs < 1024U); ++i) {
             const zsp_ast_node_t *f = ch->u.choice.cases[i]->u.choice_case.field;
             if (f != NULL) {
                 referenced_types[n_refs++] = f->u.field.type;
@@ -2070,7 +2148,7 @@ static void emit_choice_header(buf_t *b, const zsp_ast_node_t *ch,
         }
         if ((ch->u.choice.default_case != NULL)
                 && (ch->u.choice.default_case->u.choice_default.field != NULL)
-                && (n_refs < 256U)) {
+                && (n_refs < 1024U)) {
             referenced_types[n_refs++] =
                 ch->u.choice.default_case->u.choice_default.field->u.field.type;
         }
@@ -2104,10 +2182,32 @@ static void emit_choice_header(buf_t *b, const zsp_ast_node_t *ch,
             if (seen || (n >= MAX_INC)) continue;
             names[n] = nb;
             lens[n]  = nl;
+            decls_for_pkg[n] = decl;
             n += 1U;
         }
+        size_t levels_up = 0U;
+        if (self_len > 0U) {
+            levels_up = 1U;
+            for (size_t k = 0U; k < self_len; ++k) {
+                if (self_pkg[k] == '/') levels_up += 1U;
+            }
+        }
         for (size_t i = 0U; i < n; ++i) {
+            char dep_pkg[1024];
+            const size_t dep_len = decl_package_path(
+                    decls_for_pkg[i], src, dep_pkg, sizeof(dep_pkg));
+            const bool same_pkg = ((self_len == dep_len)
+                    && (memcmp(self_pkg, dep_pkg, dep_len) == 0));
             emit_lit(b, "#include \"");
+            if (!same_pkg) {
+                for (size_t k = 0U; k < levels_up; ++k) {
+                    emit_lit(b, "../");
+                }
+                if (dep_len > 0U) {
+                    emit_bytes(b, dep_pkg, dep_len);
+                    emit_lit(b, "/");
+                }
+            }
             emit_snake(b, names[i], lens[i]);
             emit_lit(b, ".h\"\n");
         }
@@ -2323,6 +2423,24 @@ zserio_status_t zsp_emit_unit(const zsp_ast_node_t *unit,
         size_t         nlen = 0U;
         const zsp_ast_node_t *name_node = NULL;
 
+        /* Skip templated decls: their concrete instantiations are
+         * emitted separately by the template-instantiation pass.
+         * Emitting the template itself produces code referencing
+         * unbounded T-placeholders that won't compile when the
+         * field types pull in real cross-package decls. */
+        {
+            const size_t n_tp =
+                    ((d->kind == ZSP_AST_STRUCT) || (d->kind == ZSP_AST_UNION))
+                    ? d->u.compound.n_template_params
+                    : (d->kind == ZSP_AST_CHOICE)
+                    ? d->u.choice.n_template_params
+                    : (d->kind == ZSP_AST_SQL_TABLE)
+                    ? d->u.sql_table.n_template_params
+                    : 0U;
+            if (n_tp > 0U) {
+                continue;
+            }
+        }
         if ((d->kind == ZSP_AST_STRUCT) || (d->kind == ZSP_AST_UNION)) {
             name_node = d->u.compound.name;
         }
@@ -2708,7 +2826,9 @@ zserio_status_t zsp_emit_unit(const zsp_ast_node_t *unit,
             emit_lit(&hbuf, "#include \"zserio/string.h\"\n");
             emit_lit(&hbuf, "#include \"zserio/bytes.h\"\n");
             emit_lit(&hbuf, "#include \"zserio/extern.h\"\n");
-            /* Include the underlying type's header if it's a named ref. */
+            /* Include the underlying type's header if it's a named ref.
+             * Qualify with `../<pkg>/` when the target lives in a
+             * different package than this subtype. */
             const zsp_ast_node_t *target = d->u.subtype.target_type;
             if ((target != NULL) && (target->kind == ZSP_AST_TYPE_REF)) {
                 const zsp_ast_node_t *tname = target->u.type_ref.name;
@@ -2718,7 +2838,32 @@ zserio_status_t zsp_emit_unit(const zsp_ast_node_t *unit,
                 const uint8_t *tn = NULL;
                 size_t         tl = 0U;
                 if (ident_span(source, tname, &tn, &tl)) {
+                    char self_pkg[1024];
+                    const size_t self_len = decl_package_path(
+                            d, source, self_pkg, sizeof(self_pkg));
+                    char dep_pkg[1024];
+                    const size_t dep_len = decl_package_path(
+                            target->resolved, source, dep_pkg,
+                            sizeof(dep_pkg));
+                    const bool same_pkg = ((self_len == dep_len)
+                            && (memcmp(self_pkg, dep_pkg, dep_len) == 0));
                     emit_lit(&hbuf, "#include \"");
+                    if (!same_pkg) {
+                        size_t levels_up = 0U;
+                        if (self_len > 0U) {
+                            levels_up = 1U;
+                            for (size_t k = 0U; k < self_len; ++k) {
+                                if (self_pkg[k] == '/') levels_up += 1U;
+                            }
+                        }
+                        for (size_t k = 0U; k < levels_up; ++k) {
+                            emit_lit(&hbuf, "../");
+                        }
+                        if (dep_len > 0U) {
+                            emit_bytes(&hbuf, dep_pkg, dep_len);
+                            emit_lit(&hbuf, "/");
+                        }
+                    }
                     emit_snake(&hbuf, tn, tl);
                     emit_lit(&hbuf, ".h\"\n");
                 }

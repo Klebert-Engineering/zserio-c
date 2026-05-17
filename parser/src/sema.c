@@ -116,6 +116,27 @@ zsp_ast_node_t *zsp_sema_scope_find(const zsp_sema_scope_t *scope,
     return NULL;
 }
 
+/* True for decls that can stand as the target of a TYPE_REF. */
+static bool is_type_decl(const zsp_ast_node_t *d)
+{
+    if (d == NULL) return false;
+    switch (d->kind) {
+    case ZSP_AST_STRUCT:
+    case ZSP_AST_UNION:
+    case ZSP_AST_CHOICE:
+    case ZSP_AST_ENUM:
+    case ZSP_AST_BITMASK:
+    case ZSP_AST_SUBTYPE:
+    case ZSP_AST_INSTANTIATE:
+    case ZSP_AST_TEMPLATE_PARAM:
+    case ZSP_AST_SQL_TABLE:
+    case ZSP_AST_SQL_DATABASE:
+        return true;
+    default:
+        return false;
+    }
+}
+
 /* File-aware lookup: when there are multiple bindings for the
  * same name (cross-package conflict), prefer one whose decl
  * lives in the given file. Falls back to any match. */
@@ -146,6 +167,48 @@ static zsp_ast_node_t *scope_find_prefer(const zsp_sema_scope_t *scope,
         sc = sc->parent;
     }
     return fallback;
+}
+
+/* Type-position lookup: same as scope_find_prefer but skips
+ * non-type bindings (fields, parameters, case bindings) when
+ * searching. This is needed because zserio's grammar allows
+ * `Type Name;` where Type and Name refer to the same identifier
+ * but in different namespaces — the type position must skip the
+ * locally-bound field of the same name and find the outer type
+ * declaration instead. Type-aware bindings still see their first
+ * type-decl match before climbing further. */
+static zsp_ast_node_t *scope_find_type_prefer(const zsp_sema_scope_t *scope,
+                                              const uint8_t *name, size_t len,
+                                              zsp_file_id_t preferred_fid,
+                                              bool preferred_valid)
+{
+    const zsp_sema_scope_t *sc = scope;
+    zsp_ast_node_t *fallback     = NULL;
+    zsp_ast_node_t *any_fallback = NULL;
+    while (sc != NULL) {
+        for (size_t i = 0U; i < sc->count; ++i) {
+            const zsp_sema_binding_t *const b = &sc->bindings[i];
+            if ((b->name_len != len)
+                    || (memcmp(b->name, name, len) != 0)) {
+                continue;
+            }
+            if (is_type_decl(b->decl)) {
+                if (preferred_valid && (b->decl != NULL)
+                        && (b->decl->file_id == preferred_fid)) {
+                    return b->decl;
+                }
+                if (fallback == NULL) {
+                    fallback = b->decl;
+                }
+            }
+            else if (any_fallback == NULL) {
+                any_fallback = b->decl;
+            }
+        }
+        sc = sc->parent;
+    }
+    if (fallback != NULL) return fallback;
+    return any_fallback;
 }
 
 static zserio_status_t scope_bind(zsp_sema_t *s, zsp_sema_scope_t *sc,
@@ -245,7 +308,7 @@ static void resolve_type_ref(zsp_sema_t *s, zsp_ast_node_t *t)
     if (!extract_simple_name(s, t->u.type_ref.name, &bytes, &len)) {
         return;
     }
-    zsp_ast_node_t *const decl = scope_find_prefer(
+    zsp_ast_node_t *const decl = scope_find_type_prefer(
             s->current, bytes, len, t->file_id, true);
     if (decl == NULL) {
         (void)zsp_diag_emit_lit(s->diag, ZSP_SEV_ERROR,
