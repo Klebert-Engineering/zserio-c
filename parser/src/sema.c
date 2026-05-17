@@ -123,10 +123,19 @@ static zserio_status_t scope_bind(zsp_sema_t *s, zsp_sema_scope_t *sc,
     for (size_t i = 0U; i < sc->count; ++i) {
         const zsp_sema_binding_t *const b = &sc->bindings[i];
         if ((b->name_len == len) && (memcmp(b->name, name, len) == 0)) {
-            (void)zsp_diag_emit_lit(s->diag, ZSP_SEV_ERROR,
-                                    decl->file_id, decl->offset,
-                                    "duplicate top-level declaration");
-            return ZSERIO_OK;   /* keep parsing; not a fatal error */
+            /* Duplicate name. If the existing binding and the
+             * incoming decl live in different files, treat as
+             * a cross-package overload (separate packages may
+             * legitimately reuse the same simple name). Just
+             * keep the first binding; cross-file resolution is
+             * best-effort. Same-file duplicates are still an
+             * error. */
+            if (b->decl != NULL && b->decl->file_id == decl->file_id) {
+                (void)zsp_diag_emit_lit(s->diag, ZSP_SEV_ERROR,
+                                        decl->file_id, decl->offset,
+                                        "duplicate top-level declaration");
+            }
+            return ZSERIO_OK;
         }
     }
     ZSERIO_TRY(scope_grow(s, sc));
