@@ -590,10 +590,11 @@ jobs:
           git submodule update --init third_party/zserio
           git submodule update --init third_party/zserio-test-data
       - name: Install build tools
-        # ant builds the upstream bundle jar; gcc/g++ already on the
-        # runner image but the explicit install keeps the step
-        # self-documenting.
-        run: sudo apt-get update && sudo apt-get install -y ant gcc g++
+        # ant builds the upstream bundle jar; cmake + ninja drive
+        # the zserio_c_gen build; python3 runs the roundtrip-driver
+        # generator; gcc/g++ already on the runner image but the
+        # explicit install keeps the step self-documenting.
+        run: sudo apt-get update && sudo apt-get install -y ant gcc g++ cmake ninja-build python3
       # JDK 17 + JAVA_HOME provided by the runner image (ci/Dockerfile).
       - name: Cache upstream zserio jars
         # Two artifacts cached together: zserio_core.jar (drives our
@@ -610,6 +611,13 @@ jobs:
         run: tools/build_zserio_bundle_jar.sh
       - name: Build zserio_c.jar
         run: tools/build_generator_jar.sh
+      - name: Build C-native zserio_c_gen
+        # Phase 7 replaced the Java front-end on the C target; the
+        # xvalidation harness now invokes build/parser/zserio_c_gen
+        # for the C side of each schema.
+        run: |
+          cmake -B build -S . -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --target zserio_c_gen
       - name: Cache cpp runtime + harness scratch
         # The cpp runtime static lib is ~10MB and rebuilds in ~30s.
         # Cache it across runs keyed on the cpp-runtime sources.
