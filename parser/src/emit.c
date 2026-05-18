@@ -653,7 +653,170 @@ static void emit_struct_decl(buf_t *b, const zsp_ast_node_t *cmpd,
     emit_lit(b, "};\n");
 }
 
+/* Forward declarations of helpers defined later in the file
+ * that the packing-protocol emitters need. */
+typedef struct packed_elem packed_elem_t;
+static bool packed_elem_describe(const zsp_ast_node_t *ty, packed_elem_t *out);
+static zsp_builtin_code_t enum_underlying(const zsp_ast_node_t *type_ref);
+static uint32_t enum_underlying_width(const zsp_ast_node_t *type_ref);
+static void emit_element_type(buf_t *b, const zsp_ast_node_t *element_ty,
+                              const zsp_source_t *src);
+static void emit_field_read(buf_t *b, const zsp_ast_node_t *field,
+                            const zsp_source_t *src);
+static void emit_field_write(buf_t *b, const zsp_ast_node_t *field,
+                             const zsp_source_t *src,
+                             bool referenced_as_offset_source);
+
+/* The packed-element descriptor is a small POD; declare here so
+ * field_packing_class can reference it. The full struct body lives
+ * with packed_elem_describe further down. */
+struct packed_elem {
+    uint32_t                num_bits;       /* 0 if dynamic */
+    const zsp_ast_node_t   *width_expr;     /* set when num_bits==0 */
+    bool                    is_signed;
+    const char             *cast_type;      /* C type name */
+};
+
 /* Emit function prototypes for one compound. */
+/* For a compound's FIELD, classify how it participates in the
+ * packed-array protocol of the enclosing compound: 'p' if its
+ * type is a packable fixed-width scalar (gets a delta context),
+ * 'n' if it's a nested struct/union (gets a nested packing
+ * context), 'x' if unpackable (regular read/write in the packed
+ * path). Fields with arrays or self-references are treated as
+ * unpackable for now. */
+static char field_packing_class(const zsp_ast_node_t *field,
+                                packed_elem_t *scalar_out)
+{
+    if ((field == NULL) || (field->kind != ZSP_AST_FIELD)) return 'x';
+    const zsp_ast_node_t *ty = field->u.field.type;
+    if (ty == NULL) return 'x';
+    if (ty->kind == ZSP_AST_TYPE_ARRAY) return 'x';
+    /* Peel SUBTYPE chains for classification. */
+    while ((ty != NULL) && (ty->kind == ZSP_AST_TYPE_REF)
+            && (ty->resolved != NULL)
+            && (ty->resolved->kind == ZSP_AST_SUBTYPE)
+            && (ty->resolved->u.subtype.target_type != NULL)) {
+        ty = ty->resolved->u.subtype.target_type;
+    }
+    if (ty == NULL) return 'x';
+    packed_elem_t pe = {0};
+    if (packed_elem_describe(ty, &pe)) {
+        if (scalar_out != NULL) *scalar_out = pe;
+        return 'p';
+    }
+    if (ty->kind == ZSP_AST_TYPE_REF) {
+        const zsp_ast_node_t *decl = peel_alias(ty->resolved);
+        if ((decl != NULL)
+                && ((decl->kind == ZSP_AST_STRUCT)
+                    || (decl->kind == ZSP_AST_UNION))) {
+            return 'n';
+        }
+    }
+    return 'x';
+}
+
+/* Does this compound have ANY packable scalar field, or any
+ * nested compound that itself does? Used to decide whether the
+ * compound needs packing-context machinery. Unions are excluded
+ * (per-field packing doesn't apply across arms — only one is
+ * active per element). Compounds with offset/align directives
+ * are also excluded since the packed read/write entry points
+ * don't carry the outer `_off_pos_` variables those need. */
+static bool compound_has_packable_field(const zsp_ast_node_t *cmpd)
+{
+    if ((cmpd == NULL) || (cmpd->kind != ZSP_AST_STRUCT)) {
+        return false;
+    }
+    /* Skip if any field uses offset/align directives — the
+     * packed read/write paths don't have outer-scope variables
+     * for back-patching. */
+    for (size_t i = 0U; i < cmpd->u.compound.n_members; ++i) {
+        const zsp_ast_node_t *m = cmpd->u.compound.members[i];
+        if ((m == NULL) || (m->kind != ZSP_AST_FIELD)) continue;
+        if ((m->u.field.offset_expr != NULL)
+                || (m->u.field.align_expr != NULL)) {
+            return false;
+        }
+    }
+    for (size_t i = 0U; i < cmpd->u.compound.n_members; ++i) {
+        const zsp_ast_node_t *m = cmpd->u.compound.members[i];
+        if ((m == NULL) || (m->kind != ZSP_AST_FIELD)) continue;
+        const char cls = field_packing_class(m, NULL);
+        if (cls == 'p') return true;
+        if (cls == 'n') {
+            /* Recurse one level — nested compound's packability
+             * propagates. (We don't deep-recurse to avoid
+             * cycles; the nested compound's own emission will
+             * handle deeper.) */
+            const zsp_ast_node_t *ty = m->u.field.type;
+            while ((ty != NULL) && (ty->kind == ZSP_AST_TYPE_REF)
+                    && (ty->resolved != NULL)
+                    && (ty->resolved->kind == ZSP_AST_SUBTYPE)
+                    && (ty->resolved->u.subtype.target_type != NULL)) {
+                ty = ty->resolved->u.subtype.target_type;
+            }
+            if ((ty != NULL) && (ty->kind == ZSP_AST_TYPE_REF)
+                    && (ty->resolved != NULL)
+                    && (ty->resolved != cmpd)
+                    && compound_has_packable_field(ty->resolved)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+/* Emit `<T>_packing_context_t` typedef body — one delta_context
+ * per packable scalar field, one nested packing-context per
+ * nested compound field. Skips unpackable fields. */
+static void emit_packing_ctx_typedef(buf_t *b, const zsp_ast_node_t *cmpd,
+                                     const zsp_source_t *src)
+{
+    if (!compound_has_packable_field(cmpd)) return;
+    emit_lit(b, "typedef struct {\n");
+    bool any = false;
+    for (size_t i = 0U; i < cmpd->u.compound.n_members; ++i) {
+        const zsp_ast_node_t *m = cmpd->u.compound.members[i];
+        if ((m == NULL) || (m->kind != ZSP_AST_FIELD)) continue;
+        const char cls = field_packing_class(m, NULL);
+        const uint8_t *fn = NULL;
+        size_t         fl = 0U;
+        if (!ident_span(src, m->u.field.name, &fn, &fl)) continue;
+        if (cls == 'p') {
+            emit_lit(b, "    zserio_delta_context_t ");
+            emit_snake(b, fn, fl);
+            emit_lit(b, "_;\n");
+            any = true;
+        } else if (cls == 'n') {
+            const zsp_ast_node_t *ty = m->u.field.type;
+            while ((ty != NULL) && (ty->kind == ZSP_AST_TYPE_REF)
+                    && (ty->resolved != NULL)
+                    && (ty->resolved->kind == ZSP_AST_SUBTYPE)
+                    && (ty->resolved->u.subtype.target_type != NULL)) {
+                ty = ty->resolved->u.subtype.target_type;
+            }
+            if ((ty != NULL) && (ty->kind == ZSP_AST_TYPE_REF)
+                    && (ty->resolved != NULL)
+                    && (ty->resolved != cmpd)
+                    && compound_has_packable_field(ty->resolved)) {
+                emit_lit(b, "    ");
+                (void)emit_type_id(b, ty->resolved, src);
+                emit_lit(b, "_packing_context_t ");
+                emit_snake(b, fn, fl);
+                emit_lit(b, "_;\n");
+                any = true;
+            }
+        }
+    }
+    if (!any) {
+        emit_lit(b, "    char _zsp_empty;\n");
+    }
+    emit_lit(b, "} ");
+    (void)emit_type_id(b, cmpd, src);
+    emit_lit(b, "_packing_context_t;\n\n");
+}
+
 static void emit_compound_protos(buf_t *b, const zsp_ast_node_t *cmpd,
                                  const zsp_source_t *src)
 {
@@ -703,6 +866,41 @@ static void emit_compound_protos(buf_t *b, const zsp_ast_node_t *cmpd,
     emit_lit(b, "_free(");
     (void)emit_type_id(b, cmpd, src);
     emit_lit(b, "_t *self, const zserio_allocator_t *alloc);\n");
+
+    /* Packing-protocol entry points (only if the compound has
+     * at least one packable scalar / nested compound). */
+    if (compound_has_packable_field(cmpd)) {
+        emit_lit(b, "\nvoid ");
+        (void)emit_type_id(b, cmpd, src);
+        emit_lit(b, "_init_packing_context(");
+        (void)emit_type_id(b, cmpd, src);
+        emit_lit(b, "_packing_context_t *ctx);\n");
+
+        emit_lit(b, "\nvoid ");
+        (void)emit_type_id(b, cmpd, src);
+        emit_lit(b, "_observe_packing(");
+        (void)emit_type_id(b, cmpd, src);
+        emit_lit(b, "_packing_context_t *ctx, const ");
+        (void)emit_type_id(b, cmpd, src);
+        emit_lit(b, "_t *self);\n");
+
+        emit_lit(b, "\nzserio_status_t ");
+        (void)emit_type_id(b, cmpd, src);
+        emit_lit(b, "_read_packed(");
+        (void)emit_type_id(b, cmpd, src);
+        emit_lit(b, "_t *self, zserio_bitstream_reader_t *bs,\n"
+                    "        const zserio_allocator_t *alloc, ");
+        (void)emit_type_id(b, cmpd, src);
+        emit_lit(b, "_packing_context_t *ctx);\n");
+
+        emit_lit(b, "\nzserio_status_t ");
+        (void)emit_type_id(b, cmpd, src);
+        emit_lit(b, "_write_packed(const ");
+        (void)emit_type_id(b, cmpd, src);
+        emit_lit(b, "_t *self, zserio_bitstream_writer_t *bs, ");
+        (void)emit_type_id(b, cmpd, src);
+        emit_lit(b, "_packing_context_t *ctx);\n");
+    }
 }
 
 /* Compute the dotted package name for a top-level decl. The
@@ -1172,6 +1370,7 @@ static void emit_header_for_compound(buf_t *b, const zsp_ast_node_t *cmpd,
         emit_lit(b, "\n");
     }
 
+    emit_packing_ctx_typedef(b, cmpd, src);
     emit_compound_protos(b, cmpd, src);
 
     emit_lit(b, "\n#endif\n");
@@ -1656,12 +1855,7 @@ static uint32_t enum_underlying_width(const zsp_ast_node_t *type_ref)
  * fixed-width packed protocol. Returns false for var-int, bool,
  * float, string, extern, bytes, or compound-element packed —
  * caller falls back to unpacked. */
-typedef struct packed_elem {
-    uint32_t                num_bits;       /* 0 if dynamic */
-    const zsp_ast_node_t   *width_expr;     /* set when num_bits==0 */
-    bool                    is_signed;
-    const char             *cast_type;      /* C type name */
-} packed_elem_t;
+/* packed_elem struct body lives near its forward declaration. */
 
 static bool packed_elem_describe(const zsp_ast_node_t *ty, packed_elem_t *out)
 {
@@ -2019,11 +2213,25 @@ static void emit_field_read(buf_t *b, const zsp_ast_node_t *field,
         }
         /* Packed-array fast path: a fixed-width-integer element
          * (incl. bit:N / enums-of-int) uses the runtime's delta
-         * context. Other elements fall back to the unpacked
-         * per-element read (compound, varint, etc.). */
+         * context. A compound element with at least one packable
+         * scalar inside uses per-field-context emission via
+         * `<T>_init_packing_context` + `<T>_read_packed`. Other
+         * elements fall back to the unpacked per-element read. */
         packed_elem_t pe = {0};
         const bool is_packed = ty->u.type_array.packed
                 && packed_elem_describe(element_ty, &pe);
+        /* Detect packed-compound case. */
+        const zsp_ast_node_t *cmpd_decl = NULL;
+        if (ty->u.type_array.packed && !is_packed
+                && (element_ty != NULL)
+                && (element_ty->kind == ZSP_AST_TYPE_REF)) {
+            const zsp_ast_node_t *d = peel_alias(element_ty->resolved);
+            if ((d != NULL)
+                    && ((d->kind == ZSP_AST_STRUCT) || (d->kind == ZSP_AST_UNION))
+                    && compound_has_packable_field(d)) {
+                cmpd_decl = d;
+            }
+        }
         if (is_packed) {
             emit_lit(b, "        zserio_delta_context_t pctx_;\n");
             emit_lit(b, "        (void)memset(&pctx_, 0, sizeof(pctx_));\n");
@@ -2041,6 +2249,13 @@ static void emit_field_read(buf_t *b, const zsp_ast_node_t *field,
             emit_lit(b, ", ");
             emit_lit(b, pe.is_signed ? "true" : "false");
             emit_lit(b, "));\n");
+        } else if (cmpd_decl != NULL) {
+            emit_lit(b, "        ");
+            (void)emit_type_id(b, cmpd_decl, src);
+            emit_lit(b, "_packing_context_t pctx_;\n");
+            emit_lit(b, "        ");
+            (void)emit_type_id(b, cmpd_decl, src);
+            emit_lit(b, "_init_packing_context(&pctx_);\n");
         }
         emit_lit(b, "        for (size_t i_ = 0u; i_ < arr_count_; ++i_) {\n");
         /* Indexed offsets: byte-align before each element so the
@@ -2068,6 +2283,17 @@ static void emit_field_read(buf_t *b, const zsp_ast_node_t *field,
             }
             emit_lit(b, ")pvu_;\n");
             emit_lit(b, "        }\n");
+        } else if (cmpd_decl != NULL) {
+            emit_lit(b, "        ");
+            (void)emit_type_id(b, cmpd_decl, src);
+            emit_lit(b, "_init(&");
+            emit_lit(b, slot);
+            emit_lit(b, ");\n");
+            emit_lit(b, "        ZSERIO_TRY(");
+            (void)emit_type_id(b, cmpd_decl, src);
+            emit_lit(b, "_read_packed(&");
+            emit_lit(b, slot);
+            emit_lit(b, ", bs, alloc, &pctx_));\n");
         } else {
             emit_element_read(b, element_ty, slot, src);
         }
@@ -2523,12 +2749,26 @@ static void emit_field_write(buf_t *b, const zsp_ast_node_t *field,
          * element (so finalise() can pick packed vs unpacked + the
          * max delta bit width), then emit per-element writes via
          * `zserio_delta_write`. The very first write also emits
-         * the packing descriptor + the first full element. */
+         * the packing descriptor + the first full element.
+         * For compound elements with at least one packable scalar
+         * field, use the compound's `_packing_context_t` + its
+         * observe/write_packed entry points. */
         packed_elem_t pe_w = {0};
         const bool is_packed_w = ty->u.type_array.packed
                 && packed_elem_describe(element_ty, &pe_w);
+        const zsp_ast_node_t *cmpd_decl_w = NULL;
+        if (ty->u.type_array.packed && !is_packed_w
+                && (element_ty != NULL)
+                && (element_ty->kind == ZSP_AST_TYPE_REF)) {
+            const zsp_ast_node_t *d = peel_alias(element_ty->resolved);
+            if ((d != NULL)
+                    && ((d->kind == ZSP_AST_STRUCT) || (d->kind == ZSP_AST_UNION))
+                    && compound_has_packable_field(d)) {
+                cmpd_decl_w = d;
+            }
+        }
         char slot_w[256];
-        if (is_packed_w) {
+        if (is_packed_w || (cmpd_decl_w != NULL)) {
             size_t spos = 0U;
             const char *prefix = "self->";
             const size_t plen = strlen(prefix);
@@ -2538,6 +2778,8 @@ static void emit_field_write(buf_t *b, const zsp_ast_node_t *field,
             (void)memcpy(&slot_w[spos], suffix, strlen(suffix));
             spos += strlen(suffix);
             slot_w[spos] = '\0';
+        }
+        if (is_packed_w) {
             emit_lit(b, "        zserio_delta_context_t pctx_;\n");
             emit_lit(b, "        (void)memset(&pctx_, 0, sizeof(pctx_));\n");
             emit_lit(b, "        ZSERIO_TRY(zserio_delta_init(&pctx_, ");
@@ -2559,6 +2801,20 @@ static void emit_field_write(buf_t *b, const zsp_ast_node_t *field,
             if (pe_w.is_signed) emit_lit(b, "(int64_t)");
             emit_lit(b, slot_w);
             emit_lit(b, "));\n");
+            emit_lit(b, "        }\n");
+        } else if (cmpd_decl_w != NULL) {
+            emit_lit(b, "        ");
+            (void)emit_type_id(b, cmpd_decl_w, src);
+            emit_lit(b, "_packing_context_t pctx_;\n");
+            emit_lit(b, "        ");
+            (void)emit_type_id(b, cmpd_decl_w, src);
+            emit_lit(b, "_init_packing_context(&pctx_);\n");
+            emit_lit(b, "        for (size_t i_ = 0u; i_ < arr_count_; ++i_) {\n");
+            emit_lit(b, "            ");
+            (void)emit_type_id(b, cmpd_decl_w, src);
+            emit_lit(b, "_observe_packing(&pctx_, &");
+            emit_lit(b, slot_w);
+            emit_lit(b, ");\n");
             emit_lit(b, "        }\n");
         }
         emit_lit(b, "        for (size_t i_ = 0u; i_ < arr_count_; ++i_) {\n");
@@ -2639,6 +2895,12 @@ static void emit_field_write(buf_t *b, const zsp_ast_node_t *field,
             if (pe_w.is_signed) emit_lit(b, "(int64_t)");
             emit_lit(b, slot);
             emit_lit(b, "));\n");
+        } else if (cmpd_decl_w != NULL) {
+            emit_lit(b, "            ZSERIO_TRY(");
+            (void)emit_type_id(b, cmpd_decl_w, src);
+            emit_lit(b, "_write_packed(&");
+            emit_lit(b, slot);
+            emit_lit(b, ", bs, &pctx_));\n");
         } else {
             emit_element_write(b, element_ty, slot, src);
         }
@@ -3278,6 +3540,234 @@ static void emit_source_for_compound(buf_t *b, const zsp_ast_node_t *cmpd,
         }
     }
     emit_lit(b, "}\n");
+
+    /* Packing-protocol implementations (only if relevant). */
+    if (compound_has_packable_field(cmpd)) {
+        /* _init_packing_context */
+        emit_lit(b, "\nvoid ");
+        (void)emit_type_id(b, cmpd, src);
+        emit_lit(b, "_init_packing_context(");
+        (void)emit_type_id(b, cmpd, src);
+        emit_lit(b, "_packing_context_t *ctx)\n{\n");
+        emit_lit(b, "    (void)memset(ctx, 0, sizeof(*ctx));\n");
+        for (size_t i = 0U; i < cmpd->u.compound.n_members; ++i) {
+            const zsp_ast_node_t *m = cmpd->u.compound.members[i];
+            if ((m == NULL) || (m->kind != ZSP_AST_FIELD)) continue;
+            packed_elem_t pe = {0};
+            const char cls = field_packing_class(m, &pe);
+            const uint8_t *fn = NULL;
+            size_t         fl = 0U;
+            if (!ident_span(src, m->u.field.name, &fn, &fl)) continue;
+            if (cls == 'p') {
+                emit_lit(b, "    (void)zserio_delta_init(&ctx->");
+                emit_snake(b, fn, fl);
+                emit_lit(b, "_, ");
+                if (pe.num_bits > 0U) {
+                    emit_uint(b, pe.num_bits);
+                    emit_lit(b, "u");
+                } else if (pe.width_expr != NULL) {
+                    /* Dynamic-width fields can't be initialised at
+                     * parent-init time (the width comes from a
+                     * sibling field that hasn't been read/written
+                     * yet). The delta context allows a deferred
+                     * init via num_bits==0 sentinel; the inline
+                     * read/write call site will re-init with the
+                     * concrete width. */
+                    emit_lit(b, "0u");
+                } else {
+                    emit_lit(b, "64u");
+                }
+                emit_lit(b, ", ");
+                emit_lit(b, pe.is_signed ? "true" : "false");
+                emit_lit(b, ");\n");
+            } else if (cls == 'n') {
+                const zsp_ast_node_t *ty = m->u.field.type;
+                while ((ty != NULL) && (ty->kind == ZSP_AST_TYPE_REF)
+                        && (ty->resolved != NULL)
+                        && (ty->resolved->kind == ZSP_AST_SUBTYPE)
+                        && (ty->resolved->u.subtype.target_type != NULL)) {
+                    ty = ty->resolved->u.subtype.target_type;
+                }
+                if ((ty != NULL) && (ty->kind == ZSP_AST_TYPE_REF)
+                        && (ty->resolved != NULL)
+                        && (ty->resolved != cmpd)
+                        && compound_has_packable_field(ty->resolved)) {
+                    emit_lit(b, "    ");
+                    (void)emit_type_id(b, ty->resolved, src);
+                    emit_lit(b, "_init_packing_context(&ctx->");
+                    emit_snake(b, fn, fl);
+                    emit_lit(b, "_);\n");
+                }
+            }
+        }
+        emit_lit(b, "}\n");
+
+        /* _observe_packing */
+        emit_lit(b, "\nvoid ");
+        (void)emit_type_id(b, cmpd, src);
+        emit_lit(b, "_observe_packing(");
+        (void)emit_type_id(b, cmpd, src);
+        emit_lit(b, "_packing_context_t *ctx, const ");
+        (void)emit_type_id(b, cmpd, src);
+        emit_lit(b, "_t *self)\n{\n");
+        emit_lit(b, "    (void)ctx;\n    (void)self;\n");
+        for (size_t i = 0U; i < cmpd->u.compound.n_members; ++i) {
+            const zsp_ast_node_t *m = cmpd->u.compound.members[i];
+            if ((m == NULL) || (m->kind != ZSP_AST_FIELD)) continue;
+            packed_elem_t pe = {0};
+            const char cls = field_packing_class(m, &pe);
+            const uint8_t *fn = NULL;
+            size_t         fl = 0U;
+            if (!ident_span(src, m->u.field.name, &fn, &fl)) continue;
+            if (cls == 'p') {
+                emit_lit(b, "    (void)zserio_delta_observe(&ctx->");
+                emit_snake(b, fn, fl);
+                emit_lit(b, "_, (uint64_t)");
+                if (pe.is_signed) emit_lit(b, "(int64_t)");
+                emit_lit(b, "self->");
+                emit_snake(b, fn, fl);
+                emit_lit(b, ");\n");
+            } else if (cls == 'n') {
+                const zsp_ast_node_t *ty = m->u.field.type;
+                while ((ty != NULL) && (ty->kind == ZSP_AST_TYPE_REF)
+                        && (ty->resolved != NULL)
+                        && (ty->resolved->kind == ZSP_AST_SUBTYPE)
+                        && (ty->resolved->u.subtype.target_type != NULL)) {
+                    ty = ty->resolved->u.subtype.target_type;
+                }
+                if ((ty != NULL) && (ty->kind == ZSP_AST_TYPE_REF)
+                        && (ty->resolved != NULL)
+                        && (ty->resolved != cmpd)
+                        && compound_has_packable_field(ty->resolved)) {
+                    emit_lit(b, "    ");
+                    (void)emit_type_id(b, ty->resolved, src);
+                    emit_lit(b, "_observe_packing(&ctx->");
+                    emit_snake(b, fn, fl);
+                    emit_lit(b, "_, &self->");
+                    emit_snake(b, fn, fl);
+                    emit_lit(b, ");\n");
+                }
+            }
+        }
+        emit_lit(b, "}\n");
+
+        /* _read_packed */
+        emit_lit(b, "\nzserio_status_t ");
+        (void)emit_type_id(b, cmpd, src);
+        emit_lit(b, "_read_packed(");
+        (void)emit_type_id(b, cmpd, src);
+        emit_lit(b, "_t *self, zserio_bitstream_reader_t *bs,\n"
+                    "        const zserio_allocator_t *alloc, ");
+        (void)emit_type_id(b, cmpd, src);
+        emit_lit(b, "_packing_context_t *ctx)\n{\n");
+        emit_lit(b, "    (void)alloc;\n    (void)self;\n    (void)bs;\n    (void)ctx;\n");
+        for (size_t i = 0U; i < cmpd->u.compound.n_members; ++i) {
+            const zsp_ast_node_t *m = cmpd->u.compound.members[i];
+            if ((m == NULL) || (m->kind != ZSP_AST_FIELD)) continue;
+            packed_elem_t pe = {0};
+            const char cls = field_packing_class(m, &pe);
+            const uint8_t *fn = NULL;
+            size_t         fl = 0U;
+            if (!ident_span(src, m->u.field.name, &fn, &fl)) continue;
+            if (cls == 'p') {
+                emit_lit(b, "    {\n");
+                emit_lit(b, "        uint64_t tmp_;\n");
+                emit_lit(b, "        ZSERIO_TRY(zserio_delta_read(&ctx->");
+                emit_snake(b, fn, fl);
+                emit_lit(b, "_, bs, &tmp_));\n");
+                emit_lit(b, "        self->");
+                emit_snake(b, fn, fl);
+                emit_lit(b, " = (");
+                emit_element_type(b, m->u.field.type, src);
+                emit_lit(b, ")tmp_;\n");
+                emit_lit(b, "    }\n");
+            } else if (cls == 'n') {
+                const zsp_ast_node_t *ty = m->u.field.type;
+                while ((ty != NULL) && (ty->kind == ZSP_AST_TYPE_REF)
+                        && (ty->resolved != NULL)
+                        && (ty->resolved->kind == ZSP_AST_SUBTYPE)
+                        && (ty->resolved->u.subtype.target_type != NULL)) {
+                    ty = ty->resolved->u.subtype.target_type;
+                }
+                const zsp_ast_node_t *decl = (ty && ty->kind == ZSP_AST_TYPE_REF)
+                        ? ty->resolved : NULL;
+                if ((decl != NULL) && (decl != cmpd)
+                        && compound_has_packable_field(decl)) {
+                    emit_lit(b, "    ");
+                    (void)emit_type_id(b, decl, src);
+                    emit_lit(b, "_init(&self->");
+                    emit_snake(b, fn, fl);
+                    emit_lit(b, ");\n");
+                    emit_lit(b, "    ZSERIO_TRY(");
+                    (void)emit_type_id(b, decl, src);
+                    emit_lit(b, "_read_packed(&self->");
+                    emit_snake(b, fn, fl);
+                    emit_lit(b, ", bs, alloc, &ctx->");
+                    emit_snake(b, fn, fl);
+                    emit_lit(b, "_));\n");
+                } else {
+                    emit_field_read(b, m, src);
+                }
+            } else {
+                /* unpackable — regular field read */
+                emit_field_read(b, m, src);
+            }
+        }
+        emit_lit(b, "    return ZSERIO_OK;\n}\n");
+
+        /* _write_packed */
+        emit_lit(b, "\nzserio_status_t ");
+        (void)emit_type_id(b, cmpd, src);
+        emit_lit(b, "_write_packed(const ");
+        (void)emit_type_id(b, cmpd, src);
+        emit_lit(b, "_t *self, zserio_bitstream_writer_t *bs, ");
+        (void)emit_type_id(b, cmpd, src);
+        emit_lit(b, "_packing_context_t *ctx)\n{\n");
+        emit_lit(b, "    (void)self;\n    (void)bs;\n    (void)ctx;\n");
+        for (size_t i = 0U; i < cmpd->u.compound.n_members; ++i) {
+            const zsp_ast_node_t *m = cmpd->u.compound.members[i];
+            if ((m == NULL) || (m->kind != ZSP_AST_FIELD)) continue;
+            packed_elem_t pe = {0};
+            const char cls = field_packing_class(m, &pe);
+            const uint8_t *fn = NULL;
+            size_t         fl = 0U;
+            if (!ident_span(src, m->u.field.name, &fn, &fl)) continue;
+            if (cls == 'p') {
+                emit_lit(b, "    ZSERIO_TRY(zserio_delta_write(&ctx->");
+                emit_snake(b, fn, fl);
+                emit_lit(b, "_, bs, (uint64_t)");
+                if (pe.is_signed) emit_lit(b, "(int64_t)");
+                emit_lit(b, "self->");
+                emit_snake(b, fn, fl);
+                emit_lit(b, "));\n");
+            } else if (cls == 'n') {
+                const zsp_ast_node_t *ty = m->u.field.type;
+                while ((ty != NULL) && (ty->kind == ZSP_AST_TYPE_REF)
+                        && (ty->resolved != NULL)
+                        && (ty->resolved->kind == ZSP_AST_SUBTYPE)
+                        && (ty->resolved->u.subtype.target_type != NULL)) {
+                    ty = ty->resolved->u.subtype.target_type;
+                }
+                const zsp_ast_node_t *decl = (ty && ty->kind == ZSP_AST_TYPE_REF)
+                        ? ty->resolved : NULL;
+                if ((decl != NULL) && (decl != cmpd)
+                        && compound_has_packable_field(decl)) {
+                    emit_lit(b, "    ZSERIO_TRY(");
+                    (void)emit_type_id(b, decl, src);
+                    emit_lit(b, "_write_packed(&self->");
+                    emit_snake(b, fn, fl);
+                    emit_lit(b, ", bs, &ctx->");
+                    emit_snake(b, fn, fl);
+                    emit_lit(b, "_));\n");
+                } else {
+                    emit_field_write(b, m, src, false);
+                }
+            } else {
+                emit_field_write(b, m, src, false);
+            }
+        }
+        emit_lit(b, "    return ZSERIO_OK;\n}\n");
+    }
 }
 
 /* ----- Choice emission --------------------------------------- */
