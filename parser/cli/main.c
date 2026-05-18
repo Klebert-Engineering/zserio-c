@@ -138,7 +138,9 @@ static int apply_top_level_prefix(zsp_session_t *s, const char *prefix)
 
 static void mkdirs_for(const char *path)
 {
-    char buf[2048];
+    /* Match out_write's 4096-byte cap so -Wformat-truncation can
+     * statically see that the snprintf never truncates. */
+    char buf[4096];
     (void)snprintf(buf, sizeof(buf), "%s", path);
     size_t len = strlen(buf);
     while ((len > 0U) && (buf[len - 1U] != '/')) {

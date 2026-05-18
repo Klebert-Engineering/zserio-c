@@ -1280,10 +1280,11 @@ static const zsp_sema_const_t *eval_binop(zsp_sema_t *s, zsp_op_code_t op,
         const double lv = (l->kind == ZSP_CONST_FLOAT) ? l->v.f : (double)to_u64(l);
         const double rv = (r->kind == ZSP_CONST_FLOAT) ? r->v.f : (double)to_u64(r);
         /* Float division-by-zero check: compare via bit pattern
-         * rather than `==` to keep -Wfloat-equal clean. The
-         * runtime's own `zserio_float_eq_bits` helper is the
-         * reference for this idiom (REQ-FS-002 spirit). */
-        const uint64_t rv_bits = ((const uint64_t *)&rv)[0];
+         * rather than `==` to keep -Wfloat-equal clean. memcpy
+         * sidesteps -Wstrict-aliasing the same way the runtime's
+         * float helpers do. */
+        uint64_t rv_bits = 0U;
+        (void)memcpy(&rv_bits, &rv, sizeof rv_bits);
         const uint64_t zero_bits = 0U;
         switch (op) {
         case ZSP_OP_ADD: return eval_float(s, lv + rv);
