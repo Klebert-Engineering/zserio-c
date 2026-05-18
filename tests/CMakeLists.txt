@@ -6,3 +6,7 @@
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/runtime/CMakeLists.txt")
     add_subdirectory(runtime)
 endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/parser/CMakeLists.txt")
+    add_subdirectory(parser)
+endif()

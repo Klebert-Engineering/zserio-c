@@ -32,7 +32,7 @@ CORPUS_ROOT="${REPO_ROOT}/third_party/zserio-test-data/language"
 WORK_ROOT="${REPO_ROOT}/build-xvalidation"
 ZSERIO_JAR="${REPO_ROOT}/build-jars/zserio.jar"
 ZSERIO_CORE_JAR="${REPO_ROOT}/build-jars/zserio_core.jar"
-ZSERIO_C_JAR="${REPO_ROOT}/generator/build/jar/zserio_c.jar"
+ZSERIO_C_GEN="${REPO_ROOT}/build/parser/zserio_c_gen"
 SEEDS="${SEEDS:-1 2 7 42 999}"
 
 if [[ ! -f "${ZSERIO_JAR}" ]]; then
@@ -41,8 +41,10 @@ if [[ ! -f "${ZSERIO_JAR}" ]]; then
     echo "xval: full zserio.jar (with cpp extension) is staged separately." >&2
     exit 1
 fi
-if [[ ! -f "${ZSERIO_C_JAR}" ]]; then
-    "${REPO_ROOT}/tools/build_generator_jar.sh" >/dev/null
+if [[ ! -x "${ZSERIO_C_GEN}" ]]; then
+    echo "xval: zserio_c_gen not found at ${ZSERIO_C_GEN}" >&2
+    echo "xval: build it first with 'cmake --build build'." >&2
+    exit 1
 fi
 
 SCHEMAS_FILE="${TESTS_ROOT}/schemas.txt"
@@ -53,17 +55,42 @@ fi
 
 mkdir -p "${WORK_ROOT}"
 
+# Optional sanitizer build. Set XVAL_SAN=1 in the environment to
+# pass -fsanitize=address,undefined to every gcc invocation that
+# produces the C side of the harness. The cpp side stays unchanged.
+SAN_FLAGS=""
+SAN_TAG=""
+if [[ "${XVAL_SAN:-0}" == "1" ]]; then
+    SAN_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer -g"
+    SAN_TAG="-san"
+    # Hand-written harness c_drivers don't always free everything
+    # they allocate — they're populate-then-write programs whose
+    # cleanup at process exit isn't a generator concern. Keep the
+    # use-after-free / OOB / UBSan checks; disable leak detection.
+    export ASAN_OPTIONS="${ASAN_OPTIONS:-}:detect_leaks=0"
+    export UBSAN_OPTIONS="${UBSAN_OPTIONS:-}:print_stacktrace=1:halt_on_error=1"
+    echo "xval: sanitizers enabled (ASAN+UBSAN, leak detection off)"
+fi
+
+# Auto-generate C round-trip drivers from each harness's c_driver.c
+# (with hand-written exceptions for recursive structs).
+python3 "${REPO_ROOT}/tests/xvalidation/gen_roundtrip.py" \
+    "${REPO_ROOT}/tests/xvalidation/harnesses" 1>/dev/null
+
 # Pre-build the C runtime objs once — every per-schema driver links
-# against them.
-mkdir -p "${WORK_ROOT}/runtime-objs"
+# against them. Sanitizer-built and plain artefacts live in separate
+# sub-dirs so XVAL_SAN=1 and unset interleave without stomping each
+# other's caches.
+mkdir -p "${WORK_ROOT}/runtime-objs${SAN_TAG}"
 for c in "${REPO_ROOT}/runtime/src"/*.c; do
-    obj="${WORK_ROOT}/runtime-objs/$(basename "${c}" .c).o"
+    obj="${WORK_ROOT}/runtime-objs${SAN_TAG}/$(basename "${c}" .c).o"
     if [[ ! -f "${obj}" ]] || [[ "${c}" -nt "${obj}" ]]; then
-        gcc -std=c99 -Wall -Wextra -Wpedantic -Werror \
+        gcc ${SAN_FLAGS} -std=c99 -Wall -Wextra -Wpedantic -Werror \
             -I"${REPO_ROOT}/runtime/include" \
             -c "${c}" -o "${obj}"
     fi
 done
+RUNTIME_OBJ_DIR="${WORK_ROOT}/runtime-objs${SAN_TAG}"
 
 # Pre-build upstream's C++ runtime as a static lib from the submodule.
 CPP_RT_SRC="${REPO_ROOT}/third_party/zserio/compiler/extensions/cpp/runtime/src"
@@ -153,13 +180,27 @@ while IFS= read -r schema_rel; do
             ;;
     esac
 
-    java -cp "${ZSERIO_CORE_JAR}:${ZSERIO_C_JAR}:${ZSERIO_JAR}" \
+    # cpp side: still produced by upstream's Java cpp extension.
+    java -cp "${ZSERIO_CORE_JAR}:${ZSERIO_JAR}" \
         zserio.tools.ZserioTool \
         "${extra_codegen_args[@]}" \
         -src "${work}/staging" "${rel_schema}" \
-        -c "${work}/c_out" -cpp "${work}/cpp_out" \
-        1>/dev/null 2>"${work}/gen.log" || {
-            echo "xval: ${name}: codegen failed (see ${work}/gen.log)" >&2
+        -cpp "${work}/cpp_out" \
+        1>/dev/null 2>"${work}/cpp_gen.log" || {
+            echo "xval: ${name}: cpp codegen failed (see ${work}/cpp_gen.log)" >&2
+            fail=$((fail + 1))
+            continue
+        }
+    # C side: our C-native generator. Mirror the same
+    # `-setTopLevelPackage` rewriting upstream's java gen does
+    # so harness include paths and symbol names line up.
+    "${ZSERIO_C_GEN}" \
+        "${work}/staging/${rel_schema}" \
+        -c "${work}/c_out" \
+        -src "${work}/staging" \
+        "${extra_codegen_args[@]}" \
+        1>/dev/null 2>"${work}/c_gen.log" || {
+            echo "xval: ${name}: C codegen failed (see ${work}/c_gen.log)" >&2
             fail=$((fail + 1))
             continue
         }
@@ -174,7 +215,7 @@ while IFS= read -r schema_rel; do
     c_objs=()
     while IFS= read -r c; do
         obj="${work}/$(echo "${c#${work}/c_out/}" | tr / _).o"
-        gcc -std=c99 -Wall -Wextra -Wpedantic -Werror \
+        gcc ${SAN_FLAGS} -std=c99 -Wall -Wextra -Wpedantic -Werror \
             -I"${REPO_ROOT}/runtime/include" \
             -I"${work}/c_out" \
             -c "${c}" -o "${obj}" 2>"${work}/c_compile.log" || {
@@ -185,7 +226,7 @@ while IFS= read -r schema_rel; do
         c_objs+=("${obj}")
     done < <(find "${work}/c_out" -name '*.c')
     c_driver_obj="${work}/c_driver.o"
-    gcc -std=c99 -Wall -Wextra -Wpedantic -Werror \
+    gcc ${SAN_FLAGS} -std=c99 -Wall -Wextra -Wpedantic -Werror \
         -I"${REPO_ROOT}/runtime/include" \
         -I"${work}/c_out" \
         -c "${harness}/c_driver.c" -o "${c_driver_obj}" 2>"${work}/c_compile.log" || {
@@ -193,12 +234,39 @@ while IFS= read -r schema_rel; do
             fail=$((fail + 1))
             continue
         }
-    gcc -O2 "${c_driver_obj}" "${c_objs[@]}" "${WORK_ROOT}/runtime-objs"/*.o \
+    gcc ${SAN_FLAGS} -O2 "${c_driver_obj}" "${c_objs[@]}" "${RUNTIME_OBJ_DIR}"/*.o \
         -o "${work}/c_driver" 2>"${work}/c_link.log" || {
             echo "xval: ${name}: c_driver link failed (see ${work}/c_link.log)" >&2
             fail=$((fail + 1))
             continue
         }
+
+    # Compile + link c_roundtrip (auto-generated by gen_roundtrip.py
+    # or hand-written for unusual harnesses). The roundtrip driver
+    # reads bytes and re-writes them via our C reader+writer so we
+    # can verify the round-trip is byte-identical.
+    if [[ -f "${harness}/c_roundtrip.c" ]]; then
+        c_rt_obj="${work}/c_roundtrip.o"
+        # The roundtrip driver imports c_driver's helper functions /
+        # tables that may go unused on this code path — silence the
+        # unused warnings rather than maintain a hand-edit per file.
+        gcc ${SAN_FLAGS} -std=c99 -Wall -Wextra -Wpedantic \
+            -Wno-unused-variable -Wno-unused-function -Wno-unused-parameter \
+            -Wno-unused-but-set-variable \
+            -I"${REPO_ROOT}/runtime/include" \
+            -I"${work}/c_out" \
+            -c "${harness}/c_roundtrip.c" -o "${c_rt_obj}" 2>"${work}/c_rt_compile.log" || {
+                echo "xval: ${name}: c_roundtrip compile failed (see ${work}/c_rt_compile.log)" >&2
+                fail=$((fail + 1))
+                continue
+            }
+        gcc ${SAN_FLAGS} -O2 "${c_rt_obj}" "${c_objs[@]}" "${RUNTIME_OBJ_DIR}"/*.o \
+            -o "${work}/c_roundtrip" 2>"${work}/c_rt_link.log" || {
+                echo "xval: ${name}: c_roundtrip link failed (see ${work}/c_rt_link.log)" >&2
+                fail=$((fail + 1))
+                continue
+            }
+    fi
 
     # Compile + link cpp_driver.
     cpp_objs=()
@@ -250,6 +318,27 @@ while IFS= read -r schema_rel; do
             echo "       c=${bytes_c}"
             echo "       cpp=${bytes_cpp}"
             schema_failures=$((schema_failures + 1))
+            continue
+        fi
+        # Bidirectional check: feed cpp's bytes back through our C
+        # reader + writer, expect byte-identical output. Detects
+        # read-side asymmetries (sign-extension, off-by-one length
+        # prefixes, etc.) that the write-side xval misses since cpp
+        # decodes our output before re-encoding.
+        if [[ -x "${work}/c_roundtrip" ]]; then
+            bytes_rt="${work}/bytes_rt.s${seed}.bin"
+            "${work}/c_roundtrip" "${seed}" "${bytes_cpp}" "${bytes_rt}" \
+                1>/dev/null 2>"${work}/c_rt_run.log" || {
+                    echo "xval: ${name} seed=${seed}: c_roundtrip failed (see ${work}/c_rt_run.log)"
+                    schema_failures=$((schema_failures + 1))
+                    continue
+                }
+            if ! cmp -s "${bytes_c}" "${bytes_rt}"; then
+                echo "xval: ${name} seed=${seed}: ROUNDTRIP MISMATCH"
+                echo "       c=${bytes_c}"
+                echo "       rt=${bytes_rt}"
+                schema_failures=$((schema_failures + 1))
+            fi
         fi
     done
     if (( schema_failures == 0 )); then
