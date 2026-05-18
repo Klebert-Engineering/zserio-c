@@ -900,6 +900,58 @@ static void resolve_member_access(zsp_sema_t *s, zsp_ast_node_t *m)
             }
         }
     }
+    /* Field or parameter: look through the field/parameter's
+     * type to the underlying struct/union/choice and search
+     * its members. This lets `<field>.<member>` and
+     * `<param>.<member>` (member-function calls included)
+     * resolve. */
+    else if ((base->kind == ZSP_AST_FIELD)
+             || (base->kind == ZSP_AST_PARAMETER)) {
+        zsp_ast_node_t *ty = (base->kind == ZSP_AST_FIELD)
+                ? base->u.field.type : base->u.parameter.type;
+        /* Peel SUBTYPE chains. */
+        while ((ty != NULL) && (ty->kind == ZSP_AST_TYPE_REF)
+                && (ty->resolved != NULL)
+                && (ty->resolved->kind == ZSP_AST_SUBTYPE)
+                && (ty->resolved->u.subtype.target_type != NULL)) {
+            ty = ty->resolved->u.subtype.target_type;
+        }
+        zsp_ast_node_t *type_decl = NULL;
+        if ((ty != NULL) && (ty->kind == ZSP_AST_TYPE_REF)) {
+            type_decl = ty->resolved;
+        }
+        if ((type_decl != NULL)
+                && ((type_decl->kind == ZSP_AST_STRUCT)
+                    || (type_decl->kind == ZSP_AST_UNION)
+                    || (type_decl->kind == ZSP_AST_CHOICE))) {
+            zsp_ast_node_t **members = NULL;
+            size_t n_members = 0U;
+            if (type_decl->kind == ZSP_AST_CHOICE) {
+                members   = type_decl->u.choice.params;  /* params then case fields */
+                n_members = type_decl->u.choice.n_params;
+                /* Iterate case-field children separately below. */
+            } else {
+                members   = type_decl->u.compound.members;
+                n_members = type_decl->u.compound.n_members;
+            }
+            for (size_t i = 0U; i < n_members; ++i) {
+                zsp_ast_node_t *const mem = members[i];
+                const zsp_ast_node_t *name_node = NULL;
+                if (mem->kind == ZSP_AST_FIELD)         name_node = mem->u.field.name;
+                else if (mem->kind == ZSP_AST_FUNCTION) name_node = mem->u.function_decl.name;
+                else if (mem->kind == ZSP_AST_PARAMETER) name_node = mem->u.parameter.name;
+                const uint8_t *mb = NULL;
+                size_t ml = 0U;
+                if ((name_node != NULL)
+                        && extract_simple_name(s, name_node, &mb, &ml)
+                        && (ml == len) && (memcmp(mb, name, len) == 0)) {
+                    m->resolved   = mem;
+                    rhs->resolved = mem;
+                    return;
+                }
+            }
+        }
+    }
     /* Subtype: peel one layer and try again. */
     else if (base->kind == ZSP_AST_SUBTYPE) {
         zsp_ast_node_t *target = base->u.subtype.target_type;

@@ -34,6 +34,13 @@ typedef struct buf {
     size_t       len;
     size_t       cap;
     bool         oom;
+    /* When non-NULL, IDENT references to FIELDs / PARAMETERs
+     * are emitted as `<this_override>.<name>` instead of
+     * `self-><name>`. Used to inline a member-function call
+     * `<recv>.<func>()` by substituting `<recv>` for `self->`
+     * in the function body. The owner is responsible for
+     * push/pop semantics (save old, set new, emit, restore). */
+    const char  *this_override;
 } buf_t;
 
 static void buf_init(buf_t *b, zsp_arena_t *arena)
@@ -43,6 +50,7 @@ static void buf_init(buf_t *b, zsp_arena_t *arena)
     b->len   = 0U;
     b->cap   = 0U;
     b->oom   = false;
+    b->this_override = NULL;
 }
 
 static void buf_grow(buf_t *b, size_t needed)
@@ -1182,7 +1190,12 @@ static void emit_expr_c(buf_t *b, const zsp_ast_node_t *e,
         if (d != NULL) {
             if ((d->kind == ZSP_AST_FIELD)
                     || (d->kind == ZSP_AST_PARAMETER)) {
-                emit_lit(b, "self->");
+                if (b->this_override != NULL) {
+                    emit_lit(b, b->this_override);
+                    emit_lit(b, ".");
+                } else {
+                    emit_lit(b, "self->");
+                }
                 emit_snake(b, name, len);
                 return;
             }
@@ -1452,6 +1465,40 @@ static void emit_expr_c(buf_t *b, const zsp_ast_node_t *e,
                 emit_expr_c(b, callee->resolved->u.function_decl.body_expr, src);
                 emit_lit(b, ")");
                 return;
+            }
+        }
+        /* Member-function call: `<recv>.<func>()` where <func>
+         * resolves to a schema FUNCTION on the type of <recv>.
+         * Inline the body, but with `this` pointing at <recv>
+         * — IDENT references to FIELD/PARAMETER in the body
+         * become `<recv-emission>.<name>` instead of the
+         * default `self-><name>`. */
+        if ((callee != NULL) && (callee->kind == ZSP_AST_EXPR_MEMBER)
+                && (callee->resolved != NULL)
+                && (callee->resolved->kind == ZSP_AST_FUNCTION)
+                && (callee->resolved->u.function_decl.body_expr != NULL)
+                && (callee->u.member.lhs != NULL)) {
+            /* Render the receiver into a small scratch buffer
+             * so we can use it as a literal prefix. */
+            buf_t recv_buf;
+            buf_init(&recv_buf, b->arena);
+            recv_buf.this_override = b->this_override;
+            emit_expr_c(&recv_buf, callee->u.member.lhs, src);
+            /* Strip a trailing arrow/dot so we can append `.field`. */
+            if ((recv_buf.len > 0U) && !recv_buf.oom) {
+                char *recv_str = (char *)zsp_arena_alloc(
+                        b->arena, recv_buf.len + 1U, 1U);
+                if (recv_str != NULL) {
+                    (void)memcpy(recv_str, recv_buf.bytes, recv_buf.len);
+                    recv_str[recv_buf.len] = '\0';
+                    const char *old = b->this_override;
+                    b->this_override = recv_str;
+                    emit_lit(b, "(");
+                    emit_expr_c(b, callee->resolved->u.function_decl.body_expr, src);
+                    emit_lit(b, ")");
+                    b->this_override = old;
+                    return;
+                }
             }
         }
         emit_lit(b, "0 /*unsupported-call*/");
