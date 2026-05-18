@@ -1525,6 +1525,17 @@ static void emit_element_read(buf_t *b, const zsp_ast_node_t *ty,
         emit_lit(b, "_init(&");
         emit_lit(b, slot_expr);
         emit_lit(b, ");\n");
+        if ((ty->kind == ZSP_AST_TYPE_REF) && (ty->u.type_ref.n_type_args > 0U)) {
+            emit_lit(b, "        ");
+            (void)emit_type_id(b, decl, src);
+            emit_lit(b, "_set_parameters(&");
+            emit_lit(b, slot_expr);
+            for (size_t i = 0U; i < ty->u.type_ref.n_type_args; ++i) {
+                emit_lit(b, ", ");
+                emit_expr_c(b, ty->u.type_ref.type_args[i], src);
+            }
+            emit_lit(b, ");\n");
+        }
         emit_lit(b, "        ZSERIO_TRY(");
         (void)emit_type_id(b, decl, src);
         emit_lit(b, "_read(&");
@@ -1806,6 +1817,20 @@ static void emit_field_read(buf_t *b, const zsp_ast_node_t *field,
         emit_lit(b, "_init(&self->");
         emit_snake(b, fn, fl);
         emit_lit(b, ");\n");
+        /* Forward this field's `type_args` into the inner
+         * struct's `_set_parameters` call so its read/write
+         * loops see the correct parameter values. */
+        if ((ty->kind == ZSP_AST_TYPE_REF) && (ty->u.type_ref.n_type_args > 0U)) {
+            emit_lit(b, "    ");
+            (void)emit_type_id(b, decl, src);
+            emit_lit(b, "_set_parameters(&self->");
+            emit_snake(b, fn, fl);
+            for (size_t i = 0U; i < ty->u.type_ref.n_type_args; ++i) {
+                emit_lit(b, ", ");
+                emit_expr_c(b, ty->u.type_ref.type_args[i], src);
+            }
+            emit_lit(b, ");\n");
+        }
         emit_lit(b, "    ZSERIO_TRY(");
         (void)emit_type_id(b, decl, src);
         emit_lit(b, "_read(&self->");
@@ -1934,6 +1959,25 @@ static void emit_element_write(buf_t *b, const zsp_ast_node_t *ty,
     }
     else if (shape == 'c') {
         const zsp_ast_node_t *const decl = peel_alias(ty->resolved);
+        /* Propagate type_args into the nested write so any
+         * length/conditional expressions inside the parameterised
+         * compound resolve correctly. The cast strips `const` —
+         * set_parameters mutates `self->...` but in practice
+         * write functions only read those, so the lifetime is
+         * scoped to this call. */
+        if ((ty->kind == ZSP_AST_TYPE_REF) && (ty->u.type_ref.n_type_args > 0U)) {
+            emit_lit(b, "            ");
+            (void)emit_type_id(b, decl, src);
+            emit_lit(b, "_set_parameters((");
+            (void)emit_type_id(b, decl, src);
+            emit_lit(b, "_t *)&");
+            emit_lit(b, slot_expr);
+            for (size_t i = 0U; i < ty->u.type_ref.n_type_args; ++i) {
+                emit_lit(b, ", ");
+                emit_expr_c(b, ty->u.type_ref.type_args[i], src);
+            }
+            emit_lit(b, ");\n");
+        }
         emit_lit(b, "            ZSERIO_TRY(");
         (void)emit_type_id(b, decl, src);
         emit_lit(b, "_write(&");
