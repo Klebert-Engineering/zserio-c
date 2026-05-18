@@ -166,13 +166,14 @@ while IFS= read -r schema_rel; do
             fail=$((fail + 1))
             continue
         }
-    # C side: our C-native generator. -setTopLevelPackage isn't a
-    # zserio_c_gen flag — when the schema needs it we apply the
-    # rename manually below.
+    # C side: our C-native generator. Mirror the same
+    # `-setTopLevelPackage` rewriting upstream's java gen does
+    # so harness include paths and symbol names line up.
     "${ZSERIO_C_GEN}" \
         "${work}/staging/${rel_schema}" \
         -c "${work}/c_out" \
         -src "${work}/staging" \
+        "${extra_codegen_args[@]}" \
         1>/dev/null 2>"${work}/c_gen.log" || {
             echo "xval: ${name}: C codegen failed (see ${work}/c_gen.log)" >&2
             fail=$((fail + 1))

@@ -1696,12 +1696,23 @@ static zsp_ast_node_t *clone_node(zsp_arena_t *arena,
 
     /* Substitution: a TYPE_REF whose resolved decl is a template
      * parameter is replaced by a fresh TYPE_REF cloned from the
-     * substitution target. */
+     * substitution target. Carry the original site's runtime
+     * type_args (zserio runtime parameters like `CHOICE(selector)`)
+     * onto the substituted clone — the target TYPE_REF from the
+     * `instantiate` decl doesn't have them. */
     if ((src->kind == ZSP_AST_TYPE_REF) && (src->resolved != NULL)
             && (src->resolved->kind == ZSP_AST_TEMPLATE_PARAM)) {
         const zsp_ast_node_t *const arg = find_subst(tbl, src->resolved);
         if (arg != NULL) {
-            return clone_node(arena, arg, NULL);
+            zsp_ast_node_t *const subst = clone_node(arena, arg, NULL);
+            if ((subst != NULL) && (subst->kind == ZSP_AST_TYPE_REF)
+                    && (src->u.type_ref.n_type_args > 0U)) {
+                subst->u.type_ref.type_args = clone_list(
+                        arena, src->u.type_ref.type_args,
+                        src->u.type_ref.n_type_args, tbl);
+                subst->u.type_ref.n_type_args = src->u.type_ref.n_type_args;
+            }
+            return subst;
         }
     }
 
