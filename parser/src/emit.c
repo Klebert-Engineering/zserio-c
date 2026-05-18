@@ -519,9 +519,31 @@ static void emit_struct_decl(buf_t *b, const zsp_ast_node_t *cmpd,
     /* Unions carry a varsize tag on the wire. Emit it as the
      * runtime's varsize storage type (uint32). Members are then
      * placed in an anonymous `u` union so only the selected arm
-     * is meaningful. */
+     * is meaningful. For unions, the per-array `_count` sibling
+     * lives OUTSIDE the union (alongside the tag) — the count
+     * has to survive switching arms. */
     if (is_union) {
         emit_lit(b, "    uint32_t tag;\n");
+        for (size_t i = 0U; i < cmpd->u.compound.n_members; ++i) {
+            const zsp_ast_node_t *m = cmpd->u.compound.members[i];
+            if ((m == NULL) || (m->kind != ZSP_AST_FIELD)) continue;
+            const zsp_ast_node_t *ty = m->u.field.type;
+            const bool is_array = (ty != NULL) && (ty->kind == ZSP_AST_TYPE_ARRAY);
+            if (!is_array) continue;
+            const zsp_ast_node_t *len_expr = ty->u.type_array.length_expr;
+            const zsp_sema_const_t *len_cv = (len_expr != NULL)
+                    ? (const zsp_sema_const_t *)len_expr->computed : NULL;
+            const bool is_fixed_array = (len_cv != NULL)
+                    && (len_cv->kind == ZSP_CONST_UINT)
+                    && (len_cv->v.u > 0U);
+            if (is_fixed_array) continue;
+            const uint8_t *fn = NULL;
+            size_t         fl = 0U;
+            if (!ident_span(src, m->u.field.name, &fn, &fl)) continue;
+            emit_lit(b, "    size_t ");
+            emit_snake(b, fn, fl);
+            emit_lit(b, "_count;\n");
+        }
         emit_lit(b, "    union {\n");
     }
 
@@ -582,7 +604,11 @@ static void emit_struct_decl(buf_t *b, const zsp_ast_node_t *cmpd,
         }
         emit_lit(b, ";\n");
 
-        if (is_array && !is_fixed_array) {
+        /* For struct fields, `_count` is a sibling at the same
+         * scope as the array pointer. For union fields it lives
+         * OUTSIDE the union (emitted above) so it survives arm
+         * switches. */
+        if (is_array && !is_fixed_array && !is_union) {
             emit_lit(b, "    size_t ");
             if (ident_span(src, m->u.field.name, &fn, &fl)) {
                 emit_snake(b, fn, fl);
@@ -3109,6 +3135,38 @@ static void emit_choice_decl(buf_t *b, const zsp_ast_node_t *ch,
         emit_lit(b, ";  /* parameter */\n");
     }
 
+    /* Per-case array `_count` siblings live OUTSIDE the union
+     * so the caller can set count before assigning the pointer
+     * (the union members share storage; we can't access the
+     * count through `u.<name>_count` once another arm is set). */
+    for (size_t i = 0U; i < ch->u.choice.n_cases; ++i) {
+        const zsp_ast_node_t *c = ch->u.choice.cases[i];
+        const zsp_ast_node_t *f = c->u.choice_case.field;
+        if (f == NULL) continue;
+        const zsp_ast_node_t *ty = f->u.field.type;
+        const bool is_array = (ty != NULL) && (ty->kind == ZSP_AST_TYPE_ARRAY);
+        if (!is_array) continue;
+        const uint8_t *fn = NULL;
+        size_t         fl = 0U;
+        if (!ident_span(src, f->u.field.name, &fn, &fl)) continue;
+        emit_lit(b, "    size_t ");
+        emit_snake(b, fn, fl);
+        emit_lit(b, "_count;\n");
+    }
+    if (ch->u.choice.default_case != NULL) {
+        const zsp_ast_node_t *f =
+                ch->u.choice.default_case->u.choice_default.field;
+        if ((f != NULL) && (f->u.field.type != NULL)
+                && (f->u.field.type->kind == ZSP_AST_TYPE_ARRAY)) {
+            const uint8_t *fn = NULL;
+            size_t         fl = 0U;
+            if (ident_span(src, f->u.field.name, &fn, &fl)) {
+                emit_lit(b, "    size_t ");
+                emit_snake(b, fn, fl);
+                emit_lit(b, "_count;\n");
+            }
+        }
+    }
     /* Union of case fields. */
     emit_lit(b, "    union {\n");
     for (size_t i = 0U; i < ch->u.choice.n_cases; ++i) {
@@ -3133,13 +3191,6 @@ static void emit_choice_decl(buf_t *b, const zsp_ast_node_t *ch,
             emit_snake(b, fn, fl);
         }
         emit_lit(b, ";\n");
-        if (is_array) {
-            emit_lit(b, "        size_t ");
-            if (ident_span(src, f->u.field.name, &fn, &fl)) {
-                emit_snake(b, fn, fl);
-            }
-            emit_lit(b, "_count;\n");
-        }
     }
     /* Default arm. */
     if (ch->u.choice.default_case != NULL) {
@@ -3147,8 +3198,11 @@ static void emit_choice_decl(buf_t *b, const zsp_ast_node_t *ch,
         if (f != NULL) {
             emit_lit(b, "        ");
             bool owned = false;
-            (void)emit_field_c_type(b, f->u.field.type, src, &owned);
-            emit_lit(b, " ");
+            const zsp_ast_node_t *ty = f->u.field.type;
+            const bool is_array = (ty != NULL) && (ty->kind == ZSP_AST_TYPE_ARRAY);
+            const zsp_ast_node_t *element_ty = is_array ? ty->u.type_array.element : ty;
+            (void)emit_field_c_type(b, element_ty, src, &owned);
+            emit_lit(b, is_array ? " *" : " ");
             const uint8_t *fn = NULL;
             size_t         fl = 0U;
             if (ident_span(src, f->u.field.name, &fn, &fl)) {
@@ -3223,6 +3277,63 @@ static void emit_choice_case_read(buf_t *b, const zsp_ast_node_t *f,
     pos = snake_into(slot, pos, fn, fl);
     slot[pos] = '\0';
 
+    /* Array case: emit length-prefix + alloc + per-element read.
+     * The array's count sibling lives at `self-><name>_count`
+     * (outside the union); the pointer is `self->u.<name>`. */
+    if (ty->kind == ZSP_AST_TYPE_ARRAY) {
+        const zsp_ast_node_t *const lenexpr = ty->u.type_array.length_expr;
+        const zsp_ast_node_t *element_ty = ty->u.type_array.element;
+        char arr_slot[256];
+        size_t aspos = 0U;
+        (void)memcpy(arr_slot, "self->u.", 8U); aspos = 8U;
+        aspos = snake_into(arr_slot, aspos, fn, fl);
+        const char *suf = "[i_]";
+        (void)memcpy(&arr_slot[aspos], suf, strlen(suf));
+        aspos += strlen(suf);
+        arr_slot[aspos] = '\0';
+        emit_lit(b, "        {\n");
+        emit_lit(b, "        size_t arr_count_ = 0u;\n");
+        if (lenexpr != NULL) {
+            emit_lit(b, "        arr_count_ = (size_t)(");
+            emit_expr_c(b, lenexpr, src);
+            emit_lit(b, ");\n");
+        } else {
+            emit_lit(b, "        uint32_t arr_len_ = 0u;\n");
+            emit_lit(b, "        ZSERIO_TRY(zserio_read_varsize(bs, &arr_len_));\n");
+            emit_lit(b, "        arr_count_ = (size_t)arr_len_;\n");
+        }
+        emit_lit(b, "        self->");
+        emit_snake(b, fn, fl);
+        emit_lit(b, "_count = arr_count_;\n");
+        emit_lit(b, "        self->u.");
+        emit_snake(b, fn, fl);
+        emit_lit(b, " = NULL;\n");
+        emit_lit(b, "        if (arr_count_ > 0u) {\n");
+        emit_lit(b, "            self->u.");
+        emit_snake(b, fn, fl);
+        emit_lit(b, " = (");
+        emit_element_type(b, element_ty, src);
+        emit_lit(b, " *)alloc->vtable->alloc(alloc->userdata,\n");
+        emit_lit(b, "                    arr_count_ * sizeof(*self->u.");
+        emit_snake(b, fn, fl);
+        emit_lit(b, "), sizeof(*self->u.");
+        emit_snake(b, fn, fl);
+        emit_lit(b, "));\n");
+        emit_lit(b, "            if (self->u.");
+        emit_snake(b, fn, fl);
+        emit_lit(b, " == NULL) return ZSERIO_ERR_OUT_OF_MEMORY;\n");
+        emit_lit(b, "            (void)memset(self->u.");
+        emit_snake(b, fn, fl);
+        emit_lit(b, ", 0, arr_count_ * sizeof(*self->u.");
+        emit_snake(b, fn, fl);
+        emit_lit(b, "));\n");
+        emit_lit(b, "        for (size_t i_ = 0u; i_ < arr_count_; ++i_) {\n");
+        emit_element_read(b, element_ty, arr_slot, src);
+        emit_lit(b, "        }\n");
+        emit_lit(b, "        }\n");
+        emit_lit(b, "        }\n");
+        return;
+    }
     /* Peel SUBTYPE aliases so a choice case `subtype int8 Black;
      * black` reads/writes as int8 rather than failing on a
      * TYPE_REF whose `.u.type_builtin` is garbage. */
@@ -3320,6 +3431,33 @@ static void emit_choice_case_write(buf_t *b, const zsp_ast_node_t *f,
     const uint8_t *fn = NULL;
     size_t         fl = 0U;
     if (!ident_span(src, f->u.field.name, &fn, &fl)) return;
+    /* Array case: emit length-prefix + per-element write. */
+    if (ty->kind == ZSP_AST_TYPE_ARRAY) {
+        const zsp_ast_node_t *const lenexpr = ty->u.type_array.length_expr;
+        const zsp_ast_node_t *element_ty = ty->u.type_array.element;
+        char arr_slot[256];
+        size_t aspos = 0U;
+        (void)memcpy(arr_slot, "self->u.", 8U); aspos = 8U;
+        aspos = snake_into(arr_slot, aspos, fn, fl);
+        const char *suf = "[i_]";
+        (void)memcpy(&arr_slot[aspos], suf, strlen(suf));
+        aspos += strlen(suf);
+        arr_slot[aspos] = '\0';
+        emit_lit(b, "        {\n");
+        if (lenexpr == NULL) {
+            emit_lit(b, "        ZSERIO_TRY(zserio_write_varsize(bs, (uint32_t)self->");
+            emit_snake(b, fn, fl);
+            emit_lit(b, "_count));\n");
+        }
+        emit_lit(b, "        const size_t arr_count_ = self->");
+        emit_snake(b, fn, fl);
+        emit_lit(b, "_count;\n");
+        emit_lit(b, "        for (size_t i_ = 0u; i_ < arr_count_; ++i_) {\n");
+        emit_element_write(b, element_ty, arr_slot, src);
+        emit_lit(b, "        }\n");
+        emit_lit(b, "        }\n");
+        return;
+    }
     char slot[256];
     size_t pos = 0U;
     const char *prefix = "self->u.";
@@ -3341,6 +3479,71 @@ static void emit_choice_case_free(buf_t *b, const zsp_ast_node_t *f,
     size_t         fl = 0U;
     if (!ident_span(src, f->u.field.name, &fn, &fl)) return;
 
+    if (ty->kind == ZSP_AST_TYPE_ARRAY) {
+        const zsp_ast_node_t *element_ty = ty->u.type_array.element;
+        /* Per-element free for owned scalar element types. */
+        bool elem_owned = false;
+        if (element_ty != NULL) {
+            if (element_ty->kind == ZSP_AST_TYPE_BUILTIN) {
+                elem_owned = builtin_needs_free(element_ty->u.type_builtin.code);
+            }
+            else if (element_ty->kind == ZSP_AST_TYPE_REF) {
+                const zsp_ast_node_t *decl = peel_alias(element_ty->resolved);
+                if ((decl != NULL)
+                        && ((decl->kind == ZSP_AST_STRUCT)
+                            || (decl->kind == ZSP_AST_UNION)
+                            || (decl->kind == ZSP_AST_CHOICE))) {
+                    elem_owned = true;
+                }
+            }
+        }
+        if (elem_owned) {
+            emit_lit(b, "        for (size_t i_ = 0u; i_ < self->");
+            emit_snake(b, fn, fl);
+            emit_lit(b, "_count; ++i_) {\n");
+            char arr_slot[256];
+            size_t aspos = 0U;
+            (void)memcpy(arr_slot, "self->u.", 8U); aspos = 8U;
+            aspos = snake_into(arr_slot, aspos, fn, fl);
+            const char *suf = "[i_]";
+            (void)memcpy(&arr_slot[aspos], suf, strlen(suf));
+            aspos += strlen(suf);
+            arr_slot[aspos] = '\0';
+            if (element_ty->kind == ZSP_AST_TYPE_BUILTIN) {
+                emit_lit(b, "            ");
+                emit_lit(b, builtin_free_fn(element_ty->u.type_builtin.code));
+                emit_lit(b, "(&");
+                emit_lit(b, arr_slot);
+                emit_lit(b, ", alloc);\n");
+            }
+            else {
+                const zsp_ast_node_t *decl = peel_alias(element_ty->resolved);
+                emit_lit(b, "            ");
+                (void)emit_type_id(b, decl, src);
+                emit_lit(b, "_free(&");
+                emit_lit(b, arr_slot);
+                emit_lit(b, ", alloc);\n");
+            }
+            emit_lit(b, "        }\n");
+        }
+        emit_lit(b, "        if (self->u.");
+        emit_snake(b, fn, fl);
+        emit_lit(b, " != NULL) {\n");
+        emit_lit(b, "            alloc->vtable->free(alloc->userdata, self->u.");
+        emit_snake(b, fn, fl);
+        emit_lit(b, ", self->");
+        emit_snake(b, fn, fl);
+        emit_lit(b, "_count * sizeof(*self->u.");
+        emit_snake(b, fn, fl);
+        emit_lit(b, "), sizeof(*self->u.");
+        emit_snake(b, fn, fl);
+        emit_lit(b, "));\n");
+        emit_lit(b, "            self->u.");
+        emit_snake(b, fn, fl);
+        emit_lit(b, " = NULL;\n");
+        emit_lit(b, "        }\n");
+        return;
+    }
     if (ty->kind == ZSP_AST_TYPE_BUILTIN) {
         const zsp_builtin_code_t c = ty->u.type_builtin.code;
         if (builtin_needs_free(c)) {
