@@ -1432,19 +1432,38 @@ static void emit_expr_c(buf_t *b, const zsp_ast_node_t *e,
                     return;
                 }
                 /* `lengthof(arr)` — array element count. With our
-                 * struct layout, that's the `_count` sibling for
-                 * dynamic arrays. */
+                 * struct layout, dynamic arrays carry a sibling
+                 * `_count`; fixed-size arrays evaluate to their
+                 * const length at compile time. */
                 if ((nl == 8U) && (memcmp(n, "lengthof", 8U) == 0)
                         && (e->u.call.n_args == 1U)) {
                     const zsp_ast_node_t *const a = e->u.call.args[0];
                     if ((a != NULL) && (a->kind == ZSP_AST_EXPR_IDENT)
                             && (a->resolved != NULL)
                             && (a->resolved->kind == ZSP_AST_FIELD)) {
+                        const zsp_ast_node_t *fty = a->resolved->u.field.type;
+                        const zsp_ast_node_t *lenx = (fty != NULL
+                                && (fty->kind == ZSP_AST_TYPE_ARRAY))
+                                ? fty->u.type_array.length_expr : NULL;
+                        const zsp_sema_const_t *lenc = (lenx != NULL)
+                                ? (const zsp_sema_const_t *)lenx->computed
+                                : NULL;
+                        if ((lenc != NULL)
+                                && (lenc->kind == ZSP_CONST_UINT)
+                                && (lenc->v.u > 0U)) {
+                            emit_uint(b, lenc->v.u);
+                            return;
+                        }
                         const zsp_file_t *af = NULL;
                         if (zsp_source_get(src, a->file_id, &af)) {
                             const uint8_t *an = &af->bytes[a->u.ident.span_off];
                             const size_t   al = (size_t)a->u.ident.span_len;
-                            emit_lit(b, "self->");
+                            if (b->this_override != NULL) {
+                                emit_lit(b, b->this_override);
+                                emit_lit(b, ".");
+                            } else {
+                                emit_lit(b, "self->");
+                            }
                             emit_snake(b, an, al);
                             emit_lit(b, "_count");
                             return;
