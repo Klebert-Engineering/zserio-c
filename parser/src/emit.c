@@ -2187,6 +2187,9 @@ static void emit_field_read(buf_t *b, const zsp_ast_node_t *field,
     if (ty == NULL) {
         return;
     }
+    /* Keep a pointer to the pre-peel TYPE_REF so we can grab any
+     * runtime type_args (`Foo(arg)`) the subtype alias dropped. */
+    const zsp_ast_node_t *type_args_origin = ty;
     /* Peel SUBTYPE aliases so the read uses the underlying type's
      * read function. The write side (emit_field_write) and the
      * element variants (emit_element_read/_write) all do the same
@@ -2213,7 +2216,18 @@ static void emit_field_read(buf_t *b, const zsp_ast_node_t *field,
             emit_expr_c(b, field->u.field.align_expr, src);
             emit_lit(b, "));\n");
         }
-        if (field->u.field.offset_expr != NULL) {
+        /* Simple offset source (`offset(<field>) <T> name;`) gets a
+         * single byte-align before the field. Indexed-offset arrays
+         * (`offset(<src>[@index]):`) emit per-element aligns inside
+         * the array loop and we MUST skip the field-level align
+         * here (would advance past the array's varsize length on
+         * the wire). Member-access offsets (e.g. `choiceField.offset:`)
+         * currently have no matching writer back-patch, so we skip
+         * the read align too to keep read/write symmetric — fixing
+         * the asymmetry would require also adding write-side back-
+         * patch for dotted offset sources. */
+        if ((field->u.field.offset_expr != NULL)
+                && (field->u.field.offset_expr->kind == ZSP_AST_EXPR_IDENT)) {
             emit_lit(b, "    ZSERIO_TRY(zserio_bitstream_reader_align(bs, 8u));\n");
         }
     }
@@ -2538,16 +2552,23 @@ static void emit_field_read(buf_t *b, const zsp_ast_node_t *field,
         emit_snake(b, fn, fl);
         emit_lit(b, ");\n");
         /* Forward this field's `type_args` into the inner
-         * struct's `_set_parameters` call so its read/write
-         * loops see the correct parameter values. */
-        if ((ty->kind == ZSP_AST_TYPE_REF) && (ty->u.type_ref.n_type_args > 0U)) {
+         * struct's `_set_parameters` call so its read sees the
+         * correct parameter values. Use the pre-peel TYPE_REF
+         * when the peeled one dropped the args (subtype). */
+        const zsp_ast_node_t *args_src = ty;
+        if ((args_src == NULL) || (args_src->kind != ZSP_AST_TYPE_REF)
+                || (args_src->u.type_ref.n_type_args == 0U)) {
+            args_src = type_args_origin;
+        }
+        if ((args_src != NULL) && (args_src->kind == ZSP_AST_TYPE_REF)
+                && (args_src->u.type_ref.n_type_args > 0U)) {
             emit_lit(b, "    ");
             (void)emit_type_id(b, decl, src);
             emit_lit(b, "_set_parameters(&self->");
             emit_snake(b, fn, fl);
-            for (size_t i = 0U; i < ty->u.type_ref.n_type_args; ++i) {
+            for (size_t i = 0U; i < args_src->u.type_ref.n_type_args; ++i) {
                 emit_lit(b, ", ");
-                emit_expr_c(b, ty->u.type_ref.type_args[i], src);
+                emit_expr_c(b, args_src->u.type_ref.type_args[i], src);
             }
             emit_lit(b, ");\n");
         }
@@ -4477,6 +4498,19 @@ static void emit_choice_case_read(buf_t *b, const zsp_ast_node_t *f,
         const zsp_ast_node_t *decl = peel_alias(ty->resolved);
         (void)emit_type_id(b, decl, src);
         emit_lit(b, "_init(&"); emit_lit(b, slot); emit_lit(b, ");\n");
+        /* Propagate this case-field's type_args into the inner
+         * struct's _set_parameters call so its read sees the
+         * correct parameter values. Write side already does this. */
+        if ((ty->kind == ZSP_AST_TYPE_REF) && (ty->u.type_ref.n_type_args > 0U)) {
+            emit_lit(b, "        ");
+            (void)emit_type_id(b, decl, src);
+            emit_lit(b, "_set_parameters(&"); emit_lit(b, slot);
+            for (size_t i = 0U; i < ty->u.type_ref.n_type_args; ++i) {
+                emit_lit(b, ", ");
+                emit_expr_c(b, ty->u.type_ref.type_args[i], src);
+            }
+            emit_lit(b, ");\n");
+        }
         emit_lit(b, "        ZSERIO_TRY("); (void)emit_type_id(b, decl, src);
         emit_lit(b, "_read(&"); emit_lit(b, slot); emit_lit(b, ", bs, alloc));\n");
     }
