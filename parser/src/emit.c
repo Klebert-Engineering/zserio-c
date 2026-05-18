@@ -1308,8 +1308,8 @@ static void emit_expr_c(buf_t *b, const zsp_ast_node_t *e,
         return;
     case ZSP_AST_EXPR_CALL: {
         /* `isset(bitmask, flag)` is the only schema-level builtin
-         * we lower; user-defined function calls remain
-         * unsupported (would need full function emission). */
+         * we lower. Schema-defined functions (zero-arg only) are
+         * inlined by emitting their body expression in place. */
         const zsp_ast_node_t *callee = e->u.call.callee;
         if (callee && (callee->kind == ZSP_AST_EXPR_IDENT)) {
             const zsp_file_t *f = NULL;
@@ -1327,6 +1327,18 @@ static void emit_expr_c(buf_t *b, const zsp_ast_node_t *e,
                     emit_lit(b, "))");
                     return;
                 }
+            }
+            /* Schema-defined function reference: inline the body
+             * expression. The function lives on the same compound
+             * and references field/parameter values via
+             * `self->...`, which the caller already has in scope. */
+            if ((callee->resolved != NULL)
+                    && (callee->resolved->kind == ZSP_AST_FUNCTION)
+                    && (callee->resolved->u.function_decl.body_expr != NULL)) {
+                emit_lit(b, "(");
+                emit_expr_c(b, callee->resolved->u.function_decl.body_expr, src);
+                emit_lit(b, ")");
+                return;
             }
         }
         emit_lit(b, "0 /*unsupported-call*/");
@@ -2552,17 +2564,71 @@ static void emit_source_for_compound(buf_t *b, const zsp_ast_node_t *cmpd,
         for (size_t i = 0U; i < cmpd->u.compound.n_members; ++i) {
             const zsp_ast_node_t *m = cmpd->u.compound.members[i];
             if (m->kind != ZSP_AST_FIELD) continue;
-            /* Skip read/write/free for self-recursive fields (the
-             * field's type resolves to the enclosing compound).
-             * They emit as pointers; reading would require an
-             * allocator-aware allocate-then-recurse path we don't
-             * have yet. Field defaults to NULL via init. */
             const zsp_ast_node_t *ty = m->u.field.type;
             const bool is_self_rec =
                     (ty != NULL) && (ty->kind == ZSP_AST_TYPE_REF)
                     && (ty->resolved == cmpd);
             if (is_self_rec) {
-                emit_lit(b, "    /* self-recursive field skipped */\n");
+                /* Self-recursive field is stored as a pointer.
+                 * Read: allocate via the runtime allocator, set
+                 * parameters from the field's type_args (if any),
+                 * then recurse. Guarded by the optional/if-clause
+                 * present flag — Block-style chains terminate
+                 * by setting the predicate false. */
+                const uint8_t *rfn = NULL;
+                size_t         rfl = 0U;
+                if (!ident_span(src, m->u.field.name, &rfn, &rfl)) continue;
+                const zsp_ast_node_t *const if_clause = m->u.field.if_clause;
+                if (m->u.field.optional && (if_clause == NULL)) {
+                    emit_lit(b, "    {\n        uint64_t opt_tmp_; ZSERIO_TRY(zserio_bitstream_read_bits(bs, 1u, &opt_tmp_));\n");
+                    emit_lit(b, "        self->");
+                    emit_snake(b, rfn, rfl);
+                    emit_lit(b, "_present = (opt_tmp_ != 0u);\n    }\n");
+                }
+                else if (if_clause != NULL) {
+                    emit_lit(b, "    self->");
+                    emit_snake(b, rfn, rfl);
+                    emit_lit(b, "_present = (");
+                    emit_expr_c(b, if_clause, src);
+                    emit_lit(b, ");\n");
+                }
+                emit_lit(b, "    if (self->");
+                emit_snake(b, rfn, rfl);
+                emit_lit(b, "_present) {\n");
+                emit_lit(b, "        self->");
+                emit_snake(b, rfn, rfl);
+                emit_lit(b, " = (");
+                (void)emit_type_id(b, cmpd, src);
+                emit_lit(b, "_t *)alloc->vtable->alloc(alloc->userdata, sizeof(*self->");
+                emit_snake(b, rfn, rfl);
+                emit_lit(b, "), sizeof(*self->");
+                emit_snake(b, rfn, rfl);
+                emit_lit(b, "));\n");
+                emit_lit(b, "        if (self->");
+                emit_snake(b, rfn, rfl);
+                emit_lit(b, " == NULL) return ZSERIO_ERR_OUT_OF_MEMORY;\n");
+                emit_lit(b, "        ");
+                (void)emit_type_id(b, cmpd, src);
+                emit_lit(b, "_init(self->");
+                emit_snake(b, rfn, rfl);
+                emit_lit(b, ");\n");
+                if ((ty->kind == ZSP_AST_TYPE_REF) && (ty->u.type_ref.n_type_args > 0U)) {
+                    emit_lit(b, "        ");
+                    (void)emit_type_id(b, cmpd, src);
+                    emit_lit(b, "_set_parameters(self->");
+                    emit_snake(b, rfn, rfl);
+                    for (size_t k = 0U; k < ty->u.type_ref.n_type_args; ++k) {
+                        emit_lit(b, ", ");
+                        emit_expr_c(b, ty->u.type_ref.type_args[k], src);
+                    }
+                    emit_lit(b, ");\n");
+                }
+                emit_lit(b, "        ZSERIO_TRY(");
+                (void)emit_type_id(b, cmpd, src);
+                emit_lit(b, "_read(self->");
+                emit_snake(b, rfn, rfl);
+                emit_lit(b, ", bs, alloc));\n");
+                emit_lit(b, "    }\n");
                 continue;
             }
             emit_field_read(b, m, src);
@@ -2604,7 +2670,39 @@ static void emit_source_for_compound(buf_t *b, const zsp_ast_node_t *cmpd,
             const bool is_self_rec =
                     (ty != NULL) && (ty->kind == ZSP_AST_TYPE_REF)
                     && (ty->resolved == cmpd);
-            if (is_self_rec) continue;
+            if (is_self_rec) {
+                /* Mirror of the read path: when the
+                 * caller-controlled `_present` flag is set,
+                 * dereference the pointer and recurse. */
+                const uint8_t *wfn = NULL;
+                size_t         wfl = 0U;
+                if (!ident_span(src, m->u.field.name, &wfn, &wfl)) continue;
+                if (m->u.field.optional && (m->u.field.if_clause == NULL)) {
+                    emit_lit(b, "    ZSERIO_TRY(zserio_bitstream_write_bits(bs, 1u, self->");
+                    emit_snake(b, wfn, wfl);
+                    emit_lit(b, "_present ? 1u : 0u));\n");
+                }
+                emit_lit(b, "    if (self->");
+                emit_snake(b, wfn, wfl);
+                emit_lit(b, "_present) {\n");
+                if ((ty->kind == ZSP_AST_TYPE_REF) && (ty->u.type_ref.n_type_args > 0U)) {
+                    emit_lit(b, "        ");
+                    (void)emit_type_id(b, cmpd, src);
+                    emit_lit(b, "_set_parameters(self->");
+                    emit_snake(b, wfn, wfl);
+                    for (size_t k = 0U; k < ty->u.type_ref.n_type_args; ++k) {
+                        emit_lit(b, ", ");
+                        emit_expr_c(b, ty->u.type_ref.type_args[k], src);
+                    }
+                    emit_lit(b, ");\n");
+                }
+                emit_lit(b, "        ZSERIO_TRY(");
+                (void)emit_type_id(b, cmpd, src);
+                emit_lit(b, "_write(self->");
+                emit_snake(b, wfn, wfl);
+                emit_lit(b, ", bs));\n    }\n");
+                continue;
+            }
             /* Offsets feature: if any LATER field references this
              * field via its `offset(<name>)` directive (or the
              * indexed variant `offset(<name>[@index])`), emit a
@@ -2676,7 +2774,31 @@ static void emit_source_for_compound(buf_t *b, const zsp_ast_node_t *cmpd,
             const bool is_self_rec =
                     (ty != NULL) && (ty->kind == ZSP_AST_TYPE_REF)
                     && (ty->resolved == cmpd);
-            if (is_self_rec) continue;
+            if (is_self_rec) {
+                /* Recursively free + deallocate the linked node. */
+                const uint8_t *ffn = NULL;
+                size_t         ffl = 0U;
+                if (!ident_span(src, m->u.field.name, &ffn, &ffl)) continue;
+                emit_lit(b, "    if (self->");
+                emit_snake(b, ffn, ffl);
+                emit_lit(b, " != NULL) {\n");
+                emit_lit(b, "        ");
+                (void)emit_type_id(b, cmpd, src);
+                emit_lit(b, "_free(self->");
+                emit_snake(b, ffn, ffl);
+                emit_lit(b, ", alloc);\n");
+                emit_lit(b, "        alloc->vtable->free(alloc->userdata, self->");
+                emit_snake(b, ffn, ffl);
+                emit_lit(b, ", sizeof(*self->");
+                emit_snake(b, ffn, ffl);
+                emit_lit(b, "), sizeof(*self->");
+                emit_snake(b, ffn, ffl);
+                emit_lit(b, "));\n");
+                emit_lit(b, "        self->");
+                emit_snake(b, ffn, ffl);
+                emit_lit(b, " = NULL;\n    }\n");
+                continue;
+            }
             emit_field_free(b, m, src);
         }
     }
