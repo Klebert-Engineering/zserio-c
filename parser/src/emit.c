@@ -678,9 +678,31 @@ struct packed_elem {
 };
 
 /* Emit function prototypes for one compound. */
+/* Maps a varint builtin to its runtime traits-struct name (NULL
+ * if the builtin isn't a varint). The packed-array path uses
+ * traits-driven delta contexts for variable-length integer
+ * elements. */
+static const char *varint_traits_name(zsp_builtin_code_t c, bool *is_signed_out)
+{
+    if (is_signed_out != NULL) *is_signed_out = false;
+    switch (c) {
+    case ZSP_TB_VARUINT16: return "zserio_delta_traits_varuint16";
+    case ZSP_TB_VARUINT32: return "zserio_delta_traits_varuint32";
+    case ZSP_TB_VARUINT64: return "zserio_delta_traits_varuint64";
+    case ZSP_TB_VARUINT:   return "zserio_delta_traits_varuint";
+    case ZSP_TB_VARSIZE:   return "zserio_delta_traits_varsize";
+    case ZSP_TB_VARINT16:  if (is_signed_out) *is_signed_out = true; return "zserio_delta_traits_varint16";
+    case ZSP_TB_VARINT32:  if (is_signed_out) *is_signed_out = true; return "zserio_delta_traits_varint32";
+    case ZSP_TB_VARINT64:  if (is_signed_out) *is_signed_out = true; return "zserio_delta_traits_varint64";
+    case ZSP_TB_VARINT:    if (is_signed_out) *is_signed_out = true; return "zserio_delta_traits_varint";
+    default: return NULL;
+    }
+}
+
 /* For a compound's FIELD, classify how it participates in the
  * packed-array protocol of the enclosing compound: 'p' if its
  * type is a packable fixed-width scalar (gets a delta context),
+ * 'v' if it's a varint flavour (traits-driven delta context),
  * 'n' if it's a nested struct/union (gets a nested packing
  * context), 'x' if unpackable (regular read/write in the packed
  * path). Fields with arrays or self-references are treated as
@@ -700,6 +722,14 @@ static char field_packing_class(const zsp_ast_node_t *field,
         ty = ty->resolved->u.subtype.target_type;
     }
     if (ty == NULL) return 'x';
+    if ((ty->kind == ZSP_AST_TYPE_BUILTIN)
+            && (varint_traits_name(ty->u.type_builtin.code, NULL) != NULL)) {
+        if (scalar_out != NULL) {
+            (void)memset(scalar_out, 0, sizeof(*scalar_out));
+            (void)varint_traits_name(ty->u.type_builtin.code, &scalar_out->is_signed);
+        }
+        return 'v';
+    }
     packed_elem_t pe = {0};
     if (packed_elem_describe(ty, &pe)) {
         if (scalar_out != NULL) *scalar_out = pe;
@@ -743,7 +773,7 @@ static bool compound_has_packable_field(const zsp_ast_node_t *cmpd)
         const zsp_ast_node_t *m = cmpd->u.compound.members[i];
         if ((m == NULL) || (m->kind != ZSP_AST_FIELD)) continue;
         const char cls = field_packing_class(m, NULL);
-        if (cls == 'p') return true;
+        if ((cls == 'p') || (cls == 'v')) return true;
         if (cls == 'n') {
             /* Recurse one level — nested compound's packability
              * propagates. (We don't deep-recurse to avoid
@@ -783,7 +813,7 @@ static void emit_packing_ctx_typedef(buf_t *b, const zsp_ast_node_t *cmpd,
         const uint8_t *fn = NULL;
         size_t         fl = 0U;
         if (!ident_span(src, m->u.field.name, &fn, &fl)) continue;
-        if (cls == 'p') {
+        if ((cls == 'p') || (cls == 'v')) {
             emit_lit(b, "    zserio_delta_context_t ");
             emit_snake(b, fn, fl);
             emit_lit(b, "_;\n");
@@ -3580,6 +3610,24 @@ static void emit_source_for_compound(buf_t *b, const zsp_ast_node_t *cmpd,
                 emit_lit(b, ", ");
                 emit_lit(b, pe.is_signed ? "true" : "false");
                 emit_lit(b, ");\n");
+            } else if (cls == 'v') {
+                const zsp_ast_node_t *ty_b = m->u.field.type;
+                while ((ty_b != NULL) && (ty_b->kind == ZSP_AST_TYPE_REF)
+                        && (ty_b->resolved != NULL)
+                        && (ty_b->resolved->kind == ZSP_AST_SUBTYPE)
+                        && (ty_b->resolved->u.subtype.target_type != NULL)) {
+                    ty_b = ty_b->resolved->u.subtype.target_type;
+                }
+                const char *traits = (ty_b && ty_b->kind == ZSP_AST_TYPE_BUILTIN)
+                        ? varint_traits_name(ty_b->u.type_builtin.code, NULL)
+                        : NULL;
+                if (traits != NULL) {
+                    emit_lit(b, "    (void)zserio_delta_init_traits(&ctx->");
+                    emit_snake(b, fn, fl);
+                    emit_lit(b, "_, &");
+                    emit_lit(b, traits);
+                    emit_lit(b, ");\n");
+                }
             } else if (cls == 'n') {
                 const zsp_ast_node_t *ty = m->u.field.type;
                 while ((ty != NULL) && (ty->kind == ZSP_AST_TYPE_REF)
@@ -3619,7 +3667,7 @@ static void emit_source_for_compound(buf_t *b, const zsp_ast_node_t *cmpd,
             const uint8_t *fn = NULL;
             size_t         fl = 0U;
             if (!ident_span(src, m->u.field.name, &fn, &fl)) continue;
-            if (cls == 'p') {
+            if ((cls == 'p') || (cls == 'v')) {
                 emit_lit(b, "    (void)zserio_delta_observe(&ctx->");
                 emit_snake(b, fn, fl);
                 emit_lit(b, "_, (uint64_t)");
@@ -3669,7 +3717,7 @@ static void emit_source_for_compound(buf_t *b, const zsp_ast_node_t *cmpd,
             const uint8_t *fn = NULL;
             size_t         fl = 0U;
             if (!ident_span(src, m->u.field.name, &fn, &fl)) continue;
-            if (cls == 'p') {
+            if ((cls == 'p') || (cls == 'v')) {
                 emit_lit(b, "    {\n");
                 emit_lit(b, "        uint64_t tmp_;\n");
                 emit_lit(b, "        ZSERIO_TRY(zserio_delta_read(&ctx->");
@@ -3732,7 +3780,7 @@ static void emit_source_for_compound(buf_t *b, const zsp_ast_node_t *cmpd,
             const uint8_t *fn = NULL;
             size_t         fl = 0U;
             if (!ident_span(src, m->u.field.name, &fn, &fl)) continue;
-            if (cls == 'p') {
+            if ((cls == 'p') || (cls == 'v')) {
                 emit_lit(b, "    ZSERIO_TRY(zserio_delta_write(&ctx->");
                 emit_snake(b, fn, fl);
                 emit_lit(b, "_, bs, (uint64_t)");
