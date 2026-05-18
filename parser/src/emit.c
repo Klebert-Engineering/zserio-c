@@ -989,6 +989,35 @@ static void emit_referenced_includes(buf_t *b, const zsp_ast_node_t *cmpd,
         lens[n]  = nl;
         decls_for_pkg[n] = decl;
         n += 1U;
+        /* Also include any INSTANTIATE aliases (in the compound's
+         * own unit) whose target resolves to this same concrete
+         * clone. The replace_template_refs pass derefs INSTANTIATE
+         * → concrete on the field's type_ref, so the name there
+         * is the concrete's mangled name; the harness may still
+         * spell the field type via the alias and expects its
+         * typedef header to be in scope. */
+        const zsp_ast_node_t *self_unit = cmpd->resolved;
+        if ((self_unit != NULL) && (self_unit->kind == ZSP_AST_UNIT)) {
+            for (size_t u = 0U; u < self_unit->u.unit.n_decls; ++u) {
+                const zsp_ast_node_t *id = self_unit->u.unit.decls[u];
+                if ((id == NULL) || (id->kind != ZSP_AST_INSTANTIATE)) continue;
+                const zsp_ast_node_t *itgt = id->u.instantiate.target;
+                if ((itgt == NULL) || (itgt->resolved != decl)) continue;
+                const uint8_t *anb = NULL; size_t anl = 0U;
+                if (!ident_span(src, id->u.instantiate.name, &anb, &anl)) continue;
+                bool aseen = false;
+                for (size_t k = 0U; k < n; ++k) {
+                    if ((lens[k] == anl) && (memcmp(names[k], anb, anl) == 0)) {
+                        aseen = true; break;
+                    }
+                }
+                if (aseen || (n >= MAX_INC)) continue;
+                names[n] = anb;
+                lens[n]  = anl;
+                decls_for_pkg[n] = (const zsp_ast_node_t *)id;
+                n += 1U;
+            }
+        }
     }
 
     /* Count `..` levels needed to climb from the current
