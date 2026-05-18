@@ -1941,6 +1941,29 @@ static size_t mangle_name(const zsp_sema_t *s, const uint8_t *base,
         }
     }
     out[pos] = '\0';
+    /* Filesystems cap a single path component at NAME_MAX = 255
+     * bytes. The emitted .c / .h files use the snake-cased
+     * mangled name as their filename; deep template chains can
+     * exceed that (`attribute_map_list_road_reference_types_..._
+     * property_value`). When that happens, truncate the suffix
+     * and replace it with an FNV-1a hex hash of the original
+     * — keeps names unique while staying under NAME_MAX. */
+    enum { NAME_LIMIT = 160U };
+    if (pos > NAME_LIMIT) {
+        uint64_t h = 0xcbf29ce484222325ULL;
+        for (size_t i = 0U; i < pos; ++i) {
+            h ^= (uint64_t)(uint8_t)out[i];
+            h *= 0x100000001b3ULL;
+        }
+        char hex[20];
+        const int n = snprintf(hex, sizeof(hex), "_%016lx",
+                               (unsigned long)h);
+        if ((n > 0) && ((NAME_LIMIT + (size_t)n) < out_cap)) {
+            (void)memcpy(&out[NAME_LIMIT], hex, (size_t)n);
+            pos = NAME_LIMIT + (size_t)n;
+            out[pos] = '\0';
+        }
+    }
     return pos;
 }
 
@@ -1950,7 +1973,7 @@ typedef struct inst_record {
     zsp_ast_node_t       **args;      /* the arg list (borrowed) */
     size_t                 n_args;
     zsp_ast_node_t        *concrete;  /* the cloned decl */
-    char                   mangled[256];
+    char                   mangled[512];
     size_t                 mangled_len;
 } inst_record_t;
 
@@ -2097,7 +2120,7 @@ static zsp_ast_node_t *get_or_instantiate(inst_ctx_t *ctx,
     /* Mangle name first so we can check global scope for an
      * already-instantiated concrete clone (e.g., produced when
      * another unit's pass visited this same template). */
-    char    pre_mangled[256];
+    char    pre_mangled[512];
     size_t  pre_mangled_len = 0U;
     const zsp_ast_node_t *pre_base_name = get_decl_name_node(template_decl);
     const uint8_t *pre_base_bytes = NULL;
@@ -2194,7 +2217,7 @@ static zsp_ast_node_t *get_or_instantiate(inst_ctx_t *ctx,
                 if ((wn < 0) || ((size_t)(rec->mangled_len + (size_t)wn) >= sizeof(rec->mangled))) {
                     break;
                 }
-                char trial[256];
+                char trial[512];
                 (void)memcpy(trial, rec->mangled, rec->mangled_len);
                 (void)memcpy(trial + rec->mangled_len, tail, (size_t)wn);
                 const size_t trial_len = rec->mangled_len + (size_t)wn;

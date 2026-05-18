@@ -270,7 +270,8 @@ int main(int argc, char **argv)
             if (zsp_emit_unit(session.files[i].unit, &session.arena,
                               &session.diag, &session.source,
                               out_write, &out) != ZSERIO_OK) {
-                (void)fprintf(stderr, "error: emit failed\n");
+                (void)fprintf(stderr, "error: emit failed on %s\n",
+                              session.files[i].path);
                 rc = 1;
                 break;
             }
