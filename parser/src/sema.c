@@ -977,6 +977,9 @@ static void resolve_member_access(zsp_sema_t *s, zsp_ast_node_t *m)
 /* Resolve every TYPE_REF + EXPR_IDENT under `n`, with scope
  * push/pop around compound bodies. Recursive — bounded by AST
  * nesting depth, covered by the Q5 / Rule 17.2 deviation. */
+static void resolve_label_expr(zsp_sema_t *s, zsp_ast_node_t *e,
+                               zsp_ast_node_t *enum_decl);
+
 static zserio_status_t resolve_walk(zsp_sema_t *s, zsp_ast_node_t *n)
 {
     if (n == NULL) {
@@ -1021,6 +1024,50 @@ static zserio_status_t resolve_walk(zsp_sema_t *s, zsp_ast_node_t *n)
      * resolve via the child walk. */
     if (n->kind == ZSP_AST_EXPR_MEMBER) {
         resolve_member_access(s, n);
+    }
+    /* `isset(target, FLAG)`: zserio allows bare flag spellings
+     * inside the second arg when the target's type is a bitmask
+     * or enum. After child walk has resolved the target, look
+     * for unresolved IDENTs in the second arg and bind them
+     * to the matching item on the target's type. */
+    if ((n->kind == ZSP_AST_EXPR_CALL)
+            && (n->u.call.callee != NULL)
+            && (n->u.call.callee->kind == ZSP_AST_EXPR_IDENT)
+            && (n->u.call.n_args == 2U)) {
+        const zsp_file_t *fc = NULL;
+        if (zsp_source_get(s->source, n->u.call.callee->file_id, &fc)) {
+            const uint8_t *kw = &fc->bytes[n->u.call.callee->u.ident.span_off];
+            const size_t   kl = (size_t)n->u.call.callee->u.ident.span_len;
+            if ((kl == 5U) && (memcmp(kw, "isset", 5U) == 0)) {
+                /* Find target's enum/bitmask decl. */
+                zsp_ast_node_t *const tgt = n->u.call.args[0];
+                zsp_ast_node_t *type_decl = NULL;
+                if ((tgt != NULL) && (tgt->resolved != NULL)) {
+                    zsp_ast_node_t *d = tgt->resolved;
+                    zsp_ast_node_t *ty = NULL;
+                    if (d->kind == ZSP_AST_FIELD)         ty = d->u.field.type;
+                    else if (d->kind == ZSP_AST_PARAMETER) ty = d->u.parameter.type;
+                    while ((ty != NULL) && (ty->kind == ZSP_AST_TYPE_REF)
+                            && (ty->resolved != NULL)
+                            && (ty->resolved->kind == ZSP_AST_SUBTYPE)
+                            && (ty->resolved->u.subtype.target_type != NULL)) {
+                        ty = ty->resolved->u.subtype.target_type;
+                    }
+                    if ((ty != NULL) && (ty->kind == ZSP_AST_TYPE_REF)
+                            && (ty->resolved != NULL)
+                            && ((ty->resolved->kind == ZSP_AST_BITMASK)
+                                || (ty->resolved->kind == ZSP_AST_ENUM))) {
+                        type_decl = ty->resolved;
+                    }
+                }
+                /* Walk the flag expression and resolve bare
+                 * IDENTs against type_decl's items. Reuse the
+                 * existing label-resolution helper. */
+                if (type_decl != NULL) {
+                    resolve_label_expr(s, n->u.call.args[1], type_decl);
+                }
+            }
+        }
     }
 
     if (saved != NULL) {
