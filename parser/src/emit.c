@@ -1777,6 +1777,9 @@ static void emit_element_read(buf_t *b, const zsp_ast_node_t *ty,
                               const char *slot_expr,
                               const zsp_source_t *src)
 {
+    /* Capture any type-args supplied at the call-site before
+     * peeling SUBTYPE aliases — subtype targets drop them. */
+    const zsp_ast_node_t *type_args_origin = ty;
     /* Peel subtype aliases so the read uses the underlying type's
      * read function, not the alias name. */
     while ((ty != NULL) && (ty->kind == ZSP_AST_TYPE_REF)
@@ -1840,14 +1843,21 @@ static void emit_element_read(buf_t *b, const zsp_ast_node_t *ty,
         emit_lit(b, "_init(&");
         emit_lit(b, slot_expr);
         emit_lit(b, ");\n");
-        if ((ty->kind == ZSP_AST_TYPE_REF) && (ty->u.type_ref.n_type_args > 0U)) {
+        /* Use the pre-peel type-args when the alias dropped them. */
+        const zsp_ast_node_t *args_src = ty;
+        if ((args_src == NULL) || (args_src->kind != ZSP_AST_TYPE_REF)
+                || (args_src->u.type_ref.n_type_args == 0U)) {
+            args_src = type_args_origin;
+        }
+        if ((args_src != NULL) && (args_src->kind == ZSP_AST_TYPE_REF)
+                && (args_src->u.type_ref.n_type_args > 0U)) {
             emit_lit(b, "        ");
             (void)emit_type_id(b, decl, src);
             emit_lit(b, "_set_parameters(&");
             emit_lit(b, slot_expr);
-            for (size_t i = 0U; i < ty->u.type_ref.n_type_args; ++i) {
+            for (size_t i = 0U; i < args_src->u.type_ref.n_type_args; ++i) {
                 emit_lit(b, ", ");
-                emit_expr_c(b, ty->u.type_ref.type_args[i], src);
+                emit_expr_c(b, args_src->u.type_ref.type_args[i], src);
             }
             emit_lit(b, ");\n");
         }
@@ -2240,6 +2250,7 @@ static void emit_element_write(buf_t *b, const zsp_ast_node_t *ty,
                                const char *slot_expr,
                                const zsp_source_t *src)
 {
+    const zsp_ast_node_t *type_args_origin = ty;
     while ((ty != NULL) && (ty->kind == ZSP_AST_TYPE_REF)
             && (ty->resolved != NULL)
             && (ty->resolved->kind == ZSP_AST_SUBTYPE)
@@ -2326,16 +2337,22 @@ static void emit_element_write(buf_t *b, const zsp_ast_node_t *ty,
          * set_parameters mutates `self->...` but in practice
          * write functions only read those, so the lifetime is
          * scoped to this call. */
-        if ((ty->kind == ZSP_AST_TYPE_REF) && (ty->u.type_ref.n_type_args > 0U)) {
+        const zsp_ast_node_t *args_src = ty;
+        if ((args_src == NULL) || (args_src->kind != ZSP_AST_TYPE_REF)
+                || (args_src->u.type_ref.n_type_args == 0U)) {
+            args_src = type_args_origin;
+        }
+        if ((args_src != NULL) && (args_src->kind == ZSP_AST_TYPE_REF)
+                && (args_src->u.type_ref.n_type_args > 0U)) {
             emit_lit(b, "            ");
             (void)emit_type_id(b, decl, src);
             emit_lit(b, "_set_parameters((");
             (void)emit_type_id(b, decl, src);
             emit_lit(b, "_t *)&");
             emit_lit(b, slot_expr);
-            for (size_t i = 0U; i < ty->u.type_ref.n_type_args; ++i) {
+            for (size_t i = 0U; i < args_src->u.type_ref.n_type_args; ++i) {
                 emit_lit(b, ", ");
-                emit_expr_c(b, ty->u.type_ref.type_args[i], src);
+                emit_expr_c(b, args_src->u.type_ref.type_args[i], src);
             }
             emit_lit(b, ");\n");
         }
