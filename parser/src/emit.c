@@ -3627,7 +3627,92 @@ static void emit_choice_header(buf_t *b, const zsp_ast_node_t *ch,
             emit_snake(b, names[i], lens[i]);
             emit_lit(b, ".h\"\n");
         }
-        if (n > 0U) {
+        /* Scan case labels + selector expression for IDENT/MEMBER
+         * references that resolve to top-level CONST decls and
+         * emit their headers. Without this, choices that use a
+         * const value in a `case` label don't compile. */
+        const zsp_ast_node_t *const_decls[32];
+        size_t n_const_decls = 0U;
+        const zsp_ast_node_t *expr_roots[1 + 16];
+        size_t n_expr_roots = 0U;
+        if (ch->u.choice.selector != NULL) {
+            expr_roots[n_expr_roots++] = ch->u.choice.selector;
+        }
+        for (size_t i = 0U; i < ch->u.choice.n_cases; ++i) {
+            const zsp_ast_node_t *c = ch->u.choice.cases[i];
+            for (size_t j = 0U; (j < c->u.choice_case.n_labels)
+                    && (n_expr_roots < sizeof(expr_roots)/sizeof(expr_roots[0])); ++j) {
+                expr_roots[n_expr_roots++] = c->u.choice_case.labels[j];
+            }
+        }
+        for (size_t e = 0U; e < n_expr_roots; ++e) {
+            const zsp_ast_node_t *stack[64];
+            size_t                sp = 0U;
+            if (expr_roots[e] != NULL) stack[sp++] = expr_roots[e];
+            while ((sp > 0U) && (n_const_decls < 32U)) {
+                const zsp_ast_node_t *x = stack[--sp];
+                if (x == NULL) continue;
+                const zsp_ast_node_t *d = x->resolved;
+                if ((d != NULL) && (d->kind == ZSP_AST_CONST)) {
+                    bool seen = false;
+                    for (size_t k = 0U; k < n_const_decls; ++k) {
+                        if (const_decls[k] == d) { seen = true; break; }
+                    }
+                    if (!seen) const_decls[n_const_decls++] = d;
+                }
+                if (x->kind == ZSP_AST_EXPR_BINARY) {
+                    if ((sp + 1U) < 64U) { stack[sp++] = x->u.binop.lhs; stack[sp++] = x->u.binop.rhs; }
+                }
+                else if (x->kind == ZSP_AST_EXPR_UNARY) {
+                    if (sp < 64U) stack[sp++] = x->u.unop.operand;
+                }
+                else if (x->kind == ZSP_AST_EXPR_TERNARY) {
+                    if ((sp + 2U) < 64U) {
+                        stack[sp++] = x->u.ternary.cond;
+                        stack[sp++] = x->u.ternary.then_expr;
+                        stack[sp++] = x->u.ternary.else_expr;
+                    }
+                }
+                else if (x->kind == ZSP_AST_EXPR_MEMBER) {
+                    if (sp < 64U) stack[sp++] = x->u.member.lhs;
+                }
+                else if (x->kind == ZSP_AST_EXPR_INDEX) {
+                    if ((sp + 1U) < 64U) {
+                        stack[sp++] = x->u.index.lhs;
+                        stack[sp++] = x->u.index.index;
+                    }
+                }
+                else if (x->kind == ZSP_AST_EXPR_CALL) {
+                    for (size_t a = 0U; (a < x->u.call.n_args) && (sp < 64U); ++a) {
+                        stack[sp++] = x->u.call.args[a];
+                    }
+                }
+            }
+        }
+        for (size_t i = 0U; i < n_const_decls; ++i) {
+            const zsp_ast_node_t *cn = const_decls[i]->u.const_decl.name;
+            const uint8_t *cb = NULL;
+            size_t         cl = 0U;
+            if (!ident_span(src, cn, &cb, &cl)) continue;
+            char dep_pkg[1024];
+            const size_t dep_len = decl_package_path(
+                    const_decls[i], src, dep_pkg, sizeof(dep_pkg));
+            const bool same_pkg = ((self_len == dep_len)
+                    && (memcmp(self_pkg, dep_pkg, dep_len) == 0));
+            emit_lit(b, "#include \"");
+            if (!same_pkg) {
+                for (size_t k = 0U; k < levels_up; ++k) {
+                    emit_lit(b, "../");
+                }
+                if (dep_len > 0U) {
+                    emit_bytes(b, dep_pkg, dep_len);
+                    emit_lit(b, "/");
+                }
+            }
+            emit_snake(b, cb, cl);
+            emit_lit(b, ".h\"\n");
+        }
+        if ((n > 0U) || (n_const_decls > 0U)) {
             emit_lit(b, "\n");
         }
     }
