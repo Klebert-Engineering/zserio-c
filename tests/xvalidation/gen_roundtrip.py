@@ -1,0 +1,331 @@
+#!/usr/bin/env python3
+"""
+Per-harness generator for bidirectional xvalidation drivers.
+
+Takes each `tests/xvalidation/harnesses/<name>/c_driver.c` and emits
+a `c_roundtrip.c` next to it. The roundtrip driver shares the same
+setup phase (helper functions, seed parsing, `_init(&pkg)`, and any
+top-level `_set_parameters(&pkg, ...)` call) with the original
+c_driver, then replaces the populate-and-write body with a
+`<type>_read` + `<type>_write` round-trip.
+
+Invocation:
+    python3 gen_roundtrip.py [<harnesses_dir>]
+
+Default harnesses_dir is the script's own directory's `harnesses/`.
+
+The generated driver's interface:
+    c_roundtrip <seed> <in.bin> <out.bin>
+
+Where <in.bin> is whatever the test harness wants the C reader to
+decode (typically c_driver's or cpp_driver's output) and <out.bin>
+gets the C writer's re-encoding of the decoded struct. Byte-equality
+between <in.bin> and <out.bin> proves the C reader is a faithful
+inverse of the C writer for that schema.
+"""
+import os
+import re
+import sys
+
+
+HARNESSES_DIR_DEFAULT = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "harnesses"
+)
+
+
+# Match the schema's main #include — the one with a `/` in the path.
+RE_INCLUDE = re.compile(r'^\s*#include\s+"([^"]+/[^"]+)"\s*$')
+# `<TYPE>_t pkg;`
+RE_PKG_DECL = re.compile(r'^\s*([a-zA-Z_][a-zA-Z0-9_]*?)_t\s+pkg\s*;\s*$')
+# `<TYPE>_init(&pkg)` — top-level only (NOT `_init(&pkg.foo)` or `_init(&pkg[i])`).
+RE_PKG_INIT = re.compile(r'\b([a-zA-Z_][a-zA-Z0-9_]*?)_init\s*\(\s*&pkg\s*\)')
+# `<TYPE>_set_parameters(&pkg, ...)` — top-level only.
+RE_PKG_SET_PARAMS = re.compile(
+    r'^(\s*)([a-zA-Z_][a-zA-Z0-9_]*?)_set_parameters\s*\(\s*&pkg\s*,'
+)
+
+
+def extract_main_signature_and_body(text):
+    """Return (head, main_decl_line, body_open, body_inside, body_close, tail).
+
+    `head` is everything before `int main(`. `main_decl_line` is the
+    function declaration line. `body_inside` is the lines between the
+    opening `{` and the matching closing `}`. `tail` is everything
+    after.
+    """
+    lines = text.split("\n")
+    main_start = None
+    for i, ln in enumerate(lines):
+        if re.match(r'^\s*int\s+main\s*\(', ln):
+            main_start = i
+            break
+    if main_start is None:
+        return None
+    # Find the opening { (might be on same line or next)
+    body_open = None
+    for j in range(main_start, len(lines)):
+        if "{" in lines[j]:
+            body_open = j
+            break
+    if body_open is None:
+        return None
+    # Brace-match to find the close.
+    depth = 0
+    started = False
+    body_close = None
+    for k in range(body_open, len(lines)):
+        for ch in lines[k]:
+            if ch == "{":
+                depth += 1
+                started = True
+            elif ch == "}":
+                depth -= 1
+                if started and depth == 0:
+                    body_close = k
+                    break
+        if body_close is not None:
+            break
+    if body_close is None:
+        return None
+    head = "\n".join(lines[:main_start])
+    main_decl_line = "\n".join(lines[main_start:body_open + 1])
+    body_inside = "\n".join(lines[body_open + 1:body_close])
+    tail = "\n".join(lines[body_close + 1:])
+    return head, main_decl_line, body_inside, tail
+
+
+def find_init_and_setp_indices(body_lines):
+    """Return (init_idx, setp_start, setp_end). init_idx is the first
+    line that calls `<TYPE>_init(&pkg)`. setp_start/end span the
+    (possibly multi-line) `<TYPE>_set_parameters(&pkg, ...)` call —
+    each is None if no top-level set_parameters exists."""
+    init_idx = None
+    setp_start = None
+    setp_end = None
+    in_setp = False
+    for i, ln in enumerate(body_lines):
+        if init_idx is None and RE_PKG_INIT.search(ln):
+            init_idx = i
+        if RE_PKG_SET_PARAMS.match(ln):
+            in_setp = True
+            if setp_start is None:
+                setp_start = i
+            setp_end = i
+        if in_setp and ")" in ln and ";" in ln:
+            setp_end = i
+            in_setp = False
+    return init_idx, setp_start, setp_end
+
+
+def find_type_name(body_inside):
+    """Return the schema type name prefix (e.g. `foo_bar_baz`). The
+    init-line wins over the decl line because some drivers `typedef`
+    the long name to a short alias (`pkg_t pkg;`)."""
+    init_match = None
+    decl_match = None
+    for ln in body_inside.split("\n"):
+        if init_match is None:
+            m = RE_PKG_INIT.search(ln)
+            if m:
+                init_match = m.group(1)
+        if decl_match is None:
+            m = RE_PKG_DECL.match(ln)
+            if m:
+                decl_match = m.group(1)
+    return init_match or decl_match
+
+
+def find_schema_include(head):
+    """Return the (first) schema include path (containing `/`)."""
+    for ln in head.split("\n"):
+        m = RE_INCLUDE.match(ln)
+        if m:
+            return m.group(1)
+    return None
+
+
+ROUNDTRIP_TEMPLATE = r'''/* Auto-generated by gen_roundtrip.py. Do not edit by hand. */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <zserio/allocator.h>
+#include <zserio/bitstream.h>
+#include <zserio/status.h>
+
+#define FREE_INBUF do {{ if (in_buf != &dummy_byte) free(in_buf); }} while (0)
+
+{shared_head}
+
+int main(int argc, char *argv[])
+{{
+    if (argc < 4) {{
+        fprintf(stderr, "usage: %s <seed> <in.bin> <out.bin>\n", argv[0]);
+        return 2;
+    }}
+    const unsigned seed = (unsigned)atoi(argv[1]);
+    (void)seed;
+    const char *const in_path  = argv[2];
+    const char *const out_path = argv[3];
+
+    /* Slurp the input bytes. Zero-length input is legal (e.g. a
+     * choice whose active arm has an empty body) — we treat it as
+     * a valid round-trip and emit zero output. */
+    FILE *fi = fopen(in_path, "rb");
+    if (fi == NULL) {{ perror(in_path); return 1; }}
+    fseek(fi, 0, SEEK_END);
+    long fsize = ftell(fi);
+    fseek(fi, 0, SEEK_SET);
+    uint8_t dummy_byte = 0;
+    uint8_t *in_buf = NULL;
+    if (fsize > 0) {{
+        in_buf = (uint8_t *)malloc((size_t)fsize);
+        if (in_buf == NULL) {{ fclose(fi); return 1; }}
+        if (fread(in_buf, 1, (size_t)fsize, fi) != (size_t)fsize) {{
+            FREE_INBUF; fclose(fi); return 1;
+        }}
+    }} else {{
+        in_buf = &dummy_byte; /* zero-length reader still needs a non-NULL ptr */
+    }}
+    fclose(fi);
+
+    /* Setup phase reused from c_driver.c — produces a `pkg` of the
+     * right type and, for parameterised top-level types, the matching
+     * `_set_parameters` call from the same seed. */
+    {setup_block}
+
+    zserio_bitstream_reader_t r;
+    zserio_bitstream_reader_init(&r, in_buf, (size_t)fsize * 8u);
+    const zserio_allocator_t alloc = zserio_allocator_libc();
+    zserio_status_t st = {type}_read(&pkg, &r, &alloc);
+    if (st != ZSERIO_OK) {{
+        fprintf(stderr, "roundtrip: read failed: %d\n", (int)st);
+        FREE_INBUF; {type}_free(&pkg, &alloc); return 1;
+    }}
+
+    /* Output buffer 4x input size + slack — covers cases where the
+     * re-encoded form is bit-equal but byte-rounded differently. */
+    size_t out_cap = ((size_t)fsize * 4u + 4096u);
+    uint8_t *out_buf = (uint8_t *)malloc(out_cap);
+    if (out_buf == NULL) {{ FREE_INBUF; {type}_free(&pkg, &alloc); return 1; }}
+    zserio_bitstream_writer_t w;
+    zserio_bitstream_writer_init(&w, out_buf, out_cap * 8u);
+    st = {type}_write(&pkg, &w);
+    if (st != ZSERIO_OK) {{
+        fprintf(stderr, "roundtrip: write failed: %d\n", (int)st);
+        FREE_INBUF; free(out_buf); {type}_free(&pkg, &alloc); return 1;
+    }}
+    size_t byte_pos = (zserio_bitstream_writer_position(&w) + 7u) / 8u;
+
+    FILE *fo = fopen(out_path, "wb");
+    if (fo == NULL) {{ perror(out_path); FREE_INBUF; free(out_buf);
+                       {type}_free(&pkg, &alloc); return 1; }}
+    fwrite(out_buf, 1, byte_pos, fo);
+    fclose(fo);
+
+    FREE_INBUF;
+    free(out_buf);
+    {type}_free(&pkg, &alloc);
+    return 0;
+}}
+'''
+
+
+def generate_roundtrip_c(c_driver_text):
+    """Return the generated c_roundtrip.c text, or None if extraction failed."""
+    parsed = extract_main_signature_and_body(c_driver_text)
+    if parsed is None:
+        return None
+    head, _main_sig, body_inside, _tail = parsed
+    type_name = find_type_name(body_inside)
+    if type_name is None:
+        return None
+    include = find_schema_include(head)
+    if include is None:
+        return None
+
+    # Use the original head verbatim — it already includes <stdio.h>,
+    # <stdlib.h>, etc. The template adds anything else we need.
+    shared_head = head.strip()
+
+    # Build a minimal setup block. Always emit:
+    #     <TYPE>_t pkg;
+    #     <TYPE>_init(&pkg);
+    # If c_driver has a top-level `_set_parameters(&pkg, ...)` call,
+    # also include any seed-dependent variable declarations between
+    # the `atoi(argv[1])` line and the set_parameters call, plus the
+    # set_parameters call itself. We deliberately skip everything
+    # else (populate logic referencing argv, output paths, etc.)
+    # which would not compile in the roundtrip context.
+    body_lines = body_inside.split("\n")
+    init_idx, setp_start, setp_end = find_init_and_setp_indices(body_lines)
+    if init_idx is None:
+        return None
+    pieces = [f"{type_name}_t pkg;", f"{type_name}_init(&pkg);"]
+    if setp_start is not None:
+        # Find the seed-parse line so we can scan forward from it
+        # for variable definitions used by set_parameters.
+        seed_parse_idx = None
+        for i, ln in enumerate(body_lines):
+            if re.search(r'atoi\s*\(\s*argv\s*\[\s*1\s*\]\s*\)', ln):
+                seed_parse_idx = i
+                break
+        scan_start = (seed_parse_idx + 1) if seed_parse_idx is not None else 0
+        # Walk from scan_start up to setp_start; keep `const`,
+        # static-helper-call assignments, and bare brace blocks.
+        # Skip anything that mentions argv or pkg (the latter is
+        # init/decl which we already emit; the former is harness
+        # plumbing we don't need).
+        bridge = []
+        for i in range(scan_start, setp_start):
+            ln = body_lines[i]
+            stripped = ln.strip()
+            if not stripped:
+                continue
+            if "argv[" in stripped:
+                continue
+            if RE_PKG_DECL.match(ln) or RE_PKG_INIT.search(ln):
+                continue
+            bridge.append(ln)
+        pieces.extend(bridge)
+        pieces.extend(body_lines[setp_start:setp_end + 1])
+    setup_block = "\n    ".join(
+        [s.strip() if s.startswith("    ") else s for s in pieces]
+    )
+
+    return ROUNDTRIP_TEMPLATE.format(
+        shared_head=shared_head,
+        setup_block=setup_block,
+        type=type_name,
+    )
+
+
+def process(harnesses_dir):
+    n_ok = 0
+    n_skip = 0
+    failures = []
+    for name in sorted(os.listdir(harnesses_dir)):
+        h = os.path.join(harnesses_dir, name)
+        c_driver = os.path.join(h, "c_driver.c")
+        if not os.path.isfile(c_driver):
+            continue
+        with open(c_driver, "r", encoding="utf-8") as f:
+            text = f.read()
+        out = generate_roundtrip_c(text)
+        if out is None:
+            n_skip += 1
+            failures.append(name)
+            continue
+        out_path = os.path.join(h, "c_roundtrip.c")
+        with open(out_path, "w", encoding="utf-8") as f:
+            f.write(out)
+        n_ok += 1
+    print(f"gen_roundtrip: wrote {n_ok}, skipped {n_skip}")
+    if failures:
+        print("  skipped:", " ".join(failures[:10]),
+              "..." if len(failures) > 10 else "")
+
+
+if __name__ == "__main__":
+    d = sys.argv[1] if len(sys.argv) > 1 else HARNESSES_DIR_DEFAULT
+    process(d)

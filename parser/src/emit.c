@@ -2187,6 +2187,17 @@ static void emit_field_read(buf_t *b, const zsp_ast_node_t *field,
     if (ty == NULL) {
         return;
     }
+    /* Peel SUBTYPE aliases so the read uses the underlying type's
+     * read function. The write side (emit_field_write) and the
+     * element variants (emit_element_read/_write) all do the same
+     * peel — without it, a `subtype uint16 Identifier; Identifier
+     * x;` field falls through to the unsupported-type branch. */
+    while ((ty != NULL) && (ty->kind == ZSP_AST_TYPE_REF)
+            && (ty->resolved != NULL)
+            && (ty->resolved->kind == ZSP_AST_SUBTYPE)
+            && (ty->resolved->u.subtype.target_type != NULL)) {
+        ty = ty->resolved->u.subtype.target_type;
+    }
     const bool is_array = (ty->kind == ZSP_AST_TYPE_ARRAY);
     const zsp_ast_node_t *element_ty = is_array ? ty->u.type_array.element : ty;
 
