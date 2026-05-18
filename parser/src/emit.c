@@ -1525,6 +1525,93 @@ static uint32_t enum_underlying_width(const zsp_ast_node_t *type_ref)
     return 0U;
 }
 
+/* Resolve element type to the fixed-width-integer parameters
+ * needed for a packed array (`zserio_delta_init`):
+ *   - num_bits literal (0 if width is dynamic, in which case
+ *     `width_expr_out` is set to the AST expression)
+ *   - is_signed
+ *   - cast_type (C type name to convert delta value <-> slot)
+ * Returns true if the element type is supported by the simple
+ * fixed-width packed protocol. Returns false for var-int, bool,
+ * float, string, extern, bytes, or compound-element packed —
+ * caller falls back to unpacked. */
+typedef struct packed_elem {
+    uint32_t                num_bits;       /* 0 if dynamic */
+    const zsp_ast_node_t   *width_expr;     /* set when num_bits==0 */
+    bool                    is_signed;
+    const char             *cast_type;      /* C type name */
+} packed_elem_t;
+
+static bool packed_elem_describe(const zsp_ast_node_t *ty, packed_elem_t *out)
+{
+    if (ty == NULL) return false;
+    /* Peel SUBTYPE aliases. */
+    while ((ty != NULL) && (ty->kind == ZSP_AST_TYPE_REF)
+            && (ty->resolved != NULL)
+            && (ty->resolved->kind == ZSP_AST_SUBTYPE)
+            && (ty->resolved->u.subtype.target_type != NULL)) {
+        ty = ty->resolved->u.subtype.target_type;
+    }
+    out->num_bits = 0U;
+    out->width_expr = NULL;
+    out->is_signed = false;
+    out->cast_type = "uint64_t";
+    if (ty->kind == ZSP_AST_TYPE_BUILTIN) {
+        const zsp_builtin_code_t c = ty->u.type_builtin.code;
+        switch (c) {
+        case ZSP_TB_UINT8:  out->num_bits=8;  out->is_signed=false; out->cast_type="uint8_t";  return true;
+        case ZSP_TB_UINT16: out->num_bits=16; out->is_signed=false; out->cast_type="uint16_t"; return true;
+        case ZSP_TB_UINT32: out->num_bits=32; out->is_signed=false; out->cast_type="uint32_t"; return true;
+        case ZSP_TB_UINT64: out->num_bits=64; out->is_signed=false; out->cast_type="uint64_t"; return true;
+        case ZSP_TB_INT8:   out->num_bits=8;  out->is_signed=true;  out->cast_type="int8_t";   return true;
+        case ZSP_TB_INT16:  out->num_bits=16; out->is_signed=true;  out->cast_type="int16_t";  return true;
+        case ZSP_TB_INT32:  out->num_bits=32; out->is_signed=true;  out->cast_type="int32_t";  return true;
+        case ZSP_TB_INT64:  out->num_bits=64; out->is_signed=true;  out->cast_type="int64_t";  return true;
+        case ZSP_TB_BIT_FIELD:
+            if (ty->u.type_builtin.width > 0U) {
+                out->num_bits = ty->u.type_builtin.width;
+            } else {
+                out->width_expr = ty->u.type_builtin.width_expr;
+            }
+            out->is_signed = false;
+            out->cast_type = "uint64_t";
+            return true;
+        case ZSP_TB_INT_FIELD:
+            if (ty->u.type_builtin.width > 0U) {
+                out->num_bits = ty->u.type_builtin.width;
+            } else {
+                out->width_expr = ty->u.type_builtin.width_expr;
+            }
+            out->is_signed = true;
+            out->cast_type = "int64_t";
+            return true;
+        default: return false;
+        }
+    }
+    if (ty->kind == ZSP_AST_TYPE_REF) {
+        const zsp_builtin_code_t c = enum_underlying(ty);
+        const uint32_t           w = enum_underlying_width(ty);
+        switch (c) {
+        case ZSP_TB_UINT8:  out->num_bits=8;  out->is_signed=false; break;
+        case ZSP_TB_UINT16: out->num_bits=16; out->is_signed=false; break;
+        case ZSP_TB_UINT32: out->num_bits=32; out->is_signed=false; break;
+        case ZSP_TB_UINT64: out->num_bits=64; out->is_signed=false; break;
+        case ZSP_TB_INT8:   out->num_bits=8;  out->is_signed=true;  break;
+        case ZSP_TB_INT16:  out->num_bits=16; out->is_signed=true;  break;
+        case ZSP_TB_INT32:  out->num_bits=32; out->is_signed=true;  break;
+        case ZSP_TB_INT64:  out->num_bits=64; out->is_signed=true;  break;
+        case ZSP_TB_BIT_FIELD: out->num_bits = w; out->is_signed=false; break;
+        case ZSP_TB_INT_FIELD: out->num_bits = w; out->is_signed=true;  break;
+        default: return false;
+        }
+        /* Cast to the resolved enum's C type so the slot
+         * assignment compiles. */
+        out->cast_type = NULL; /* sentinel: emit element_type via emit_element_type */
+        return true;
+    }
+    return false;
+}
+
 /* Decide which read function + signature shape to use for a
  * single element. Returns a token: 'p' for primitive call
  * (`fn(bs, &out)`), 'o' for owned call (`fn(bs, alloc, &out)`),
@@ -1799,6 +1886,31 @@ static void emit_field_read(buf_t *b, const zsp_ast_node_t *field,
             emit_snake(b, fn, fl);
             emit_lit(b, "));\n");
         }
+        /* Packed-array fast path: a fixed-width-integer element
+         * (incl. bit:N / enums-of-int) uses the runtime's delta
+         * context. Other elements fall back to the unpacked
+         * per-element read (compound, varint, etc.). */
+        packed_elem_t pe = {0};
+        const bool is_packed = ty->u.type_array.packed
+                && packed_elem_describe(element_ty, &pe);
+        if (is_packed) {
+            emit_lit(b, "        zserio_delta_context_t pctx_;\n");
+            emit_lit(b, "        (void)memset(&pctx_, 0, sizeof(pctx_));\n");
+            emit_lit(b, "        ZSERIO_TRY(zserio_delta_init(&pctx_, ");
+            if (pe.num_bits > 0U) {
+                emit_uint(b, pe.num_bits);
+                emit_lit(b, "u");
+            } else if (pe.width_expr != NULL) {
+                emit_lit(b, "(uint8_t)(");
+                emit_expr_c(b, pe.width_expr, src);
+                emit_lit(b, ")");
+            } else {
+                emit_lit(b, "64u");
+            }
+            emit_lit(b, ", ");
+            emit_lit(b, pe.is_signed ? "true" : "false");
+            emit_lit(b, "));\n");
+        }
         emit_lit(b, "        for (size_t i_ = 0u; i_ < arr_count_; ++i_) {\n");
         /* Indexed offsets: byte-align before each element so the
          * reader matches the writer's back-patched byte offsets. */
@@ -1806,7 +1918,28 @@ static void emit_field_read(buf_t *b, const zsp_ast_node_t *field,
                 && (field->u.field.offset_expr->kind == ZSP_AST_EXPR_INDEX)) {
             emit_lit(b, "        ZSERIO_TRY(zserio_bitstream_reader_align(bs, 8u));\n");
         }
-        emit_element_read(b, element_ty, slot, src);
+        if (is_packed) {
+            emit_lit(b, "        {\n");
+            emit_lit(b, pe.is_signed
+                    ? "            int64_t pv_;\n            uint64_t pvu_;\n"
+                    : "            uint64_t pvu_;\n");
+            emit_lit(b, "            ZSERIO_TRY(zserio_delta_read(&pctx_, bs, &pvu_));\n");
+            if (pe.is_signed) {
+                emit_lit(b, "            pv_ = (int64_t)pvu_;\n            (void)pv_;\n");
+            }
+            emit_lit(b, "            ");
+            emit_lit(b, slot);
+            emit_lit(b, " = (");
+            if (pe.cast_type != NULL) {
+                emit_lit(b, pe.cast_type);
+            } else {
+                emit_element_type(b, element_ty, src);
+            }
+            emit_lit(b, ")pvu_;\n");
+            emit_lit(b, "        }\n");
+        } else {
+            emit_element_read(b, element_ty, slot, src);
+        }
         emit_lit(b, "        }\n");
         if (!fixed) {
             emit_lit(b, "        }\n");
@@ -2238,6 +2371,48 @@ static void emit_field_write(buf_t *b, const zsp_ast_node_t *field,
             emit_snake(b, fn, fl);
             emit_lit(b, "_count;\n");
         }
+        /* Packed-array write protocol: init context, observe each
+         * element (so finalise() can pick packed vs unpacked + the
+         * max delta bit width), then emit per-element writes via
+         * `zserio_delta_write`. The very first write also emits
+         * the packing descriptor + the first full element. */
+        packed_elem_t pe_w = {0};
+        const bool is_packed_w = ty->u.type_array.packed
+                && packed_elem_describe(element_ty, &pe_w);
+        char slot_w[256];
+        if (is_packed_w) {
+            size_t spos = 0U;
+            const char *prefix = "self->";
+            const size_t plen = strlen(prefix);
+            (void)memcpy(slot_w, prefix, plen); spos = plen;
+            spos = snake_into(slot_w, spos, fn, fl);
+            const char *suffix = "[i_]";
+            (void)memcpy(&slot_w[spos], suffix, strlen(suffix));
+            spos += strlen(suffix);
+            slot_w[spos] = '\0';
+            emit_lit(b, "        zserio_delta_context_t pctx_;\n");
+            emit_lit(b, "        (void)memset(&pctx_, 0, sizeof(pctx_));\n");
+            emit_lit(b, "        ZSERIO_TRY(zserio_delta_init(&pctx_, ");
+            if (pe_w.num_bits > 0U) {
+                emit_uint(b, pe_w.num_bits);
+                emit_lit(b, "u");
+            } else if (pe_w.width_expr != NULL) {
+                emit_lit(b, "(uint8_t)(");
+                emit_expr_c(b, pe_w.width_expr, src);
+                emit_lit(b, ")");
+            } else {
+                emit_lit(b, "64u");
+            }
+            emit_lit(b, ", ");
+            emit_lit(b, pe_w.is_signed ? "true" : "false");
+            emit_lit(b, "));\n");
+            emit_lit(b, "        for (size_t i_ = 0u; i_ < arr_count_; ++i_) {\n");
+            emit_lit(b, "            ZSERIO_TRY(zserio_delta_observe(&pctx_, (uint64_t)");
+            if (pe_w.is_signed) emit_lit(b, "(int64_t)");
+            emit_lit(b, slot_w);
+            emit_lit(b, "));\n");
+            emit_lit(b, "        }\n");
+        }
         emit_lit(b, "        for (size_t i_ = 0u; i_ < arr_count_; ++i_) {\n");
 
         /* Indexed-offsets back-patch: when the array carries an
@@ -2311,7 +2486,14 @@ static void emit_field_write(buf_t *b, const zsp_ast_node_t *field,
         pos += strlen(suffix);
         slot[pos] = '\0';
 
-        emit_element_write(b, element_ty, slot, src);
+        if (is_packed_w) {
+            emit_lit(b, "            ZSERIO_TRY(zserio_delta_write(&pctx_, bs, (uint64_t)");
+            if (pe_w.is_signed) emit_lit(b, "(int64_t)");
+            emit_lit(b, slot);
+            emit_lit(b, "));\n");
+        } else {
+            emit_element_write(b, element_ty, slot, src);
+        }
 
         emit_lit(b, "        }\n");
         emit_lit(b, "    }\n");
