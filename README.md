@@ -57,22 +57,22 @@ Every commit to `main` runs the following gates. All currently pass:
 ## Quick start
 
 ```bash
-# Configure + build runtime + tests
+# Configure + build runtime, parser/generator (zserio_c_gen), and tests
 cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ctest --test-dir build --output-on-failure
 
-# Generate code from a schema (requires Java 17 + ant)
-tools/build_zserio_core_jar.sh           # upstream core jar (one-shot)
-tools/build_generator_jar.sh              # our generator extension
-java -cp build-jars/zserio_core.jar:generator/build/jar/zserio_c.jar:build-jars/zserio.jar \
-     zserio.tools.ZserioTool \
-     -src path/to/your/schemas your_schema.zs \
-     -c path/to/output
+# Generate C from a schema (no JVM, no upstream jar — just our gen)
+build/parser/zserio_c_gen path/to/your/schemas/your_schema.zs \
+    -c path/to/output \
+    -src path/to/your/schemas
 
 # Cross-validate against upstream cpp (requires both submodules)
 git submodule update --init --recursive
 bash tests/xvalidation/run_xvalidation.sh        # 182 schemas × 5 seeds
+
+# Same but under ASan + UBSan
+XVAL_SAN=1 bash tests/xvalidation/run_xvalidation.sh
 
 # Run the local stack-budget gate
 python3 tools/measure_stack_usage.py --strict
@@ -81,6 +81,10 @@ python3 tools/measure_stack_usage.py --strict
 python3 tools/measure_size.py > /tmp/sizes.json
 python3 tools/check_size_regression.py /tmp/sizes.json
 ```
+
+For a 10-minute hands-on walkthrough — write a `.zs` schema,
+generate, populate a struct, encode, decode — see
+[`docs/using-zserio-c.md`](docs/using-zserio-c.md).
 
 ## Project goals
 
@@ -171,6 +175,10 @@ tools/                         — measure_size, check_size_regression,
 ```
 
 ## Documentation entry points
+
+For day-one usage — schema → generated C → working executable, plus
+the generated-code naming and lifecycle reference:
+[`docs/using-zserio-c.md`](docs/using-zserio-c.md).
 
 For the design: [`docs/architecture.md`](docs/architecture.md).
 
