@@ -2386,7 +2386,8 @@ static void emit_element_write(buf_t *b, const zsp_ast_node_t *ty,
 }
 
 static void emit_field_write(buf_t *b, const zsp_ast_node_t *field,
-                             const zsp_source_t *src)
+                             const zsp_source_t *src,
+                             bool referenced_as_offset_source)
 {
     const uint8_t *fn = NULL;
     size_t         fl = 0U;
@@ -2493,6 +2494,15 @@ static void emit_field_write(buf_t *b, const zsp_ast_node_t *field,
             emit_lit(b, "        ZSERIO_TRY(zserio_write_varsize(bs, (uint32_t)self->");
             emit_snake(b, fn, fl);
             emit_lit(b, "_count));\n");
+            /* Capture _off_pos_ AFTER the varsize so any later
+             * field with `offset(<this>[@index])` back-patches
+             * the actual first-element position. The outer
+             * compound write declared the variable. */
+            if (referenced_as_offset_source) {
+                emit_lit(b, "        ");
+                emit_snake(b, fn, fl);
+                emit_lit(b, "_off_pos_ = zserio_bitstream_writer_position(bs);\n");
+            }
         }
         emit_lit(b, "        const size_t arr_count_ = ");
         if (fixed) {
@@ -3150,9 +3160,28 @@ static void emit_source_for_compound(buf_t *b, const zsp_ast_node_t *cmpd,
                     }
                 }
                 if (referenced) {
-                    emit_lit(b, "    const size_t ");
-                    emit_snake(b, mn, ml);
-                    emit_lit(b, "_off_pos_ = zserio_bitstream_writer_position(bs);\n");
+                    /* Auto-arrays write a varsize length-prefix
+                     * BEFORE their first element; the back-patch
+                     * target is the position of element 0, not
+                     * the position of the prefix. Declare the
+                     * variable now (non-const) and let
+                     * emit_field_write reassign it after the
+                     * varsize write. Fixed arrays / scalars
+                     * remain captured here, which is correct
+                     * since their first byte is at this position. */
+                    const zsp_ast_node_t *mty = m->u.field.type;
+                    const bool is_auto_arr = (mty != NULL)
+                            && (mty->kind == ZSP_AST_TYPE_ARRAY)
+                            && (mty->u.type_array.length_expr == NULL);
+                    if (is_auto_arr) {
+                        emit_lit(b, "    size_t ");
+                        emit_snake(b, mn, ml);
+                        emit_lit(b, "_off_pos_ = 0u;\n");
+                    } else {
+                        emit_lit(b, "    const size_t ");
+                        emit_snake(b, mn, ml);
+                        emit_lit(b, "_off_pos_ = zserio_bitstream_writer_position(bs);\n");
+                    }
                 }
             }
             if (m->u.field.extend) {
@@ -3160,7 +3189,29 @@ static void emit_source_for_compound(buf_t *b, const zsp_ast_node_t *cmpd,
                  * always byte-aligned before. */
                 emit_lit(b, "    ZSERIO_TRY(zserio_bitstream_writer_align(bs, 8u));\n");
             }
-            emit_field_write(b, m, src);
+            bool field_referenced = false;
+            {
+                const uint8_t *fn2 = NULL;
+                size_t fl2 = 0U;
+                if (ident_span(src, m->u.field.name, &fn2, &fl2)) {
+                    for (size_t j = i + 1U; j < cmpd->u.compound.n_members; ++j) {
+                        const zsp_ast_node_t *o = cmpd->u.compound.members[j];
+                        if ((o == NULL) || (o->kind != ZSP_AST_FIELD)) continue;
+                        const zsp_ast_node_t *oe = o->u.field.offset_expr;
+                        if (oe == NULL) continue;
+                        if (((oe->kind == ZSP_AST_EXPR_IDENT)
+                                    && (oe->resolved == m))
+                                || ((oe->kind == ZSP_AST_EXPR_INDEX)
+                                    && (oe->u.index.lhs != NULL)
+                                    && (oe->u.index.lhs->resolved == m))) {
+                            field_referenced = true;
+                            break;
+                        }
+                    }
+                }
+                (void)fn2; (void)fl2;
+            }
+            emit_field_write(b, m, src, field_referenced);
         }
     }
     emit_lit(b, "    return ZSERIO_OK;\n");
