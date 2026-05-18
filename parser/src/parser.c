@@ -778,35 +778,44 @@ static zsp_ast_node_t *parse_primary(parser_t *p)
         return n;
     }
     /* Function-call-like prefixes: lengthof/valueof/numbits/isset.
-     * `isset` takes two args (target + flag); the others take one. */
+     * Emit as EXPR_CALL with the keyword as a synthetic IDENT
+     * callee so the emitter's builtin-call path (which already
+     * lowers each name into its expansion) and the resolver
+     * (which inlines schema functions through EXPR_CALL) treat
+     * them uniformly. */
     if (check(p, ZSP_TOK_KW_LENGTHOF) || check(p, ZSP_TOK_KW_VALUEOF)
             || check(p, ZSP_TOK_KW_NUMBITS) || check(p, ZSP_TOK_KW_ISSET)) {
-        const zsp_token_kind_t op_tok = p->cur.kind;
+        const zsp_token_t kw_tok = p->cur;
         advance(p);
         if (!expect(p, ZSP_TOK_LPAREN, "expected '(' after builtin call")) {
             return NULL;
         }
-        zsp_ast_node_t *const arg = parse_expression(p);
-        /* Drop any additional comma-separated args (e.g. `isset(x, FLAG)`)
-         * — semantically the second arg is the bitmask flag; the
-         * analyser handles this once it has bitmask-typing context.
-         * For parsing purposes we accept and discard them. */
-        while (eat(p, ZSP_TOK_COMMA)) {
-            (void)parse_expression(p);
+        zsp_ast_node_t *args[4];
+        size_t n_args = 0U;
+        args[n_args++] = parse_expression(p);
+        while (eat(p, ZSP_TOK_COMMA) && (n_args < (sizeof(args)/sizeof(args[0])))) {
+            args[n_args++] = parse_expression(p);
         }
         if (!expect(p, ZSP_TOK_RPAREN, "expected ')' to close builtin call")) {
             return NULL;
         }
-        zsp_ast_node_t *const n = new_node(p, ZSP_AST_EXPR_UNARY, start);
+        zsp_ast_node_t *const callee = new_node_from_tok(p, ZSP_AST_EXPR_IDENT, &kw_tok);
+        if (callee != NULL) {
+            callee->u.ident.span_off = kw_tok.offset;
+            callee->u.ident.span_len = kw_tok.length;
+        }
+        zsp_ast_node_t *const n = new_node(p, ZSP_AST_EXPR_CALL, start);
         if (n != NULL) {
-            switch (op_tok) {
-            case ZSP_TOK_KW_LENGTHOF: n->u.unop.op = ZSP_OP_LENGTHOF; break;
-            case ZSP_TOK_KW_VALUEOF:  n->u.unop.op = ZSP_OP_VALUEOF;  break;
-            case ZSP_TOK_KW_NUMBITS:  n->u.unop.op = ZSP_OP_NUMBITS;  break;
-            case ZSP_TOK_KW_ISSET:    n->u.unop.op = ZSP_OP_ISSET;    break;
-            default:                  n->u.unop.op = ZSP_OP_UNKNOWN;  break;
+            n->u.call.callee = callee;
+            n->u.call.n_args = n_args;
+            if (n_args > 0U) {
+                n->u.call.args = (zsp_ast_node_t **)zsp_arena_alloc(
+                        p->arena, n_args * sizeof(zsp_ast_node_t *),
+                        sizeof(void *));
+                if (n->u.call.args != NULL) {
+                    (void)memcpy(n->u.call.args, args, n_args * sizeof(zsp_ast_node_t *));
+                }
             }
-            n->u.unop.operand = arg;
         }
         return n;
     }
