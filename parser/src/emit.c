@@ -2243,16 +2243,27 @@ static void emit_field_read(buf_t *b, const zsp_ast_node_t *field,
         }
         /* Packed-array fast path: a fixed-width-integer element
          * (incl. bit:N / enums-of-int) uses the runtime's delta
-         * context. A compound element with at least one packable
-         * scalar inside uses per-field-context emission via
-         * `<T>_init_packing_context` + `<T>_read_packed`. Other
-         * elements fall back to the unpacked per-element read. */
+         * context. A varint element uses the runtime's traits-
+         * driven delta context. A compound element with at least
+         * one packable scalar inside uses per-field-context
+         * emission via `<T>_init_packing_context` +
+         * `<T>_read_packed`. Other elements fall back to the
+         * unpacked per-element read. */
         packed_elem_t pe = {0};
         const bool is_packed = ty->u.type_array.packed
                 && packed_elem_describe(element_ty, &pe);
+        const char *varint_traits = NULL;
+        bool varint_signed = false;
+        if (ty->u.type_array.packed && !is_packed
+                && (element_ty != NULL)
+                && (element_ty->kind == ZSP_AST_TYPE_BUILTIN)) {
+            varint_traits = varint_traits_name(
+                    element_ty->u.type_builtin.code, &varint_signed);
+        }
         /* Detect packed-compound case. */
         const zsp_ast_node_t *cmpd_decl = NULL;
         if (ty->u.type_array.packed && !is_packed
+                && (varint_traits == NULL)
                 && (element_ty != NULL)
                 && (element_ty->kind == ZSP_AST_TYPE_REF)) {
             const zsp_ast_node_t *d = peel_alias(element_ty->resolved);
@@ -2278,6 +2289,12 @@ static void emit_field_read(buf_t *b, const zsp_ast_node_t *field,
             }
             emit_lit(b, ", ");
             emit_lit(b, pe.is_signed ? "true" : "false");
+            emit_lit(b, "));\n");
+        } else if (varint_traits != NULL) {
+            emit_lit(b, "        zserio_delta_context_t pctx_;\n");
+            emit_lit(b, "        (void)memset(&pctx_, 0, sizeof(pctx_));\n");
+            emit_lit(b, "        ZSERIO_TRY(zserio_delta_init_traits(&pctx_, &");
+            emit_lit(b, varint_traits);
             emit_lit(b, "));\n");
         } else if (cmpd_decl != NULL) {
             emit_lit(b, "        ");
@@ -2311,6 +2328,16 @@ static void emit_field_read(buf_t *b, const zsp_ast_node_t *field,
             } else {
                 emit_element_type(b, element_ty, src);
             }
+            emit_lit(b, ")pvu_;\n");
+            emit_lit(b, "        }\n");
+        } else if (varint_traits != NULL) {
+            emit_lit(b, "        {\n");
+            emit_lit(b, "            uint64_t pvu_;\n");
+            emit_lit(b, "            ZSERIO_TRY(zserio_delta_read(&pctx_, bs, &pvu_));\n");
+            emit_lit(b, "            ");
+            emit_lit(b, slot);
+            emit_lit(b, " = (");
+            emit_element_type(b, element_ty, src);
             emit_lit(b, ")pvu_;\n");
             emit_lit(b, "        }\n");
         } else if (cmpd_decl != NULL) {
@@ -2786,8 +2813,17 @@ static void emit_field_write(buf_t *b, const zsp_ast_node_t *field,
         packed_elem_t pe_w = {0};
         const bool is_packed_w = ty->u.type_array.packed
                 && packed_elem_describe(element_ty, &pe_w);
+        const char *varint_traits_w = NULL;
+        bool varint_signed_w = false;
+        if (ty->u.type_array.packed && !is_packed_w
+                && (element_ty != NULL)
+                && (element_ty->kind == ZSP_AST_TYPE_BUILTIN)) {
+            varint_traits_w = varint_traits_name(
+                    element_ty->u.type_builtin.code, &varint_signed_w);
+        }
         const zsp_ast_node_t *cmpd_decl_w = NULL;
         if (ty->u.type_array.packed && !is_packed_w
+                && (varint_traits_w == NULL)
                 && (element_ty != NULL)
                 && (element_ty->kind == ZSP_AST_TYPE_REF)) {
             const zsp_ast_node_t *d = peel_alias(element_ty->resolved);
@@ -2798,7 +2834,7 @@ static void emit_field_write(buf_t *b, const zsp_ast_node_t *field,
             }
         }
         char slot_w[256];
-        if (is_packed_w || (cmpd_decl_w != NULL)) {
+        if (is_packed_w || (varint_traits_w != NULL) || (cmpd_decl_w != NULL)) {
             size_t spos = 0U;
             const char *prefix = "self->";
             const size_t plen = strlen(prefix);
@@ -2829,6 +2865,18 @@ static void emit_field_write(buf_t *b, const zsp_ast_node_t *field,
             emit_lit(b, "        for (size_t i_ = 0u; i_ < arr_count_; ++i_) {\n");
             emit_lit(b, "            ZSERIO_TRY(zserio_delta_observe(&pctx_, (uint64_t)");
             if (pe_w.is_signed) emit_lit(b, "(int64_t)");
+            emit_lit(b, slot_w);
+            emit_lit(b, "));\n");
+            emit_lit(b, "        }\n");
+        } else if (varint_traits_w != NULL) {
+            emit_lit(b, "        zserio_delta_context_t pctx_;\n");
+            emit_lit(b, "        (void)memset(&pctx_, 0, sizeof(pctx_));\n");
+            emit_lit(b, "        ZSERIO_TRY(zserio_delta_init_traits(&pctx_, &");
+            emit_lit(b, varint_traits_w);
+            emit_lit(b, "));\n");
+            emit_lit(b, "        for (size_t i_ = 0u; i_ < arr_count_; ++i_) {\n");
+            emit_lit(b, "            ZSERIO_TRY(zserio_delta_observe(&pctx_, (uint64_t)");
+            if (varint_signed_w) emit_lit(b, "(int64_t)");
             emit_lit(b, slot_w);
             emit_lit(b, "));\n");
             emit_lit(b, "        }\n");
@@ -2923,6 +2971,11 @@ static void emit_field_write(buf_t *b, const zsp_ast_node_t *field,
         if (is_packed_w) {
             emit_lit(b, "            ZSERIO_TRY(zserio_delta_write(&pctx_, bs, (uint64_t)");
             if (pe_w.is_signed) emit_lit(b, "(int64_t)");
+            emit_lit(b, slot);
+            emit_lit(b, "));\n");
+        } else if (varint_traits_w != NULL) {
+            emit_lit(b, "            ZSERIO_TRY(zserio_delta_write(&pctx_, bs, (uint64_t)");
+            if (varint_signed_w) emit_lit(b, "(int64_t)");
             emit_lit(b, slot);
             emit_lit(b, "));\n");
         } else if (cmpd_decl_w != NULL) {
