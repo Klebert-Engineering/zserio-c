@@ -1145,6 +1145,14 @@ static void emit_expr_c(buf_t *b, const zsp_ast_node_t *e,
         }
         const uint8_t *const name = &f->bytes[e->u.ident.span_off];
         const size_t         len  = (size_t)e->u.ident.span_len;
+        /* `@index` is the zserio pseudo-identifier for the array
+         * loop's index. Lower to the loop variable `i_` that the
+         * enclosing array read/write emits. */
+        if ((len >= 6U) && (name[0] == (uint8_t)'@')
+                && (memcmp(name, "@index", 6U) == 0)) {
+            emit_lit(b, "i_");
+            return;
+        }
         if (d != NULL) {
             if ((d->kind == ZSP_AST_FIELD)
                     || (d->kind == ZSP_AST_PARAMETER)) {
@@ -1200,7 +1208,7 @@ static void emit_expr_c(buf_t *b, const zsp_ast_node_t *e,
         case ZSP_OP_SUB: emit_lit(b, " - ");  break;
         case ZSP_OP_MUL: emit_lit(b, " * ");  break;
         case ZSP_OP_DIV: emit_lit(b, " / ");  break;
-        case ZSP_OP_MOD: emit_lit(b, " %% "); break;
+        case ZSP_OP_MOD: emit_lit(b, " % "); break;
         case ZSP_OP_LSHIFT: emit_lit(b, " << "); break;
         case ZSP_OP_RSHIFT: emit_lit(b, " >> "); break;
         case ZSP_OP_BIT_AND: emit_lit(b, " & "); break;
@@ -3027,12 +3035,28 @@ static void emit_choice_source(buf_t *b, const zsp_ast_node_t *ch,
     emit_lit(b, "    switch ((int)(");
     emit_expr_c(b, ch->u.choice.selector, src);
     emit_lit(b, ")) {\n");
+    /* Schemas can spell `case A: case B: ... field;` — the
+     * parser stores each `case A:` / `case B:` as a separate
+     * CHOICE_CASE with NULL field, with only the last carrying
+     * the field. We collapse those by skipping body+break when
+     * the field is NULL and the immediate next case has either
+     * its own labels but no field, or a body field. Empty cases
+     * (lone `;` body) emit a real break, since they're terminal. */
     for (size_t i = 0U; i < ch->u.choice.n_cases; ++i) {
         const zsp_ast_node_t *c = ch->u.choice.cases[i];
         for (size_t j = 0U; j < c->u.choice_case.n_labels; ++j) {
             emit_lit(b, "    case ");
             emit_expr_c(b, c->u.choice_case.labels[j], src);
             emit_lit(b, ":\n");
+        }
+        const bool fallthrough_to_next =
+                (c->u.choice_case.field == NULL)
+                && ((i + 1U) < ch->u.choice.n_cases)
+                && (ch->u.choice.cases[i + 1U]->u.choice_case.n_labels > 0U)
+                && (ch->u.choice.cases[i + 1U]->u.choice_case.labels[0]->kind
+                        != ZSP_AST_CHOICE_DEFAULT);
+        if (fallthrough_to_next) {
+            continue;
         }
         emit_choice_case_read(b, c->u.choice_case.field, src);
         emit_lit(b, "        break;\n");
@@ -3059,6 +3083,11 @@ static void emit_choice_source(buf_t *b, const zsp_ast_node_t *ch,
             emit_expr_c(b, c->u.choice_case.labels[j], src);
             emit_lit(b, ":\n");
         }
+        const bool fallthrough_to_next =
+                (c->u.choice_case.field == NULL)
+                && ((i + 1U) < ch->u.choice.n_cases)
+                && (ch->u.choice.cases[i + 1U]->u.choice_case.n_labels > 0U);
+        if (fallthrough_to_next) continue;
         emit_choice_case_write(b, c->u.choice_case.field, src);
         emit_lit(b, "        break;\n");
     }
@@ -3084,6 +3113,11 @@ static void emit_choice_source(buf_t *b, const zsp_ast_node_t *ch,
             emit_expr_c(b, c->u.choice_case.labels[j], src);
             emit_lit(b, ":\n");
         }
+        const bool fallthrough_to_next =
+                (c->u.choice_case.field == NULL)
+                && ((i + 1U) < ch->u.choice.n_cases)
+                && (ch->u.choice.cases[i + 1U]->u.choice_case.n_labels > 0U);
+        if (fallthrough_to_next) continue;
         emit_choice_case_free(b, c->u.choice_case.field, src);
         emit_lit(b, "        break;\n");
     }
