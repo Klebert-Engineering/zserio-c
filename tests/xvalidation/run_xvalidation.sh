@@ -63,7 +63,13 @@ SAN_TAG=""
 if [[ "${XVAL_SAN:-0}" == "1" ]]; then
     SAN_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer -g"
     SAN_TAG="-san"
-    echo "xval: sanitizers enabled (ASAN+UBSAN)"
+    # Hand-written harness c_drivers don't always free everything
+    # they allocate — they're populate-then-write programs whose
+    # cleanup at process exit isn't a generator concern. Keep the
+    # use-after-free / OOB / UBSan checks; disable leak detection.
+    export ASAN_OPTIONS="${ASAN_OPTIONS:-}:detect_leaks=0"
+    export UBSAN_OPTIONS="${UBSAN_OPTIONS:-}:print_stacktrace=1:halt_on_error=1"
+    echo "xval: sanitizers enabled (ASAN+UBSAN, leak detection off)"
 fi
 
 # Auto-generate C round-trip drivers from each harness's c_driver.c
