@@ -1797,10 +1797,9 @@ static zsp_ast_node_t *clone_node(zsp_arena_t *arena,
         /* If the source LHS is a template-param IDENT
          * (e.g. `E.BLACK`), retarget the cloned LHS's
          * `resolved` to the substitution arg's concrete
-         * type decl. The post-instantiation resolve pass
-         * (zsp_sema_resolve_unit) re-runs over the cloned
-         * subtree and resolves `.BLACK` to the right
-         * enum item. */
+         * type decl, and clear our own `resolved` so the
+         * emitter re-looks-up the named item in the new
+         * decl. */
         if ((src->u.member.lhs != NULL)
                 && (src->u.member.lhs->kind == ZSP_AST_EXPR_IDENT)
                 && (src->u.member.lhs->resolved != NULL)
@@ -1818,11 +1817,12 @@ static zsp_ast_node_t *clone_node(zsp_arena_t *arena,
                 }
                 dst->u.member.lhs->resolved = d;
             }
+            dst->resolved = NULL;
         }
-        /* Clear cached member resolution — it may have
-         * pointed at an item on the unsubstituted template
-         * type. The post-clone resolve pass re-binds it. */
-        dst->resolved = NULL;
+        /* For non-template-param chains (e.g. a fully-qualified
+         * `pkg1.pkg2.E.BLACK`), the source's `resolved` already
+         * points at the right global decl — preserving it lets
+         * the emitter use the cached pointer directly. */
         break;
     case ZSP_AST_EXPR_INDEX:
         dst->u.index.lhs   = clone_node(arena, src->u.index.lhs, tbl);
