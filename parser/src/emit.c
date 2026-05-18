@@ -758,15 +758,21 @@ static bool compound_has_packable_field(const zsp_ast_node_t *cmpd)
     if ((cmpd == NULL) || (cmpd->kind != ZSP_AST_STRUCT)) {
         return false;
     }
-    /* Skip if any field uses offset/align directives — the
-     * packed read/write paths don't have outer-scope variables
-     * for back-patching. */
+    /* Skip if any field uses offset/align directives, is self-
+     * recursive (heap-allocated pointer requires the regular
+     * read path), or has if/optional gating (the packed read
+     * doesn't emit the conditional flag plumbing). */
     for (size_t i = 0U; i < cmpd->u.compound.n_members; ++i) {
         const zsp_ast_node_t *m = cmpd->u.compound.members[i];
         if ((m == NULL) || (m->kind != ZSP_AST_FIELD)) continue;
         if ((m->u.field.offset_expr != NULL)
                 || (m->u.field.align_expr != NULL)) {
             return false;
+        }
+        const zsp_ast_node_t *ty = m->u.field.type;
+        if ((ty != NULL) && (ty->kind == ZSP_AST_TYPE_REF)
+                && (ty->resolved == cmpd)) {
+            return false; /* self-recursive */
         }
     }
     for (size_t i = 0U; i < cmpd->u.compound.n_members; ++i) {
@@ -3807,6 +3813,8 @@ static void emit_source_for_compound(buf_t *b, const zsp_ast_node_t *cmpd,
                     emit_snake(b, fn, fl);
                     emit_lit(b, "_));\n");
                 } else {
+                    /* Self-recursive / no-context nested: fall
+                     * back to regular field read. */
                     emit_field_read(b, m, src);
                 }
             } else {
