@@ -1263,6 +1263,48 @@ static void emit_expr_c(buf_t *b, const zsp_ast_node_t *e,
                 }
             }
         }
+        /* Post-template-clone: LHS may have been retargeted to
+         * the concrete ENUM/BITMASK decl (via the substituted
+         * type-arg). Look up the named item ourselves and emit
+         * its computed value. */
+        if ((e->u.member.lhs != NULL)
+                && (e->u.member.lhs->resolved != NULL)
+                && (e->u.member.name != NULL)) {
+            zsp_ast_node_t *base = e->u.member.lhs->resolved;
+            while ((base != NULL) && (base->kind == ZSP_AST_SUBTYPE)
+                    && (base->u.subtype.target_type != NULL)) {
+                base = base->u.subtype.target_type->resolved;
+            }
+            const uint8_t *needle = NULL;
+            size_t         need_len = 0U;
+            if (ident_span(src, e->u.member.name, &needle, &need_len)
+                    && (base != NULL)) {
+                if (base->kind == ZSP_AST_ENUM) {
+                    for (size_t i = 0U; i < base->u.enum_decl.n_items; ++i) {
+                        const zsp_ast_node_t *it = base->u.enum_decl.items[i];
+                        const uint8_t *ib = NULL; size_t il = 0U;
+                        if (ident_span(src, it->u.enum_item.name, &ib, &il)
+                                && (il == need_len)
+                                && (memcmp(ib, needle, il) == 0)) {
+                            const zsp_sema_const_t *v = (const zsp_sema_const_t *)it->computed;
+                            if (v != NULL) { emit_uint(b, v->v.u); return; }
+                        }
+                    }
+                }
+                else if (base->kind == ZSP_AST_BITMASK) {
+                    for (size_t i = 0U; i < base->u.bitmask_decl.n_items; ++i) {
+                        const zsp_ast_node_t *it = base->u.bitmask_decl.items[i];
+                        const uint8_t *ib = NULL; size_t il = 0U;
+                        if (ident_span(src, it->u.bitmask_item.name, &ib, &il)
+                                && (il == need_len)
+                                && (memcmp(ib, needle, il) == 0)) {
+                            const zsp_sema_const_t *v = (const zsp_sema_const_t *)it->computed;
+                            if (v != NULL) { emit_uint(b, v->v.u); return; }
+                        }
+                    }
+                }
+            }
+        }
         /* Unresolved member access (e.g. on a template parameter):
          * emit 0 as a placeholder so the surrounding case label
          * or constant expression compiles. */
@@ -1325,6 +1367,51 @@ static void emit_expr_c(buf_t *b, const zsp_ast_node_t *e,
                     emit_lit(b, ")) == (");
                     emit_expr_c(b, e->u.call.args[1], src);
                     emit_lit(b, "))");
+                    return;
+                }
+                /* `valueof(enumItem)` — pass through. Our IDENT
+                 * emission for an EXPR_MEMBER pointing at an
+                 * enum/bitmask item already emits the computed
+                 * integer value. */
+                if ((nl == 7U) && (memcmp(n, "valueof", 7U) == 0)
+                        && (e->u.call.n_args == 1U)) {
+                    emit_lit(b, "(");
+                    emit_expr_c(b, e->u.call.args[0], src);
+                    emit_lit(b, ")");
+                    return;
+                }
+                /* `numbits(x)` — bits needed to encode `x+1`
+                 * distinct values = ceil(log2(x+1)). Inline
+                 * with `__builtin_clzll`. */
+                if ((nl == 7U) && (memcmp(n, "numbits", 7U) == 0)
+                        && (e->u.call.n_args == 1U)) {
+                    emit_lit(b, "((uint64_t)(");
+                    emit_expr_c(b, e->u.call.args[0], src);
+                    emit_lit(b, ") <= 1u ? 1u : (uint64_t)(64u - __builtin_clzll((uint64_t)(");
+                    emit_expr_c(b, e->u.call.args[0], src);
+                    emit_lit(b, ") - 1u)))");
+                    return;
+                }
+                /* `lengthof(arr)` — array element count. With our
+                 * struct layout, that's the `_count` sibling for
+                 * dynamic arrays. */
+                if ((nl == 8U) && (memcmp(n, "lengthof", 8U) == 0)
+                        && (e->u.call.n_args == 1U)) {
+                    const zsp_ast_node_t *const a = e->u.call.args[0];
+                    if ((a != NULL) && (a->kind == ZSP_AST_EXPR_IDENT)
+                            && (a->resolved != NULL)
+                            && (a->resolved->kind == ZSP_AST_FIELD)) {
+                        const zsp_file_t *af = NULL;
+                        if (zsp_source_get(src, a->file_id, &af)) {
+                            const uint8_t *an = &af->bytes[a->u.ident.span_off];
+                            const size_t   al = (size_t)a->u.ident.span_len;
+                            emit_lit(b, "self->");
+                            emit_snake(b, an, al);
+                            emit_lit(b, "_count");
+                            return;
+                        }
+                    }
+                    emit_lit(b, "0");
                     return;
                 }
             }

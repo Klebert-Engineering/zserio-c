@@ -1631,6 +1631,35 @@ static zsp_ast_node_t *clone_node(zsp_arena_t *arena,
     case ZSP_AST_EXPR_MEMBER:
         dst->u.member.lhs = clone_node(arena, src->u.member.lhs, tbl);
         /* RHS name node stays shared */
+        /* If the source LHS is a template-param IDENT
+         * (e.g. `E.BLACK`), retarget the cloned LHS's
+         * `resolved` to the substitution arg's concrete
+         * type decl. The post-instantiation resolve pass
+         * (zsp_sema_resolve_unit) re-runs over the cloned
+         * subtree and resolves `.BLACK` to the right
+         * enum item. */
+        if ((src->u.member.lhs != NULL)
+                && (src->u.member.lhs->kind == ZSP_AST_EXPR_IDENT)
+                && (src->u.member.lhs->resolved != NULL)
+                && (src->u.member.lhs->resolved->kind == ZSP_AST_TEMPLATE_PARAM)
+                && (tbl != NULL)) {
+            const zsp_ast_node_t *const arg =
+                    find_subst(tbl, src->u.member.lhs->resolved);
+            if ((arg != NULL) && (arg->kind == ZSP_AST_TYPE_REF)
+                    && (arg->resolved != NULL)
+                    && (dst->u.member.lhs != NULL)) {
+                zsp_ast_node_t *d = arg->resolved;
+                while ((d != NULL) && (d->kind == ZSP_AST_SUBTYPE)
+                        && (d->u.subtype.target_type != NULL)) {
+                    d = d->u.subtype.target_type->resolved;
+                }
+                dst->u.member.lhs->resolved = d;
+            }
+        }
+        /* Clear cached member resolution — it may have
+         * pointed at an item on the unsubstituted template
+         * type. The post-clone resolve pass re-binds it. */
+        dst->resolved = NULL;
         break;
     case ZSP_AST_EXPR_INDEX:
         dst->u.index.lhs   = clone_node(arena, src->u.index.lhs, tbl);
@@ -1652,6 +1681,8 @@ static zsp_ast_node_t *clone_node(zsp_arena_t *arena,
 static size_t mangle_name(const zsp_sema_t *s, const uint8_t *base,
                           size_t base_len,
                           zsp_ast_node_t * const *args, size_t n_args,
+                          const zsp_ast_node_t * const *template_decl_pkg_parts,
+                          size_t template_decl_pkg_n,
                           char *out, size_t out_cap)
 {
     size_t pos = 0U;
@@ -1670,6 +1701,52 @@ static size_t mangle_name(const zsp_sema_t *s, const uint8_t *base,
                 n = n->u.dotted.parts[n->u.dotted.n_parts - 1U];
             }
             (void)extract_simple_name(s, n, &arg_name, &arg_len);
+            /* Disambiguate same-named types in different packages
+             * by prepending the resolved unit's package segments
+             * that lie BEYOND the template's own package (so a
+             * same-package arg stays compact). */
+            if ((arg->resolved != NULL)
+                    && (arg->resolved->resolved != NULL)
+                    && (arg->resolved->resolved->kind == ZSP_AST_UNIT)) {
+                const zsp_ast_node_t *arg_unit = arg->resolved->resolved;
+                const zsp_ast_node_t *arg_pname =
+                        (arg_unit->u.unit.package != NULL)
+                        ? arg_unit->u.unit.package->u.package.name : NULL;
+                const zsp_ast_node_t * const *ap = NULL;
+                size_t an = 0U;
+                if (arg_pname != NULL) {
+                    if (arg_pname->kind == ZSP_AST_DOTTED_NAME) {
+                        ap = (const zsp_ast_node_t * const *)
+                             arg_pname->u.dotted.parts;
+                        an = arg_pname->u.dotted.n_parts;
+                    } else { ap = &arg_pname; an = 1U; }
+                }
+                /* Skip the longest common prefix with the
+                 * template's own package, then encode the
+                 * remaining segments. */
+                size_t skip = 0U;
+                if (template_decl_pkg_parts != NULL) {
+                    const size_t tn = template_decl_pkg_n;
+                    const size_t lim = (tn < an) ? tn : an;
+                    for (size_t k = 0U; k < lim; ++k) {
+                        const uint8_t *pa=NULL,*pb=NULL; size_t la=0U,lb=0U;
+                        extract_simple_name(s, template_decl_pkg_parts[k], &pa, &la);
+                        extract_simple_name(s, ap[k], &pb, &lb);
+                        if (la != lb || memcmp(pa, pb, la) != 0) break;
+                        ++skip;
+                    }
+                }
+                for (size_t k = skip; k < an; ++k) {
+                    const uint8_t *pb=NULL; size_t lb=0U;
+                    extract_simple_name(s, ap[k], &pb, &lb);
+                    if (pb == NULL) continue;
+                    if ((pos + lb + 1U) >= out_cap) break;
+                    (void)memcpy(&out[pos], pb, lb);
+                    pos += lb;
+                    if ((pos + 1U) >= out_cap) break;
+                    out[pos++] = '_';
+                }
+            }
         }
         else if ((arg != NULL) && (arg->kind == ZSP_AST_TYPE_BUILTIN)) {
             static const char *names[] = {
@@ -1834,6 +1911,22 @@ static zsp_ast_node_t *get_or_instantiate(inst_ctx_t *ctx,
             return r->concrete;
         }
     }
+    /* Determine the template decl's own package parts (used as
+     * a common-prefix to keep same-package arg mangles compact). */
+    const zsp_ast_node_t * const *tpl_pkg_parts = NULL;
+    size_t tpl_pkg_n = 0U;
+    if ((template_decl->resolved != NULL)
+            && (template_decl->resolved->kind == ZSP_AST_UNIT)
+            && (template_decl->resolved->u.unit.package != NULL)) {
+        const zsp_ast_node_t *p =
+                template_decl->resolved->u.unit.package->u.package.name;
+        if (p != NULL) {
+            if (p->kind == ZSP_AST_DOTTED_NAME) {
+                tpl_pkg_parts = (const zsp_ast_node_t * const *)p->u.dotted.parts;
+                tpl_pkg_n     = p->u.dotted.n_parts;
+            } else { tpl_pkg_parts = &p; tpl_pkg_n = 1U; }
+        }
+    }
     /* Mangle name first so we can check global scope for an
      * already-instantiated concrete clone (e.g., produced when
      * another unit's pass visited this same template). */
@@ -1846,6 +1939,7 @@ static zsp_ast_node_t *get_or_instantiate(inst_ctx_t *ctx,
                             &pre_base_len)) {
         pre_mangled_len = mangle_name(ctx->s, pre_base_bytes, pre_base_len,
                                       (zsp_ast_node_t * const *)args, n_args,
+                                      tpl_pkg_parts, tpl_pkg_n,
                                       pre_mangled, sizeof(pre_mangled));
         zsp_ast_node_t *existing = zsp_sema_scope_find(
                 ctx->s->root, (const uint8_t *)pre_mangled,
@@ -1914,6 +2008,7 @@ static zsp_ast_node_t *get_or_instantiate(inst_ctx_t *ctx,
     if (extract_simple_name(ctx->s, base_name, &base_bytes, &base_len)) {
         rec->mangled_len = mangle_name(ctx->s, base_bytes, base_len,
                                        (zsp_ast_node_t * const *)args, n_args,
+                                       tpl_pkg_parts, tpl_pkg_n,
                                        rec->mangled, sizeof(rec->mangled));
         zsp_ast_node_t *id = make_synthetic_ident(ctx->s, template_decl,
                                                   rec->mangled,
