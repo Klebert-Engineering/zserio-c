@@ -2992,6 +2992,18 @@ static void emit_source_for_compound(buf_t *b, const zsp_ast_node_t *cmpd,
                 emit_lit(b, "    }\n");
                 continue;
             }
+            if (m->u.field.extend) {
+                /* extend fields are read only if the bitstream
+                 * has more bytes — otherwise the field stays at
+                 * its zero-initialised default (or the schema-
+                 * level `= <expr>` init). Mirror the writer's
+                 * byte-align before the read. */
+                emit_lit(b, "    if (zserio_bitstream_reader_position(bs) < zserio_bitstream_reader_size(bs)) {\n");
+                emit_lit(b, "        ZSERIO_TRY(zserio_bitstream_reader_align(bs, 8u));\n");
+                emit_field_read(b, m, src);
+                emit_lit(b, "    }\n");
+                continue;
+            }
             emit_field_read(b, m, src);
         }
     }
@@ -3096,6 +3108,11 @@ static void emit_source_for_compound(buf_t *b, const zsp_ast_node_t *cmpd,
                     emit_snake(b, mn, ml);
                     emit_lit(b, "_off_pos_ = zserio_bitstream_writer_position(bs);\n");
                 }
+            }
+            if (m->u.field.extend) {
+                /* extend fields are unconditionally written and
+                 * always byte-aligned before. */
+                emit_lit(b, "    ZSERIO_TRY(zserio_bitstream_writer_align(bs, 8u));\n");
             }
             emit_field_write(b, m, src);
         }

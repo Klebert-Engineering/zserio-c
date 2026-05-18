@@ -1155,7 +1155,7 @@ static zsp_ast_node_t *parse_field(parser_t *p)
     if (!extend_flag && eat(p, ZSP_TOK_KW_EXTEND)) {
         extend_flag = true;
     }
-    (void)extend_flag;  /* stored on the AST below */
+    /* extend_flag is stored on the AST below. */
 
     /* Type. May be `packed` prefix for packed arrays. */
     bool packed_flag = false;
@@ -1237,6 +1237,7 @@ static zsp_ast_node_t *parse_field(parser_t *p)
         f->u.field.constraint_expr = constraint;
         f->u.field.optional        = optional_flag;
         f->u.field.implicit        = implicit_flag;
+        f->u.field.extend          = extend_flag;
         f->u.field.autoid          = false;
     }
     return f;

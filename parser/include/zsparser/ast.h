@@ -311,6 +311,7 @@ struct zsp_ast_node {
                  zsp_ast_node_t  *constraint_expr;
                  bool             optional;
                  bool             implicit;
+                 bool             extend;
                  bool             autoid; }        field;
 
         struct { zsp_ast_node_t *type;
