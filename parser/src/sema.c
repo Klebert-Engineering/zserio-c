@@ -1920,8 +1920,12 @@ static size_t mangle_name(const zsp_sema_t *s, const uint8_t *base,
                 [ZSP_TB_UINT64]="uint64", [ZSP_TB_FLOAT16]="float16",
                 [ZSP_TB_FLOAT32]="float32", [ZSP_TB_FLOAT64]="float64",
                 [ZSP_TB_STRING]="string", [ZSP_TB_BYTES]="bytes",
-                [ZSP_TB_EXTERN]="extern", [ZSP_TB_VARINT]="varint",
-                [ZSP_TB_VARUINT]="varuint", [ZSP_TB_VARSIZE]="varsize",
+                [ZSP_TB_EXTERN]="extern",
+                [ZSP_TB_VARINT]="varint",   [ZSP_TB_VARINT16]="varint16",
+                [ZSP_TB_VARINT32]="varint32", [ZSP_TB_VARINT64]="varint64",
+                [ZSP_TB_VARUINT]="varuint", [ZSP_TB_VARUINT16]="varuint16",
+                [ZSP_TB_VARUINT32]="varuint32", [ZSP_TB_VARUINT64]="varuint64",
+                [ZSP_TB_VARSIZE]="varsize",
             };
             if ((size_t)arg->u.type_builtin.code < sizeof(names)/sizeof(names[0])
                     && names[arg->u.type_builtin.code] != NULL) {
