@@ -699,14 +699,18 @@ static const char *varint_traits_name(zsp_builtin_code_t c, bool *is_signed_out)
     }
 }
 
+/* Forward decl — choice_has_packable_arm is mutually recursive
+ * with compound_has_packable_field through nested fields. */
+static bool choice_has_packable_arm(const zsp_ast_node_t *ch);
+
 /* For a compound's FIELD, classify how it participates in the
  * packed-array protocol of the enclosing compound: 'p' if its
  * type is a packable fixed-width scalar (gets a delta context),
  * 'v' if it's a varint flavour (traits-driven delta context),
- * 'n' if it's a nested struct/union (gets a nested packing
- * context), 'x' if unpackable (regular read/write in the packed
- * path). Fields with arrays or self-references are treated as
- * unpackable for now. */
+ * 'n' if it's a nested struct/union/choice (gets a nested
+ * packing context), 'x' if unpackable (regular read/write in
+ * the packed path). Fields with arrays or self-references are
+ * treated as unpackable for now. */
 static char field_packing_class(const zsp_ast_node_t *field,
                                 packed_elem_t *scalar_out)
 {
@@ -742,8 +746,35 @@ static char field_packing_class(const zsp_ast_node_t *field,
                     || (decl->kind == ZSP_AST_UNION))) {
             return 'n';
         }
+        if ((decl != NULL) && (decl->kind == ZSP_AST_CHOICE)
+                && choice_has_packable_arm(decl)) {
+            return 'n';
+        }
     }
     return 'x';
+}
+
+/* Does this choice/union have at least one arm whose body field
+ * is packable? Used to decide whether to emit packing context
+ * machinery for the choice. */
+static bool choice_has_packable_arm(const zsp_ast_node_t *ch)
+{
+    if ((ch == NULL) || (ch->kind != ZSP_AST_CHOICE)) return false;
+    for (size_t i = 0U; i < ch->u.choice.n_cases; ++i) {
+        const zsp_ast_node_t *c = ch->u.choice.cases[i];
+        const zsp_ast_node_t *f = c->u.choice_case.field;
+        if (f == NULL) continue;
+        const char cls = field_packing_class(f, NULL);
+        if ((cls == 'p') || (cls == 'v') || (cls == 'n')) return true;
+    }
+    if (ch->u.choice.default_case != NULL) {
+        const zsp_ast_node_t *f = ch->u.choice.default_case->u.choice_default.field;
+        if (f != NULL) {
+            const char cls = field_packing_class(f, NULL);
+            if ((cls == 'p') || (cls == 'v') || (cls == 'n')) return true;
+        }
+    }
+    return false;
 }
 
 /* Does this compound have ANY packable scalar field, or any
@@ -755,7 +786,11 @@ static char field_packing_class(const zsp_ast_node_t *field,
  * don't carry the outer `_off_pos_` variables those need. */
 static bool compound_has_packable_field(const zsp_ast_node_t *cmpd)
 {
-    if ((cmpd == NULL) || (cmpd->kind != ZSP_AST_STRUCT)) {
+    if (cmpd == NULL) return false;
+    if (cmpd->kind == ZSP_AST_CHOICE) {
+        return choice_has_packable_arm(cmpd);
+    }
+    if (cmpd->kind != ZSP_AST_STRUCT) {
         return false;
     }
     /* Skip if any field uses offset/align directives, is self-
@@ -4032,6 +4067,82 @@ static void emit_choice_protos(buf_t *b, const zsp_ast_node_t *ch,
     emit_lit(b, "\nvoid "); (void)emit_type_id(b, ch, src);
     emit_lit(b, "_free("); (void)emit_type_id(b, ch, src);
     emit_lit(b, "_t *self, const zserio_allocator_t *alloc);\n");
+
+    /* Packing-protocol protos for choices with packable arms. */
+    if (choice_has_packable_arm(ch)) {
+        emit_lit(b, "\nvoid "); (void)emit_type_id(b, ch, src);
+        emit_lit(b, "_init_packing_context("); (void)emit_type_id(b, ch, src);
+        emit_lit(b, "_packing_context_t *ctx);\n");
+
+        emit_lit(b, "\nvoid "); (void)emit_type_id(b, ch, src);
+        emit_lit(b, "_observe_packing("); (void)emit_type_id(b, ch, src);
+        emit_lit(b, "_packing_context_t *ctx, const "); (void)emit_type_id(b, ch, src);
+        emit_lit(b, "_t *self);\n");
+
+        emit_lit(b, "\nzserio_status_t "); (void)emit_type_id(b, ch, src);
+        emit_lit(b, "_read_packed("); (void)emit_type_id(b, ch, src);
+        emit_lit(b, "_t *self, zserio_bitstream_reader_t *bs,\n"
+                    "        const zserio_allocator_t *alloc, ");
+        (void)emit_type_id(b, ch, src);
+        emit_lit(b, "_packing_context_t *ctx);\n");
+
+        emit_lit(b, "\nzserio_status_t "); (void)emit_type_id(b, ch, src);
+        emit_lit(b, "_write_packed(const "); (void)emit_type_id(b, ch, src);
+        emit_lit(b, "_t *self, zserio_bitstream_writer_t *bs, ");
+        (void)emit_type_id(b, ch, src);
+        emit_lit(b, "_packing_context_t *ctx);\n");
+    }
+}
+
+/* Emit the choice's packing context typedef — one sub-context
+ * per arm whose body field is packable. */
+static void emit_choice_packing_ctx_typedef(buf_t *b,
+                                            const zsp_ast_node_t *ch,
+                                            const zsp_source_t *src)
+{
+    if (!choice_has_packable_arm(ch)) return;
+    emit_lit(b, "typedef struct {\n");
+    bool any = false;
+    for (size_t i = 0U; i < ch->u.choice.n_cases; ++i) {
+        const zsp_ast_node_t *c = ch->u.choice.cases[i];
+        const zsp_ast_node_t *f = c->u.choice_case.field;
+        if (f == NULL) continue;
+        packed_elem_t pe = {0};
+        const char cls = field_packing_class(f, &pe);
+        const uint8_t *fn = NULL;
+        size_t         fl = 0U;
+        if (!ident_span(src, f->u.field.name, &fn, &fl)) continue;
+        if ((cls == 'p') || (cls == 'v')) {
+            emit_lit(b, "    zserio_delta_context_t ");
+            emit_snake(b, fn, fl);
+            emit_lit(b, "_;\n");
+            any = true;
+        } else if (cls == 'n') {
+            const zsp_ast_node_t *fty = f->u.field.type;
+            while ((fty != NULL) && (fty->kind == ZSP_AST_TYPE_REF)
+                    && (fty->resolved != NULL)
+                    && (fty->resolved->kind == ZSP_AST_SUBTYPE)
+                    && (fty->resolved->u.subtype.target_type != NULL)) {
+                fty = fty->resolved->u.subtype.target_type;
+            }
+            const zsp_ast_node_t *decl = (fty && fty->kind == ZSP_AST_TYPE_REF)
+                    ? fty->resolved : NULL;
+            if ((decl != NULL) && compound_has_packable_field(decl)) {
+                emit_lit(b, "    ");
+                (void)emit_type_id(b, decl, src);
+                emit_lit(b, "_packing_context_t ");
+                emit_snake(b, fn, fl);
+                emit_lit(b, "_;\n");
+                any = true;
+            }
+        }
+    }
+    if (!any) {
+        emit_lit(b, "    char _zsp_empty;\n");
+    }
+    emit_lit(b, "} ");
+    (void)emit_type_id(b, ch, src);
+    emit_lit(b, "_packing_context_t;\n\n");
 }
 
 /* For one case body, emit the read for the active field. */
@@ -4503,6 +4614,302 @@ static void emit_choice_source(buf_t *b, const zsp_ast_node_t *ch,
     }
     emit_lit(b, "        break;\n");
     emit_lit(b, "    }\n}\n");
+
+    /* Packing-protocol impls. */
+    if (choice_has_packable_arm(ch)) {
+        /* Helper: collect each arm's (case_labels, field) pairs
+         * we'll iterate over for init/observe/read/write_packed.
+         * Multi-label cases (`case A: case B: <field>`) need
+         * their labels accumulated until a case actually carries
+         * a body. We keep things simple by walking on-the-fly. */
+
+        /* init_packing_context: zero ctx, then init each
+         * packable arm's sub-context. The init doesn't depend
+         * on the active arm — we init all of them so any one
+         * can subsequently be observed/read/written. */
+        emit_lit(b, "\nvoid ");
+        (void)emit_type_id(b, ch, src);
+        emit_lit(b, "_init_packing_context(");
+        (void)emit_type_id(b, ch, src);
+        emit_lit(b, "_packing_context_t *ctx)\n{\n");
+        emit_lit(b, "    (void)memset(ctx, 0, sizeof(*ctx));\n");
+        for (size_t i = 0U; i < ch->u.choice.n_cases; ++i) {
+            const zsp_ast_node_t *c = ch->u.choice.cases[i];
+            const zsp_ast_node_t *f = c->u.choice_case.field;
+            if (f == NULL) continue;
+            packed_elem_t pe = {0};
+            const char cls = field_packing_class(f, &pe);
+            const uint8_t *fn = NULL;
+            size_t         fl = 0U;
+            if (!ident_span(src, f->u.field.name, &fn, &fl)) continue;
+            if (cls == 'p') {
+                emit_lit(b, "    (void)zserio_delta_init(&ctx->");
+                emit_snake(b, fn, fl);
+                emit_lit(b, "_, ");
+                if (pe.num_bits > 0U) {
+                    emit_uint(b, pe.num_bits);
+                    emit_lit(b, "u");
+                } else {
+                    emit_lit(b, "0u");
+                }
+                emit_lit(b, ", ");
+                emit_lit(b, pe.is_signed ? "true" : "false");
+                emit_lit(b, ");\n");
+            } else if (cls == 'v') {
+                const zsp_ast_node_t *fty = f->u.field.type;
+                while ((fty != NULL) && (fty->kind == ZSP_AST_TYPE_REF)
+                        && (fty->resolved != NULL)
+                        && (fty->resolved->kind == ZSP_AST_SUBTYPE)
+                        && (fty->resolved->u.subtype.target_type != NULL)) {
+                    fty = fty->resolved->u.subtype.target_type;
+                }
+                const char *traits = (fty && fty->kind == ZSP_AST_TYPE_BUILTIN)
+                        ? varint_traits_name(fty->u.type_builtin.code, NULL)
+                        : NULL;
+                if (traits != NULL) {
+                    emit_lit(b, "    (void)zserio_delta_init_traits(&ctx->");
+                    emit_snake(b, fn, fl);
+                    emit_lit(b, "_, &");
+                    emit_lit(b, traits);
+                    emit_lit(b, ");\n");
+                }
+            } else if (cls == 'n') {
+                const zsp_ast_node_t *fty = f->u.field.type;
+                while ((fty != NULL) && (fty->kind == ZSP_AST_TYPE_REF)
+                        && (fty->resolved != NULL)
+                        && (fty->resolved->kind == ZSP_AST_SUBTYPE)
+                        && (fty->resolved->u.subtype.target_type != NULL)) {
+                    fty = fty->resolved->u.subtype.target_type;
+                }
+                const zsp_ast_node_t *decl = (fty && fty->kind == ZSP_AST_TYPE_REF)
+                        ? fty->resolved : NULL;
+                if ((decl != NULL) && compound_has_packable_field(decl)) {
+                    emit_lit(b, "    ");
+                    (void)emit_type_id(b, decl, src);
+                    emit_lit(b, "_init_packing_context(&ctx->");
+                    emit_snake(b, fn, fl);
+                    emit_lit(b, "_);\n");
+                }
+            }
+        }
+        emit_lit(b, "}\n");
+
+        /* observe_packing: switch on selector, observe the
+         * active arm's sub-context. */
+        emit_lit(b, "\nvoid ");
+        (void)emit_type_id(b, ch, src);
+        emit_lit(b, "_observe_packing(");
+        (void)emit_type_id(b, ch, src);
+        emit_lit(b, "_packing_context_t *ctx, const ");
+        (void)emit_type_id(b, ch, src);
+        emit_lit(b, "_t *self)\n{\n");
+        emit_lit(b, "    (void)ctx;\n    (void)self;\n");
+        emit_lit(b, "    switch ((int)(");
+        emit_expr_c(b, ch->u.choice.selector, src);
+        emit_lit(b, ")) {\n");
+        for (size_t i = 0U; i < ch->u.choice.n_cases; ++i) {
+            const zsp_ast_node_t *c = ch->u.choice.cases[i];
+            for (size_t j = 0U; j < c->u.choice_case.n_labels; ++j) {
+                emit_lit(b, "    case ");
+                emit_expr_c(b, c->u.choice_case.labels[j], src);
+                emit_lit(b, ":\n");
+            }
+            const bool fallthrough =
+                    (c->u.choice_case.field == NULL)
+                    && !c->u.choice_case.has_body
+                    && ((i + 1U) < ch->u.choice.n_cases)
+                    && (ch->u.choice.cases[i + 1U]->u.choice_case.n_labels > 0U);
+            if (fallthrough) continue;
+            const zsp_ast_node_t *f = c->u.choice_case.field;
+            if (f != NULL) {
+                packed_elem_t pe = {0};
+                const char cls = field_packing_class(f, &pe);
+                const uint8_t *fn = NULL;
+                size_t         fl = 0U;
+                if (ident_span(src, f->u.field.name, &fn, &fl)) {
+                    if ((cls == 'p') || (cls == 'v')) {
+                        emit_lit(b, "        (void)zserio_delta_observe(&ctx->");
+                        emit_snake(b, fn, fl);
+                        emit_lit(b, "_, (uint64_t)");
+                        if (pe.is_signed) emit_lit(b, "(int64_t)");
+                        emit_lit(b, "self->u.");
+                        emit_snake(b, fn, fl);
+                        emit_lit(b, ");\n");
+                    } else if (cls == 'n') {
+                        const zsp_ast_node_t *fty = f->u.field.type;
+                        while ((fty != NULL) && (fty->kind == ZSP_AST_TYPE_REF)
+                                && (fty->resolved != NULL)
+                                && (fty->resolved->kind == ZSP_AST_SUBTYPE)
+                                && (fty->resolved->u.subtype.target_type != NULL)) {
+                            fty = fty->resolved->u.subtype.target_type;
+                        }
+                        const zsp_ast_node_t *decl = (fty && fty->kind == ZSP_AST_TYPE_REF)
+                                ? fty->resolved : NULL;
+                        if ((decl != NULL) && compound_has_packable_field(decl)) {
+                            emit_lit(b, "        ");
+                            (void)emit_type_id(b, decl, src);
+                            emit_lit(b, "_observe_packing(&ctx->");
+                            emit_snake(b, fn, fl);
+                            emit_lit(b, "_, &self->u.");
+                            emit_snake(b, fn, fl);
+                            emit_lit(b, ");\n");
+                        }
+                    }
+                }
+            }
+            emit_lit(b, "        break;\n");
+        }
+        emit_lit(b, "    default: break;\n    }\n}\n");
+
+        /* read_packed: switch on selector, read active arm. */
+        emit_lit(b, "\nzserio_status_t ");
+        (void)emit_type_id(b, ch, src);
+        emit_lit(b, "_read_packed(");
+        (void)emit_type_id(b, ch, src);
+        emit_lit(b, "_t *self, zserio_bitstream_reader_t *bs,\n"
+                    "        const zserio_allocator_t *alloc, ");
+        (void)emit_type_id(b, ch, src);
+        emit_lit(b, "_packing_context_t *ctx)\n{\n");
+        emit_lit(b, "    (void)self;\n    (void)bs;\n    (void)alloc;\n    (void)ctx;\n");
+        emit_lit(b, "    switch ((int)(");
+        emit_expr_c(b, ch->u.choice.selector, src);
+        emit_lit(b, ")) {\n");
+        for (size_t i = 0U; i < ch->u.choice.n_cases; ++i) {
+            const zsp_ast_node_t *c = ch->u.choice.cases[i];
+            for (size_t j = 0U; j < c->u.choice_case.n_labels; ++j) {
+                emit_lit(b, "    case ");
+                emit_expr_c(b, c->u.choice_case.labels[j], src);
+                emit_lit(b, ":\n");
+            }
+            const bool fallthrough =
+                    (c->u.choice_case.field == NULL)
+                    && !c->u.choice_case.has_body
+                    && ((i + 1U) < ch->u.choice.n_cases)
+                    && (ch->u.choice.cases[i + 1U]->u.choice_case.n_labels > 0U);
+            if (fallthrough) continue;
+            const zsp_ast_node_t *f = c->u.choice_case.field;
+            if (f != NULL) {
+                packed_elem_t pe = {0};
+                const char cls = field_packing_class(f, &pe);
+                const uint8_t *fn = NULL;
+                size_t         fl = 0U;
+                if (ident_span(src, f->u.field.name, &fn, &fl)) {
+                    if ((cls == 'p') || (cls == 'v')) {
+                        emit_lit(b, "        {\n");
+                        emit_lit(b, "            uint64_t tmp_;\n");
+                        emit_lit(b, "            ZSERIO_TRY(zserio_delta_read(&ctx->");
+                        emit_snake(b, fn, fl);
+                        emit_lit(b, "_, bs, &tmp_));\n");
+                        emit_lit(b, "            self->u.");
+                        emit_snake(b, fn, fl);
+                        emit_lit(b, " = (");
+                        emit_element_type(b, f->u.field.type, src);
+                        emit_lit(b, ")tmp_;\n        }\n");
+                    } else if (cls == 'n') {
+                        const zsp_ast_node_t *fty = f->u.field.type;
+                        while ((fty != NULL) && (fty->kind == ZSP_AST_TYPE_REF)
+                                && (fty->resolved != NULL)
+                                && (fty->resolved->kind == ZSP_AST_SUBTYPE)
+                                && (fty->resolved->u.subtype.target_type != NULL)) {
+                            fty = fty->resolved->u.subtype.target_type;
+                        }
+                        const zsp_ast_node_t *decl = (fty && fty->kind == ZSP_AST_TYPE_REF)
+                                ? fty->resolved : NULL;
+                        if ((decl != NULL) && compound_has_packable_field(decl)) {
+                            emit_lit(b, "        ");
+                            (void)emit_type_id(b, decl, src);
+                            emit_lit(b, "_init(&self->u.");
+                            emit_snake(b, fn, fl);
+                            emit_lit(b, ");\n");
+                            emit_lit(b, "        ZSERIO_TRY(");
+                            (void)emit_type_id(b, decl, src);
+                            emit_lit(b, "_read_packed(&self->u.");
+                            emit_snake(b, fn, fl);
+                            emit_lit(b, ", bs, alloc, &ctx->");
+                            emit_snake(b, fn, fl);
+                            emit_lit(b, "_));\n");
+                        } else {
+                            emit_choice_case_read(b, f, src);
+                        }
+                    } else {
+                        emit_choice_case_read(b, f, src);
+                    }
+                }
+            }
+            emit_lit(b, "        break;\n");
+        }
+        emit_lit(b, "    default: break;\n    }\n    return ZSERIO_OK;\n}\n");
+
+        /* write_packed: switch on selector, write active arm. */
+        emit_lit(b, "\nzserio_status_t ");
+        (void)emit_type_id(b, ch, src);
+        emit_lit(b, "_write_packed(const ");
+        (void)emit_type_id(b, ch, src);
+        emit_lit(b, "_t *self, zserio_bitstream_writer_t *bs, ");
+        (void)emit_type_id(b, ch, src);
+        emit_lit(b, "_packing_context_t *ctx)\n{\n");
+        emit_lit(b, "    (void)self;\n    (void)bs;\n    (void)ctx;\n");
+        emit_lit(b, "    switch ((int)(");
+        emit_expr_c(b, ch->u.choice.selector, src);
+        emit_lit(b, ")) {\n");
+        for (size_t i = 0U; i < ch->u.choice.n_cases; ++i) {
+            const zsp_ast_node_t *c = ch->u.choice.cases[i];
+            for (size_t j = 0U; j < c->u.choice_case.n_labels; ++j) {
+                emit_lit(b, "    case ");
+                emit_expr_c(b, c->u.choice_case.labels[j], src);
+                emit_lit(b, ":\n");
+            }
+            const bool fallthrough =
+                    (c->u.choice_case.field == NULL)
+                    && !c->u.choice_case.has_body
+                    && ((i + 1U) < ch->u.choice.n_cases)
+                    && (ch->u.choice.cases[i + 1U]->u.choice_case.n_labels > 0U);
+            if (fallthrough) continue;
+            const zsp_ast_node_t *f = c->u.choice_case.field;
+            if (f != NULL) {
+                packed_elem_t pe = {0};
+                const char cls = field_packing_class(f, &pe);
+                const uint8_t *fn = NULL;
+                size_t         fl = 0U;
+                if (ident_span(src, f->u.field.name, &fn, &fl)) {
+                    if ((cls == 'p') || (cls == 'v')) {
+                        emit_lit(b, "        ZSERIO_TRY(zserio_delta_write(&ctx->");
+                        emit_snake(b, fn, fl);
+                        emit_lit(b, "_, bs, (uint64_t)");
+                        if (pe.is_signed) emit_lit(b, "(int64_t)");
+                        emit_lit(b, "self->u.");
+                        emit_snake(b, fn, fl);
+                        emit_lit(b, "));\n");
+                    } else if (cls == 'n') {
+                        const zsp_ast_node_t *fty = f->u.field.type;
+                        while ((fty != NULL) && (fty->kind == ZSP_AST_TYPE_REF)
+                                && (fty->resolved != NULL)
+                                && (fty->resolved->kind == ZSP_AST_SUBTYPE)
+                                && (fty->resolved->u.subtype.target_type != NULL)) {
+                            fty = fty->resolved->u.subtype.target_type;
+                        }
+                        const zsp_ast_node_t *decl = (fty && fty->kind == ZSP_AST_TYPE_REF)
+                                ? fty->resolved : NULL;
+                        if ((decl != NULL) && compound_has_packable_field(decl)) {
+                            emit_lit(b, "        ZSERIO_TRY(");
+                            (void)emit_type_id(b, decl, src);
+                            emit_lit(b, "_write_packed(&self->u.");
+                            emit_snake(b, fn, fl);
+                            emit_lit(b, ", bs, &ctx->");
+                            emit_snake(b, fn, fl);
+                            emit_lit(b, "_));\n");
+                        } else {
+                            emit_choice_case_write(b, f, src);
+                        }
+                    } else {
+                        emit_choice_case_write(b, f, src);
+                    }
+                }
+            }
+            emit_lit(b, "        break;\n");
+        }
+        emit_lit(b, "    default: break;\n    }\n    return ZSERIO_OK;\n}\n");
+    }
 }
 
 static void emit_choice_header(buf_t *b, const zsp_ast_node_t *ch,
@@ -4725,6 +5132,7 @@ static void emit_choice_header(buf_t *b, const zsp_ast_node_t *ch,
     }
 
     emit_choice_decl(b, ch, src);
+    emit_choice_packing_ctx_typedef(b, ch, src);
     emit_choice_protos(b, ch, src);
     emit_lit(b, "\n#endif\n");
 }
