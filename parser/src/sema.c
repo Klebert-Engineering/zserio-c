@@ -5,6 +5,7 @@
 
 #include "zsparser/sema.h"
 
+#include <stdio.h>
 #include <string.h>
 
 /*
@@ -2010,6 +2011,39 @@ static zsp_ast_node_t *get_or_instantiate(inst_ctx_t *ctx,
                                        (zsp_ast_node_t * const *)args, n_args,
                                        tpl_pkg_parts, tpl_pkg_n,
                                        rec->mangled, sizeof(rec->mangled));
+        /* Disambiguate against any prior decl binding the same
+         * name (e.g. an explicit `instantiate Foo<X> SomeName;`
+         * that already reserved our auto-mangled identifier).
+         * Append `_<n>` until free; upstream's cpp generator uses
+         * a hash suffix here but a small counter works equally
+         * well for our purposes since the mangle is internal. */
+        {
+            zsp_ast_node_t *clash = zsp_sema_scope_find(
+                    ctx->s->root, (const uint8_t *)rec->mangled,
+                    rec->mangled_len);
+            uint32_t suffix = 0U;
+            while ((clash != NULL) && (clash != template_decl)) {
+                char tail[16];
+                int wn = snprintf(tail, sizeof(tail), "_%u", (unsigned)suffix);
+                if ((wn < 0) || ((size_t)(rec->mangled_len + (size_t)wn) >= sizeof(rec->mangled))) {
+                    break;
+                }
+                char trial[256];
+                (void)memcpy(trial, rec->mangled, rec->mangled_len);
+                (void)memcpy(trial + rec->mangled_len, tail, (size_t)wn);
+                const size_t trial_len = rec->mangled_len + (size_t)wn;
+                clash = zsp_sema_scope_find(
+                        ctx->s->root, (const uint8_t *)trial, trial_len);
+                if (clash == NULL) {
+                    (void)memcpy(rec->mangled, trial, trial_len);
+                    rec->mangled_len = trial_len;
+                    rec->mangled[trial_len] = '\0';
+                    break;
+                }
+                ++suffix;
+                if (suffix > 1000U) break; /* safety */
+            }
+        }
         zsp_ast_node_t *id = make_synthetic_ident(ctx->s, template_decl,
                                                   rec->mangled,
                                                   rec->mangled_len);
