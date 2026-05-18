@@ -1,15 +1,31 @@
-# `generator/` — zserio-c extension for the upstream zserio toolchain
+# `generator/` — legacy Java extension
 
-A Java extension that plugs into upstream `ndsev/zserio` (vendored under
-`third_party/zserio/`) and emits C99 against `runtime/`.
+A Java extension that plugs into upstream `ndsev/zserio` (vendored
+under `third_party/zserio/`) and emits C99 against the runtime.
 
-**Phase 0 status: empty.** Phase 2 will:
+This is **legacy**. The supported generator is the C-native
+`zserio_c_gen` (CLI under `parser/cli/main.c`, build target
+`zserio_c_gen` from the top-level CMake). The Java extension here
+predates the C-native parser; it's retained because the
+xvalidation harness needs a way to invoke the *upstream cpp*
+generator to produce the reference output we compare against.
 
-- Add `build.gradle.kts` (or `pom.xml`) targeting the zserio Extension SPI
-  exposed by the pinned upstream version `v2.18.1`.
-- Place Java sources under `src/main/java/`.
-- Place FreeMarker code templates under `templates/`.
+## What still uses this
 
-The generator is on the safety path because it produces code that is
-itself part of the safety-relevant artifact. Phase 5 work products
-include tool qualification for it.
+- `tests/xvalidation/` — invokes both the upstream cpp generator
+  (for the reference output) and our C-native generator (for the
+  output under test). The cpp side goes through the upstream
+  toolchain, which this extension was built to integrate with.
+
+## What does not
+
+- Anything you'd build with zserio-c. The CLI you want is
+  `zserio_c_gen` — see [`docs/cli.md`](../docs/cli.md).
+
+## Building
+
+The Java jars are built on demand by `tools/build_*_jar` scripts;
+they're not part of the default CMake target. The top-level CMake
+adds them only when the xvalidation target is requested.
+
+If you don't run xvalidation, you don't need this directory.
