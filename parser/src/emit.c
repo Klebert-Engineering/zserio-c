@@ -790,9 +790,12 @@ static bool compound_has_packable_field(const zsp_ast_node_t *cmpd)
     if (cmpd->kind == ZSP_AST_CHOICE) {
         return choice_has_packable_arm(cmpd);
     }
-    if (cmpd->kind != ZSP_AST_STRUCT) {
+    if ((cmpd->kind != ZSP_AST_STRUCT) && (cmpd->kind != ZSP_AST_UNION)) {
         return false;
     }
+    /* For unions, always emit packing machinery — the tag is
+     * a packable varsize and the arms may contribute their own
+     * sub-contexts. */
     /* Skip if any field uses offset/align directives, is self-
      * recursive (heap-allocated pointer requires the regular
      * read path), or has if/optional gating (the packed read
@@ -809,6 +812,11 @@ static bool compound_has_packable_field(const zsp_ast_node_t *cmpd)
                 && (ty->resolved == cmpd)) {
             return false; /* self-recursive */
         }
+    }
+    if (cmpd->kind == ZSP_AST_UNION) {
+        /* Union always packs the tag — return true even if no
+         * arm has a packable field (tag context alone). */
+        return true;
     }
     for (size_t i = 0U; i < cmpd->u.compound.n_members; ++i) {
         const zsp_ast_node_t *m = cmpd->u.compound.members[i];
@@ -847,6 +855,12 @@ static void emit_packing_ctx_typedef(buf_t *b, const zsp_ast_node_t *cmpd,
     if (!compound_has_packable_field(cmpd)) return;
     emit_lit(b, "typedef struct {\n");
     bool any = false;
+    /* For unions, the tag itself is varsize and goes through a
+     * traits-driven delta context. */
+    if (cmpd->kind == ZSP_AST_UNION) {
+        emit_lit(b, "    zserio_delta_context_t tag_;\n");
+        any = true;
+    }
     for (size_t i = 0U; i < cmpd->u.compound.n_members; ++i) {
         const zsp_ast_node_t *m = cmpd->u.compound.members[i];
         if ((m == NULL) || (m->kind != ZSP_AST_FIELD)) continue;
@@ -3667,6 +3681,7 @@ static void emit_source_for_compound(buf_t *b, const zsp_ast_node_t *cmpd,
 
     /* Packing-protocol implementations (only if relevant). */
     if (compound_has_packable_field(cmpd)) {
+        const bool is_union_pack = (cmpd->kind == ZSP_AST_UNION);
         /* _init_packing_context */
         emit_lit(b, "\nvoid ");
         (void)emit_type_id(b, cmpd, src);
@@ -3674,6 +3689,9 @@ static void emit_source_for_compound(buf_t *b, const zsp_ast_node_t *cmpd,
         (void)emit_type_id(b, cmpd, src);
         emit_lit(b, "_packing_context_t *ctx)\n{\n");
         emit_lit(b, "    (void)memset(ctx, 0, sizeof(*ctx));\n");
+        if (is_union_pack) {
+            emit_lit(b, "    (void)zserio_delta_init_traits(&ctx->tag_, &zserio_delta_traits_varsize);\n");
+        }
         for (size_t i = 0U; i < cmpd->u.compound.n_members; ++i) {
             const zsp_ast_node_t *m = cmpd->u.compound.members[i];
             if ((m == NULL) || (m->kind != ZSP_AST_FIELD)) continue;
@@ -3753,6 +3771,54 @@ static void emit_source_for_compound(buf_t *b, const zsp_ast_node_t *cmpd,
         (void)emit_type_id(b, cmpd, src);
         emit_lit(b, "_t *self)\n{\n");
         emit_lit(b, "    (void)ctx;\n    (void)self;\n");
+        if (is_union_pack) {
+            emit_lit(b, "    (void)zserio_delta_observe(&ctx->tag_, (uint64_t)self->tag);\n");
+            emit_lit(b, "    switch (self->tag) {\n");
+            size_t arm = 0U;
+            for (size_t i = 0U; i < cmpd->u.compound.n_members; ++i) {
+                const zsp_ast_node_t *m = cmpd->u.compound.members[i];
+                if ((m == NULL) || (m->kind != ZSP_AST_FIELD)) continue;
+                emit_lit(b, "    case "); emit_uint(b, (uint64_t)arm); emit_lit(b, "u:\n");
+                packed_elem_t pe = {0};
+                const char cls = field_packing_class(m, &pe);
+                const uint8_t *fn = NULL;
+                size_t         fl = 0U;
+                if (ident_span(src, m->u.field.name, &fn, &fl)) {
+                    if ((cls == 'p') || (cls == 'v')) {
+                        emit_lit(b, "        (void)zserio_delta_observe(&ctx->");
+                        emit_snake(b, fn, fl);
+                        emit_lit(b, "_, (uint64_t)");
+                        if (pe.is_signed) emit_lit(b, "(int64_t)");
+                        emit_lit(b, "self->u.");
+                        emit_snake(b, fn, fl);
+                        emit_lit(b, ");\n");
+                    } else if (cls == 'n') {
+                        const zsp_ast_node_t *ty = m->u.field.type;
+                        while ((ty != NULL) && (ty->kind == ZSP_AST_TYPE_REF)
+                                && (ty->resolved != NULL)
+                                && (ty->resolved->kind == ZSP_AST_SUBTYPE)
+                                && (ty->resolved->u.subtype.target_type != NULL)) {
+                            ty = ty->resolved->u.subtype.target_type;
+                        }
+                        const zsp_ast_node_t *decl = (ty && ty->kind == ZSP_AST_TYPE_REF)
+                                ? ty->resolved : NULL;
+                        if ((decl != NULL) && (decl != cmpd)
+                                && compound_has_packable_field(decl)) {
+                            emit_lit(b, "        ");
+                            (void)emit_type_id(b, decl, src);
+                            emit_lit(b, "_observe_packing(&ctx->");
+                            emit_snake(b, fn, fl);
+                            emit_lit(b, "_, &self->u.");
+                            emit_snake(b, fn, fl);
+                            emit_lit(b, ");\n");
+                        }
+                    }
+                }
+                emit_lit(b, "        break;\n");
+                ++arm;
+            }
+            emit_lit(b, "    default: break;\n    }\n}\n");
+        } else {
         for (size_t i = 0U; i < cmpd->u.compound.n_members; ++i) {
             const zsp_ast_node_t *m = cmpd->u.compound.members[i];
             if ((m == NULL) || (m->kind != ZSP_AST_FIELD)) continue;
@@ -3792,6 +3858,7 @@ static void emit_source_for_compound(buf_t *b, const zsp_ast_node_t *cmpd,
             }
         }
         emit_lit(b, "}\n");
+        }
 
         /* _read_packed */
         emit_lit(b, "\nzserio_status_t ");
@@ -3803,6 +3870,70 @@ static void emit_source_for_compound(buf_t *b, const zsp_ast_node_t *cmpd,
         (void)emit_type_id(b, cmpd, src);
         emit_lit(b, "_packing_context_t *ctx)\n{\n");
         emit_lit(b, "    (void)alloc;\n    (void)self;\n    (void)bs;\n    (void)ctx;\n");
+        if (is_union_pack) {
+            emit_lit(b, "    {\n        uint64_t tmp_;\n");
+            emit_lit(b, "        ZSERIO_TRY(zserio_delta_read(&ctx->tag_, bs, &tmp_));\n");
+            emit_lit(b, "        self->tag = (uint32_t)tmp_;\n    }\n");
+            emit_lit(b, "    switch (self->tag) {\n");
+            size_t arm = 0U;
+            for (size_t i = 0U; i < cmpd->u.compound.n_members; ++i) {
+                const zsp_ast_node_t *m = cmpd->u.compound.members[i];
+                if ((m == NULL) || (m->kind != ZSP_AST_FIELD)) continue;
+                emit_lit(b, "    case "); emit_uint(b, (uint64_t)arm); emit_lit(b, "u:\n");
+                packed_elem_t pe = {0};
+                const char cls = field_packing_class(m, &pe);
+                const uint8_t *fn = NULL;
+                size_t         fl = 0U;
+                if (ident_span(src, m->u.field.name, &fn, &fl)) {
+                    if ((cls == 'p') || (cls == 'v')) {
+                        emit_lit(b, "        {\n");
+                        emit_lit(b, "            uint64_t tmp_;\n");
+                        emit_lit(b, "            ZSERIO_TRY(zserio_delta_read(&ctx->");
+                        emit_snake(b, fn, fl);
+                        emit_lit(b, "_, bs, &tmp_));\n");
+                        emit_lit(b, "            self->u.");
+                        emit_snake(b, fn, fl);
+                        emit_lit(b, " = (");
+                        emit_element_type(b, m->u.field.type, src);
+                        emit_lit(b, ")tmp_;\n        }\n");
+                    } else if (cls == 'n') {
+                        const zsp_ast_node_t *ty = m->u.field.type;
+                        while ((ty != NULL) && (ty->kind == ZSP_AST_TYPE_REF)
+                                && (ty->resolved != NULL)
+                                && (ty->resolved->kind == ZSP_AST_SUBTYPE)
+                                && (ty->resolved->u.subtype.target_type != NULL)) {
+                            ty = ty->resolved->u.subtype.target_type;
+                        }
+                        const zsp_ast_node_t *decl = (ty && ty->kind == ZSP_AST_TYPE_REF)
+                                ? ty->resolved : NULL;
+                        if ((decl != NULL) && (decl != cmpd)
+                                && compound_has_packable_field(decl)) {
+                            emit_lit(b, "        ");
+                            (void)emit_type_id(b, decl, src);
+                            emit_lit(b, "_init(&self->u.");
+                            emit_snake(b, fn, fl);
+                            emit_lit(b, ");\n");
+                            emit_lit(b, "        ZSERIO_TRY(");
+                            (void)emit_type_id(b, decl, src);
+                            emit_lit(b, "_read_packed(&self->u.");
+                            emit_snake(b, fn, fl);
+                            emit_lit(b, ", bs, alloc, &ctx->");
+                            emit_snake(b, fn, fl);
+                            emit_lit(b, "_));\n");
+                        } else {
+                            emit_choice_case_read(b, m, src);
+                        }
+                    } else {
+                        emit_choice_case_read(b, m, src);
+                    }
+                }
+                emit_lit(b, "        break;\n");
+                ++arm;
+            }
+            emit_lit(b, "    default: break;\n    }\n");
+            emit_lit(b, "    return ZSERIO_OK;\n}\n");
+            goto skip_struct_read;
+        }
         for (size_t i = 0U; i < cmpd->u.compound.n_members; ++i) {
             const zsp_ast_node_t *m = cmpd->u.compound.members[i];
             if ((m == NULL) || (m->kind != ZSP_AST_FIELD)) continue;
@@ -3858,6 +3989,7 @@ static void emit_source_for_compound(buf_t *b, const zsp_ast_node_t *cmpd,
             }
         }
         emit_lit(b, "    return ZSERIO_OK;\n}\n");
+    skip_struct_read:;
 
         /* _write_packed */
         emit_lit(b, "\nzserio_status_t ");
@@ -3868,6 +4000,60 @@ static void emit_source_for_compound(buf_t *b, const zsp_ast_node_t *cmpd,
         (void)emit_type_id(b, cmpd, src);
         emit_lit(b, "_packing_context_t *ctx)\n{\n");
         emit_lit(b, "    (void)self;\n    (void)bs;\n    (void)ctx;\n");
+        if (is_union_pack) {
+            emit_lit(b, "    ZSERIO_TRY(zserio_delta_write(&ctx->tag_, bs, (uint64_t)self->tag));\n");
+            emit_lit(b, "    switch (self->tag) {\n");
+            size_t arm = 0U;
+            for (size_t i = 0U; i < cmpd->u.compound.n_members; ++i) {
+                const zsp_ast_node_t *m = cmpd->u.compound.members[i];
+                if ((m == NULL) || (m->kind != ZSP_AST_FIELD)) continue;
+                emit_lit(b, "    case "); emit_uint(b, (uint64_t)arm); emit_lit(b, "u:\n");
+                packed_elem_t pe = {0};
+                const char cls = field_packing_class(m, &pe);
+                const uint8_t *fn = NULL;
+                size_t         fl = 0U;
+                if (ident_span(src, m->u.field.name, &fn, &fl)) {
+                    if ((cls == 'p') || (cls == 'v')) {
+                        emit_lit(b, "        ZSERIO_TRY(zserio_delta_write(&ctx->");
+                        emit_snake(b, fn, fl);
+                        emit_lit(b, "_, bs, (uint64_t)");
+                        if (pe.is_signed) emit_lit(b, "(int64_t)");
+                        emit_lit(b, "self->u.");
+                        emit_snake(b, fn, fl);
+                        emit_lit(b, "));\n");
+                    } else if (cls == 'n') {
+                        const zsp_ast_node_t *ty = m->u.field.type;
+                        while ((ty != NULL) && (ty->kind == ZSP_AST_TYPE_REF)
+                                && (ty->resolved != NULL)
+                                && (ty->resolved->kind == ZSP_AST_SUBTYPE)
+                                && (ty->resolved->u.subtype.target_type != NULL)) {
+                            ty = ty->resolved->u.subtype.target_type;
+                        }
+                        const zsp_ast_node_t *decl = (ty && ty->kind == ZSP_AST_TYPE_REF)
+                                ? ty->resolved : NULL;
+                        if ((decl != NULL) && (decl != cmpd)
+                                && compound_has_packable_field(decl)) {
+                            emit_lit(b, "        ZSERIO_TRY(");
+                            (void)emit_type_id(b, decl, src);
+                            emit_lit(b, "_write_packed(&self->u.");
+                            emit_snake(b, fn, fl);
+                            emit_lit(b, ", bs, &ctx->");
+                            emit_snake(b, fn, fl);
+                            emit_lit(b, "_));\n");
+                        } else {
+                            emit_choice_case_write(b, m, src);
+                        }
+                    } else {
+                        emit_choice_case_write(b, m, src);
+                    }
+                }
+                emit_lit(b, "        break;\n");
+                ++arm;
+            }
+            emit_lit(b, "    default: break;\n    }\n");
+            emit_lit(b, "    return ZSERIO_OK;\n}\n");
+            goto skip_struct_write;
+        }
         for (size_t i = 0U; i < cmpd->u.compound.n_members; ++i) {
             const zsp_ast_node_t *m = cmpd->u.compound.members[i];
             if ((m == NULL) || (m->kind != ZSP_AST_FIELD)) continue;
@@ -3911,6 +4097,7 @@ static void emit_source_for_compound(buf_t *b, const zsp_ast_node_t *cmpd,
             }
         }
         emit_lit(b, "    return ZSERIO_OK;\n}\n");
+    skip_struct_write:;
     }
 }
 
