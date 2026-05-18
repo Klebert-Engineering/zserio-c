@@ -1386,19 +1386,24 @@ static zsp_ast_node_t *parse_choice_case_or_default(parser_t *p)
         return NULL;
     }
     zsp_ast_node_t *field = NULL;
+    bool has_body = false;
     /* Empty case body: `case X: ; // no field` — accept a
-     * lone semicolon as the field placeholder. */
+     * lone semicolon as the field placeholder. The body is
+     * "present but empty" (do NOT fall through to the next
+     * case). */
     if (eat(p, ZSP_TOK_SEMICOLON)) {
-        /* empty case, no field */
+        has_body = true;
     }
     else if (!check(p, ZSP_TOK_KW_CASE) && !check(p, ZSP_TOK_KW_DEFAULT)
             && !check(p, ZSP_TOK_RBRACE)) {
         field = parse_field(p);
+        has_body = (field != NULL);
     }
     zsp_ast_node_t *const n = new_node(p, ZSP_AST_CHOICE_CASE, start);
     if (n != NULL) {
         zsp_ast_list_take(&labels, &n->u.choice_case.labels, &n->u.choice_case.n_labels);
-        n->u.choice_case.field = field;
+        n->u.choice_case.field    = field;
+        n->u.choice_case.has_body = has_body;
     }
     return n;
 }

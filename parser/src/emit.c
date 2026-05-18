@@ -3825,6 +3825,7 @@ static void emit_choice_source(buf_t *b, const zsp_ast_node_t *ch,
         }
         const bool fallthrough_to_next =
                 (c->u.choice_case.field == NULL)
+                && !c->u.choice_case.has_body
                 && ((i + 1U) < ch->u.choice.n_cases)
                 && (ch->u.choice.cases[i + 1U]->u.choice_case.n_labels > 0U)
                 && (ch->u.choice.cases[i + 1U]->u.choice_case.labels[0]->kind
@@ -3859,6 +3860,7 @@ static void emit_choice_source(buf_t *b, const zsp_ast_node_t *ch,
         }
         const bool fallthrough_to_next =
                 (c->u.choice_case.field == NULL)
+                && !c->u.choice_case.has_body
                 && ((i + 1U) < ch->u.choice.n_cases)
                 && (ch->u.choice.cases[i + 1U]->u.choice_case.n_labels > 0U);
         if (fallthrough_to_next) continue;
@@ -3889,6 +3891,7 @@ static void emit_choice_source(buf_t *b, const zsp_ast_node_t *ch,
         }
         const bool fallthrough_to_next =
                 (c->u.choice_case.field == NULL)
+                && !c->u.choice_case.has_body
                 && ((i + 1U) < ch->u.choice.n_cases)
                 && (ch->u.choice.cases[i + 1U]->u.choice_case.n_labels > 0U);
         if (fallthrough_to_next) continue;

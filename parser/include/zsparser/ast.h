@@ -237,7 +237,8 @@ struct zsp_ast_node {
 
         struct { zsp_ast_node_t **labels;          /**< Expression list */
                  size_t            n_labels;
-                 zsp_ast_node_t  *field; }         choice_case;
+                 zsp_ast_node_t  *field;
+                 bool             has_body; }     choice_case;
 
         struct { zsp_ast_node_t *field; }          choice_default;
 
