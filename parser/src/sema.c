@@ -1403,6 +1403,58 @@ const zsp_sema_const_t *zsp_sema_eval(zsp_sema_t *s, zsp_ast_node_t *expr)
         }
         break;
     }
+    case ZSP_AST_EXPR_CALL:
+    {
+        /* Schema-builtin calls (valueof/numbits/lengthof/isset)
+         * are parsed as EXPR_CALL with a synthetic IDENT callee.
+         * Each is a thin wrapper around its single arg's value
+         * for const-eval purposes. `isset(a, b)` evaluates to
+         * `(a & b) == b`. */
+        const zsp_ast_node_t *const callee = expr->u.call.callee;
+        if ((callee != NULL) && (callee->kind == ZSP_AST_EXPR_IDENT)) {
+            const zsp_file_t *f = NULL;
+            if (zsp_source_get(s->source, callee->file_id, &f)) {
+                const uint8_t *n = &f->bytes[callee->u.ident.span_off];
+                const size_t   nl = (size_t)callee->u.ident.span_len;
+                if (((nl == 7U) && (memcmp(n, "valueof", 7U) == 0))
+                        || ((nl == 7U) && (memcmp(n, "numbits", 7U) == 0))
+                        || ((nl == 8U) && (memcmp(n, "lengthof", 8U) == 0))) {
+                    if (expr->u.call.n_args == 1U) {
+                        const zsp_sema_const_t *a =
+                                zsp_sema_eval(s, expr->u.call.args[0]);
+                        if (a != NULL) {
+                            if ((nl == 7U) && (memcmp(n, "numbits", 7U) == 0)) {
+                                const uint64_t v = to_u64(a);
+                                uint64_t bits = 0U;
+                                if (v <= 1U) { bits = 1U; }
+                                else {
+                                    uint64_t x = v - 1U;
+                                    while (x > 0U) { bits++; x >>= 1U; }
+                                }
+                                result = eval_uint(s, bits);
+                            } else {
+                                /* valueof / lengthof: pass through. */
+                                result = a;
+                            }
+                        }
+                    }
+                }
+                else if ((nl == 5U) && (memcmp(n, "isset", 5U) == 0)
+                        && (expr->u.call.n_args == 2U)) {
+                    const zsp_sema_const_t *a =
+                            zsp_sema_eval(s, expr->u.call.args[0]);
+                    const zsp_sema_const_t *b =
+                            zsp_sema_eval(s, expr->u.call.args[1]);
+                    if ((a != NULL) && (b != NULL)) {
+                        const uint64_t va = to_u64(a);
+                        const uint64_t vb = to_u64(b);
+                        result = eval_bool(s, (va & vb) == vb);
+                    }
+                }
+            }
+        }
+        break;
+    }
     default:
         result = NULL;
         break;
