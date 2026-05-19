@@ -75,11 +75,11 @@ safety/performance. Each layer cites the layer above.
 | [REQ-FN-007](functional/REQ-FN-007.md) | Generator output is deterministic across runs |
 | [REQ-FN-008](functional/REQ-FN-008.md) | Output file layout mirrors schema package hierarchy |
 | [REQ-FN-009](functional/REQ-FN-009.md) | Schema-to-C identifier mapping is total, deterministic, and documented |
-| [REQ-FN-010](functional/REQ-FN-010.md) | Identifier-length cap with deterministic hash truncation *(proposed — pending in-tree test)* |
+| [REQ-FN-010](functional/REQ-FN-010.md) | Identifier-length cap with deterministic hash truncation |
 | [REQ-FN-011](functional/REQ-FN-011.md) | All-or-nothing emission semantics |
 | [REQ-FN-012](functional/REQ-FN-012.md) | Cross-package include qualification |
 | [REQ-FN-013](functional/REQ-FN-013.md) | Template instantiation |
-| [REQ-FN-014](functional/REQ-FN-014.md) | -setTopLevelPackage prefix propagation *(proposed — pending in-tree test)* |
+| [REQ-FN-014](functional/REQ-FN-014.md) | -setTopLevelPackage prefix propagation |
 
 ### Functional — runtime + generated code (`REQ-FN-015..026`)
 

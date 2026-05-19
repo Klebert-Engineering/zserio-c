@@ -2,17 +2,10 @@
 id: REQ-FN-014
 title: -setTopLevelPackage prefix propagation
 type: functional
-status: proposed
+status: accepted
 phase_target: 1
 verification: test
 ---
-
-> **Status note (2026-05-19):** the flag is implemented and used
-> by at least one production integrator for an `index` package
-> name collision workaround, but no in-tree automated test
-> exercises it yet. Follow-up: add a parser test that compares
-> output under and without the flag for the same input schema.
-> Until then this requirement ships as `proposed`.
 
 
 ## Statement

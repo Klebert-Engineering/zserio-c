@@ -20,6 +20,8 @@ zserio_c_add_parser_test(test_emit)
 
 zserio_c_add_parser_test(test_emit_compile)
 zserio_c_add_parser_test(test_session)
+zserio_c_add_parser_test(test_identifier_truncation)
+zserio_c_add_parser_test(test_top_level_package_prefix)
 
 zserio_c_add_parser_test(test_corpus_compile)
 target_compile_definitions(test_corpus_compile PRIVATE
