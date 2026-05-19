@@ -136,7 +136,7 @@ For **using** zserio-c — schema → C code → linked executable:
 |---|---|
 | [Getting started](docs/getting-started.md) | 10-minute walkthrough, zero-to-running. |
 | [Concepts](docs/user-guide/concepts.md) | Mental model: schemas, packages, wire format. |
-| [Schema language](docs/user-guide/schema-language.md) | The supported `.zs` subset. |
+| [Schema language tutorial](docs/user-guide/schema-language.md) | The supported `.zs` subset, friendly intro. |
 | [Generated code](docs/user-guide/generated-code.md) | Naming, lifecycle, ownership. |
 | [Allocators](docs/user-guide/allocators.md) | libc, arena, custom. |
 | [Error handling](docs/user-guide/error-handling.md) | `zserio_status_t` and `ZSERIO_TRY`. |
@@ -144,12 +144,24 @@ For **using** zserio-c — schema → C code → linked executable:
 | [Patterns](docs/user-guide/patterns.md) | Round-trip, message reuse, schema composition. |
 | [`zserio_c_gen` CLI](docs/cli.md) | Flag reference for the generator. |
 
+For **implementing** an interoperable zserio codec, or **auditing the wire format**:
+
+| | |
+|---|---|
+| [Schema language reference](docs/spec/schema-language.md) | Normative spec of the language `zserio_c_gen` accepts. |
+| [Wire format reference](docs/spec/wire-format.md) | Normative spec of the binary encoding. |
+| [Schema evolution](docs/spec/schema-evolution.md) | `optional` / `extend` / `@removed` semantics. |
+| [Types mapping](docs/spec/types-mapping.md) | Schema → C type table. |
+| [Quick reference](docs/spec/quick-reference.md) | Cheat sheet covering every construct. |
+| [Compatibility policy](docs/spec/compatibility.md) | Five-axis versioning policy. |
+
 For **working on** zserio-c, or **deploying it under ISO 26262**:
 
 | | |
 |---|---|
 | [Contributing](docs/contributing.md) | Build, test, MISRA, perf. |
 | [Architecture](docs/architecture.md) | Internal design. Load-bearing. |
+| [Requirements](requirements/) | Domain, functional, safety, and performance requirements. |
 | [Safety case](docs/safety-case/) | 14 ISO 26262 work products. |
 | [Integration responsibilities](docs/integration-guide.md) | What the safety case delegates to the embedding system. |
 | [MISRA deviations](docs/misra-deviations/) | D001..D006 with justifications. |
