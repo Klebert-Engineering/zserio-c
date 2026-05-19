@@ -1,6 +1,11 @@
 /*
  * SPDX-License-Identifier: MIT
  * Copyright (c) 2026 Fabian Klebert
+ *
+ * Verifies: REQ-FN-017 — owned `zserio_extern_t` payload allocates via
+ *                        the supplied vtable.
+ * Verifies: REQ-FN-018 — `_free`-on-partial-state safety.
+ * Verifies: REQ-FN-019 — `_free` returns the field to post-`_init` state.
  */
 
 #include <stdint.h>

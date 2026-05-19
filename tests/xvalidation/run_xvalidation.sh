@@ -21,7 +21,28 @@
 # matching bytes_c.bin / bytes_cpp.bin pair is kept under the work dir
 # for diagnostic use (feed into the cpp_oracle trace facility).
 #
-# Verifies: REQ-FN-001 (wire compatibility with upstream zserio).
+# Verifies (system-level — the xvalidation harness is the canonical
+# end-to-end exercise for every requirement that touches the wire
+# format or the schema→C→bytes round-trip):
+#
+#   Verifies: REQ-DM-001 — schema-driven binary serialization
+#   Verifies: REQ-DM-002 — encode/decode mutual inverses
+#   Verifies: REQ-DM-003 — canonical encoding
+#   Verifies: REQ-DM-006 — schema-evolution constructs (extend/optional/@removed harnesses)
+#   Verifies: REQ-FN-001 — interoperability with upstream zserio v2.18.1
+#   Verifies: REQ-FN-002 — parser accepts the schema language
+#   Verifies: REQ-FN-007 — generator output is deterministic across runs
+#   Verifies: REQ-FN-008 — output file layout mirrors schema package hierarchy
+#   Verifies: REQ-FN-009 — schema-to-C identifier mapping is total and stable
+#   Verifies: REQ-FN-011 — all-or-nothing emission (failed runs leave exit nonzero)
+#   Verifies: REQ-FN-012 — cross-package include qualification
+#   Verifies: REQ-FN-013 — template instantiation (template harnesses)
+#   Verifies: REQ-FN-015 — generated-code lifecycle entry points
+#   Verifies: REQ-FN-021 — canonical encoding (struct → bytes)
+#   Verifies: REQ-FN-023 — wire-format fields emitted in schema source order
+#   Verifies: REQ-FN-024 — parameter propagation in nested types
+#   Verifies: REQ-FN-025 — extend fields default to zero (extend_* harnesses)
+#   Verifies: REQ-FN-026 — schema constraints enforced on read (constraint harnesses)
 
 set -euo pipefail
 

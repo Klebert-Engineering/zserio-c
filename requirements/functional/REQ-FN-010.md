@@ -2,10 +2,20 @@
 id: REQ-FN-010
 title: Identifier-length cap with deterministic hash truncation
 type: functional
-status: accepted
+status: proposed
 phase_target: 1
 verification: test
 ---
+
+> **Status note (2026-05-19):** the implementation is in place
+> and exercised by the NDS Live conformance corpus
+> (`conformance/ndslive/run_c_native.sh`), but `conformance/` is
+> not in the traceability scanner's `SCAN_DIRS`. Follow-up: add an
+> in-tree corpus harness under `tests/parser/` that exercises a
+> deep-template schema crossing the 160-byte threshold, or extend
+> the scanner to include `conformance/`. Until then this
+> requirement ships as `proposed`.
+
 
 ## Statement
 

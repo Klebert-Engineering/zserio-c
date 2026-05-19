@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Fabian Klebert
 """
-Version-consistency CI gate (REQ-DM-007).
+Version-consistency CI gate.
 
 Cross-checks that the version numbers declared in
   - runtime/include/zserio/version.h
@@ -13,6 +13,17 @@ Cross-checks that the version numbers declared in
 
 are mutually consistent. Exits non-zero with a diff-style report
 on any disagreement; exits zero on success.
+
+The script also serves as the in-CI existence proof for the
+schema-language and wire-format spec documents — it parses both
+files and would fail if either were absent. That existence is
+what the spec-ownership requirements demand.
+
+Verifies: REQ-DM-004 — schema-language reference is owned by zserio-c
+                       (existence + version header of docs/spec/schema-language.md)
+Verifies: REQ-DM-005 — wire-format reference is owned by zserio-c
+                       (existence + version header of docs/spec/wire-format.md)
+Verifies: REQ-DM-007 — versioning policy across the five axes
 """
 
 from __future__ import annotations

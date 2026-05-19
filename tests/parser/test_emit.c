@@ -6,6 +6,9 @@
  * generated C output. Also runs a smoke compilation of the
  * generated C against the runtime to confirm the output is
  * at least syntactically valid.
+ *
+ * Verifies: REQ-FN-008 — output file layout mirrors package hierarchy.
+ * Verifies: REQ-FN-009 — schema → C identifier mapping is total.
  */
 
 #define _POSIX_C_SOURCE 200809L

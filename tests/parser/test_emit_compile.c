@@ -10,6 +10,11 @@
  *
  * This is the milestone "C parser successfully generates C code"
  * gate.
+ *
+ * Verifies: REQ-FN-008 — output file layout mirrors package hierarchy.
+ * Verifies: REQ-FN-009 — schema → C identifier mapping is total.
+ * Verifies: REQ-FN-015 — generated-code lifecycle entry points
+ *                        (compile fails if entry points are missing).
  */
 
 #define _POSIX_C_SOURCE 200809L

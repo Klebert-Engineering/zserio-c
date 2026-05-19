@@ -5,6 +5,9 @@
  * Integration tests for the recursive-descent parser. Each case
  * registers a hand-built schema buffer, parses it, asserts that
  * no errors were emitted, and inspects the AST shape.
+ *
+ * Verifies: REQ-FN-002 — parser accepts the schema language
+ *                        (per-construct AST-shape assertions).
  */
 
 #include <string.h>

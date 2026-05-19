@@ -26,6 +26,15 @@
  *   H-08 wire-format divergence        — tests/xvalidation/ (CI-gated)
  *   H-09 stack overflow                — tools/measure_stack_usage.py (CI-gated)
  *   H-10 toolchain miscompilation      — out of scope at item level
+ *
+ * Functional-layer requirements verified by the same tests:
+ *
+ *   Verifies: REQ-FN-017 — decoder allocates only via the supplied
+ *                          allocator vtable (H-03 OOM propagation
+ *                          test covers the vtable path end-to-end).
+ *   Verifies: REQ-FN-020 — output validity conditioned on ZSERIO_OK
+ *                          (the H-01/H-02 paths exercise non-OK
+ *                          returns and assert no output is consumed).
  */
 
 #include <stdint.h>

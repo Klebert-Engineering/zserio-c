@@ -4,7 +4,10 @@
  */
 
 /*
- * Verifies: REQ-FS-001
+ * Verifies: REQ-FS-001 — allocation only via the vtable
+ *                        (libc backend is a vtable instance)
+ * Verifies: REQ-FN-017 — decoder allocator vtable contract
+ *                        (alloc / free / realloc hook semantics)
  *
  * Exercise the libc-backed default allocator (`zserio_allocator_libc()`).
  * The other allocator-using tests (test_string, test_extern, test_bytes)

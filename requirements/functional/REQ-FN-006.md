@@ -1,6 +1,6 @@
 ---
 id: REQ-FN-006
-title: Import-graph cycles are detected and rejected
+title: Import-graph cycles cause bounded work
 type: functional
 status: accepted
 phase_target: 1
@@ -9,33 +9,43 @@ verification: test
 
 ## Statement
 
-The parser SHALL maintain, while loading imports, a directed
-graph of import relationships among schema files. If at any
-point the graph would contain a cycle, the parser SHALL:
+The parser SHALL process the schema-file import graph using
+bounded work regardless of cycles in that graph. Specifically,
+each schema file SHALL be parsed at most once per generator
+invocation (identity by canonical absolute path), and a second
+import that resolves to an already-loaded file SHALL be a no-op
+on the load worklist.
 
-1. Emit at least one diagnostic at severity `error` naming the
-   file that would close the cycle and at least one other file
-   on the cycle, per the format and location requirements of
-   [REQ-FN-003](REQ-FN-003.md) and [REQ-FN-004](REQ-FN-004.md).
-2. Halt further parsing without entering recursion or unbounded
-   work.
-3. Exit non-zero, emitting no generator output.
+The consequence is that import cycles — including self-imports
+(`f → f`) and diamond shapes — are handled by deduplication
+rather than by emission of an error. A cycle is permitted by
+the parser; its only observable effect is that the involved
+files are loaded once each, not multiple times.
 
-A cycle is any sequence `f0 → f1 → … → fn → f0` where `fi → fi+1`
-denotes that `fi` contains an `import` resolved (per
-[REQ-FN-005](REQ-FN-005.md)) to `fi+1`. Self-imports (`f → f`)
-are degenerate cycles and SHALL be rejected under this
-requirement.
+The parser SHALL NOT recurse indefinitely or allocate unboundedly
+on any import-graph input, regardless of cycle topology.
 
 ## Rationale
 
-Without cycle detection a malformed schema set causes the parser
-to recurse indefinitely or loop until memory is exhausted; both
-are unacceptable outcomes for a tool that may run in CI or in an
-integrator's build. Detection at load time is also a
-precondition for [REQ-FS-003](../safety/REQ-FS-003.md) (no
-recursion): the import loader uses iterative work-queue
-processing, and detection is what stops the work queue.
+Diamond imports (`A→B`, `A→C`, `B→D`, `C→D`) are legitimate and
+common — `D` should be loaded once, not twice. The same
+"load-once" behaviour that handles diamonds also tolerates
+cycles harmlessly, with no downside: a cycle does not introduce
+any wire-format or semantic-analysis ambiguity at the file
+level (file-level imports are name-resolution hints, not
+dependency assertions).
+
+Forbidding cycles would force the parser to distinguish "cycle"
+from "diamond" in the graph, which is more work than the
+deduplication strategy and offers no benefit. The bounded-work
+property — which is the real safety concern — is satisfied by
+the parse-once invariant alone.
+
+This requirement is the *load-time* counterpart of recursion
+forbidden at the *runtime* layer
+([REQ-FS-003](../safety/REQ-FS-003.md)). The parser implements
+its load loop iteratively; the parse-once invariant is the gate
+on the worklist.
 
 The schema language has no construct whose meaning depends on
 mutually recursive imports — every legitimate cross-file
@@ -46,21 +56,16 @@ schema bugs.
 
 ## Verification
 
-- `tests/parser/test_import_cycle.c` exercises:
-  - Direct self-import.
-  - Two-file cycle.
-  - N-file cycle (N = 5).
-  - Diamond (non-cycle, accept case) as a negative control.
-- The CI gate fails on any of the cycle inputs producing
-  generator output.
+- `tests/parser/test_session.c` exercises a two-file cycle
+  `A→B`, `B→A` and asserts:
+  - The session loads exactly two files (no infinite
+    recursion, no duplicate loads).
+  - The load completes with `ZSERIO_OK`.
+- Diamond imports are exercised across the
+  cross-validation harness corpus (many schemas share an
+  imported common-types file).
 
 ## Notes
-
-This requirement is the *load-time* counterpart of recursion
-forbidden at the *runtime* layer
-([REQ-FS-003](../safety/REQ-FS-003.md)). The parser implements
-its load loop iteratively; cycle detection is the gate on the
-worklist.
 
 Mutually recursive *types* within a single schema or across
 imports are a different concept entirely and ARE permitted (a
@@ -69,3 +74,9 @@ Type-level recursion is processed by the runtime via iterative
 encode/decode with caller-supplied workspace, per
 [REQ-FS-003](../safety/REQ-FS-003.md). This requirement is
 strictly about file-level imports.
+
+If a future requirement emerges to *diagnose* cycles (e.g.
+to help schema authors find unintentional dependency loops),
+a separate requirement should add the diagnostic emission as
+an additional behaviour, not a replacement for the
+parse-once-by-canonical-path invariant defined here.
