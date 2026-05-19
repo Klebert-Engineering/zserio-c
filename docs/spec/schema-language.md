@@ -1,5 +1,7 @@
 # Schema language reference
 
+**Version:** 1.0 (subset of upstream Zserio v2.18.1).
+
 **Status:** normative for zserio-c. Discharges [REQ-DM-004](../../requirements/domain/REQ-DM-004.md).
 
 **Origin:** This document is adapted from upstream zserio's `ZserioLanguageOverview.md` (BSD-3-Clause, © Navigation Data Standard e.v.) at pinned version v2.18.1. The adaptation preserves all normative content; structural and editorial changes are zserio-c project conventions.

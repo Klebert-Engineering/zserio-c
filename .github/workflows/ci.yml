@@ -18,6 +18,16 @@ jobs:
       - name: Run traceability check
         run: python3 tools/check_traceability.py
 
+  version-consistency:
+    name: Version consistency (REQ-DM-007)
+    runs-on: [self-hosted, linux, x64]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - name: Cross-check version sources
+        run: python3 tools/check_version_consistency.py
+
   build-and-test:
     name: Build and test (${{ matrix.compiler }})
     runs-on: [self-hosted, linux, x64]

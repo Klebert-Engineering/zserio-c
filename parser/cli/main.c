@@ -22,6 +22,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
+#include "zserio/version.h"
 #include "zsparser/arena.h"
 #include "zsparser/ast.h"
 #include "zsparser/diag.h"
@@ -36,6 +37,7 @@ static void usage(const char *argv0)
     (void)fprintf(stderr,
                   "usage: %s <input.zs> -c <output-dir> [-src <root>...] "
                   "[-setTopLevelPackage <pkg>]\n"
+                  "       %s --version\n"
                   "\n"
                   "  <input.zs>             schema file to compile\n"
                   "  -c <output>            directory for emitted .c/.h\n"
@@ -43,8 +45,30 @@ static void usage(const char *argv0)
                   "  -setTopLevelPackage P  prepend dotted package P to\n"
                   "                         every loaded unit's `package`\n"
                   "                         (matches upstream's flag of\n"
-                  "                         the same name)\n",
-                  argv0);
+                  "                         the same name)\n"
+                  "  --version              print version information and exit\n",
+                  argv0, argv0);
+}
+
+static void print_version(void)
+{
+    (void)printf("zserio_c_gen %s\n", ZSERIO_C_VERSION_STRING);
+    (void)printf("  schema language : %s   (subset of upstream Zserio %s)\n",
+                 ZSERIO_SCHEMA_LANGUAGE_VERSION_STRING,
+                 ZSERIO_UPSTREAM_PIN_VERSION);
+    (void)printf("  wire format     : %s   (compatible with upstream Zserio BIN %s)\n",
+                 ZSERIO_WIRE_FORMAT_VERSION_STRING,
+                 ZSERIO_WIRE_FORMAT_VERSION_STRING);
+    (void)printf("  runtime API     : %d.%d   (%s)\n",
+                 ZSERIO_C_VERSION_MAJOR, ZSERIO_C_VERSION_MINOR,
+                 (ZSERIO_C_VERSION_MAJOR == 0)
+                     ? "pre-1.0; may change between minor releases"
+                     : "stable within this major release");
+    (void)printf("  generated code  : %d.%d   (%s)\n",
+                 ZSERIO_C_VERSION_MAJOR, ZSERIO_C_VERSION_MINOR,
+                 (ZSERIO_C_VERSION_MAJOR == 0)
+                     ? "pre-1.0; may change between minor releases"
+                     : "stable within this major release");
 }
 
 /* Build a fresh IDENT node referring to `name` (length `len`),
@@ -189,6 +213,17 @@ static void diag_to_stderr(void *ud, const char *bytes, size_t len)
 
 int main(int argc, char **argv)
 {
+    /* --version is honored regardless of other arguments and
+     * must work with no `.zs` input. Handled before the argc
+     * minimum check. */
+    for (int i = 1; i < argc; ++i) {
+        if ((strcmp(argv[i], "--version") == 0) ||
+            (strcmp(argv[i], "-version") == 0)) {
+            print_version();
+            return 0;
+        }
+    }
+
     if (argc < 4) { usage(argv[0]); return 2; }
 
     const char *input  = NULL;

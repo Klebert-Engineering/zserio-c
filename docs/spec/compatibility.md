@@ -1,8 +1,7 @@
 # Compatibility policy
 
-**Status:** policy committed, version assignments deferred.
-Discharges [REQ-DM-007](../../requirements/domain/REQ-DM-007.md)
-(currently `proposed`).
+**Status:** normative for zserio-c. Discharges
+[REQ-DM-007](../../requirements/domain/REQ-DM-007.md).
 
 **Origin:** This document is adapted from upstream zserio's
 `ZserioCompatibilityGuide.md` (BSD-3-Clause, © Navigation Data
@@ -17,29 +16,75 @@ consumers writing support contracts.
 
 ## Five compatibility axes
 
-zserio-c tracks five independent compatibility axes. A given
-zserio-c release is identified by its release version
-(`zserio-c X.Y.Z`); each of the five axes has its own version,
-moving on its own cadence.
+zserio-c uses a **two-tier scheme**:
 
-| Axis | What it identifies | Where it lives |
+- Two **spec axes** with their own independent versions:
+  schema language and wire format. These move on their own
+  cadence — typically almost never.
+- Three **tool axes** whose compatibility tracks the release
+  version: runtime API, generated-code API, CLI. Breaks on
+  these are permitted at release-major bumps.
+
+| Axis | Version | Where it lives |
 |---|---|---|
-| Schema language | The language version the parser accepts. | [`schema-language.md`](schema-language.md) header |
-| Wire format | The binary encoding produced and consumed. | [`wire-format.md`](wire-format.md) header |
-| Generated-code API | The signature surface of emitted `_init`, `_set_parameters`, `_read`, `_write`, `_free`, packing contexts. | [`docs/user-guide/generated-code.md`](../user-guide/generated-code.md) |
-| Runtime library API | The `<zserio/*.h>` public headers. | `runtime/include/zserio/` |
-| CLI | `zserio_c_gen` flag set and exit-code semantics. | [`docs/cli.md`](../cli.md) |
+| **Release (zserio-c overall)** | `0.1.0` | `<zserio/version.h>`, `CMakeLists.txt`, README badge |
+| **Wire format** | `1.0` (independent) | `<zserio/version.h>`, [`wire-format.md`](wire-format.md) header |
+| **Schema language** | `1.0` (independent) | `<zserio/version.h>`, [`schema-language.md`](schema-language.md) header |
+| Runtime library API | tracks release `0.1` | `<zserio/*.h>` |
+| Generated-code API | tracks release `0.1` | [`docs/user-guide/generated-code.md`](../user-guide/generated-code.md) |
+| CLI | tracks release `0.1` + deprecation cycle | [`docs/cli.md`](../cli.md) |
 
-Compatibility on each axis follows the same rule: **the major
+Compatibility on each spec axis follows the rule: **the major
 version captures breaking changes; the minor/patch capture
-additive and corrective changes.**
+additive and corrective changes.** Tool axes inherit
+release-version semver — major bumps on the release version
+imply potential breaks on the three tool axes.
 
-> **Note.** The initial version numbers on each axis are not
-> assigned in this document. Their assignment requires a
-> separate review and is the subject of follow-up work to
-> [REQ-DM-007](../../requirements/domain/REQ-DM-007.md). Until
-> assigned, `zserio-c` is considered pre-1.0 on all five axes
-> and breaking changes may occur on any axis with each release.
+## Current versions
+
+| Axis | Current | Pinned reference |
+|---|---|---|
+| Release | `0.1.0` | pre-1.0; runtime / codegen / CLI APIs may change between minor releases |
+| Wire format | `1.0` | compatible with upstream Zserio BIN 1.0; byte-equal with upstream zserio v2.18.1 |
+| Schema language | `1.0` | subset of upstream Zserio language v2.18.1 (no `service`, `pubsub`, `sql_table`, `sql_database`) |
+
+Programmatic access:
+
+```sh
+$ zserio_c_gen --version
+zserio_c_gen 0.1.0
+  schema language : 1.0   (subset of upstream Zserio v2.18.1)
+  wire format     : 1.0   (compatible with upstream Zserio BIN 1.0)
+  runtime API     : 0.1   (pre-1.0; may change between minor releases)
+  generated code  : 0.1   (pre-1.0; may change between minor releases)
+```
+
+At build time, the same values are available as preprocessor
+constants in `<zserio/version.h>` (`ZSERIO_C_VERSION_STRING`,
+`ZSERIO_WIRE_FORMAT_VERSION_STRING`,
+`ZSERIO_SCHEMA_LANGUAGE_VERSION_STRING`,
+`ZSERIO_UPSTREAM_PIN_VERSION`).
+
+The values in `<zserio/version.h>`, in `CMakeLists.txt`'s
+`project()` clause, and in this document are kept in sync by
+a CI gate (`tools/check_version_consistency.py`). Any
+disagreement fails the build.
+
+## Pre-1.0 semantics
+
+While the release version is below `1.0.0`, the three tool
+axes (runtime API, generated-code API, CLI) are **not** under
+stability guarantees. A minor-version bump may rename, remove,
+or alter the signature of a `<zserio/*.h>` function; regenerate
+generated code with the new release; rebuild and recompile.
+
+**The spec axes are not pre-release**, even at release `0.x.y`.
+Wire format 1.0 and schema language 1.0 are stable from day
+one of the project; they are tied to the upstream zserio
+specification at v2.18.1, which has been stable since 2018.
+
+Reaching `zserio-c 1.0.0` commits us to API stability on the
+three tool axes for the duration of the `1.x` series.
 
 ## Schema-language compatibility
 
@@ -172,20 +217,22 @@ warning on use) in version N-1 or earlier.
 
 ## Pinning for safety arguments
 
-A safety-case argument that pins a "zserio-c version" pins all
-five axes implicitly. For long-lived deployments where one axis
-needs to be pinned more tightly than the others (e.g. wire
-format pinned across an OTA upgrade boundary), the integrator
-pins the axis directly:
+A safety-case argument that pins a "zserio-c release version"
+pins all axes implicitly. For long-lived deployments where one
+axis needs to be pinned more tightly than the release (e.g.
+wire format pinned across an OTA upgrade boundary), the
+integrator pins the axis directly. Example pin statement:
 
-> "This safety case is qualified against zserio-c schema language
-> 1.x, wire format 1.0, generated-code API 1.x, runtime API 1.x,
-> CLI 1.x. Channel A pins wire format 1.0 across all deployed
-> ECUs."
+> "This safety case is qualified against zserio-c release 0.1.0:
+> schema language 1.0, wire format 1.0, runtime / generated /
+> CLI APIs at 0.1. Channel A pins wire format 1.0 across all
+> deployed ECUs and tolerates release version drift up to but
+> not including 1.0.0."
 
-The values above are illustrative; the actual axis assignments
-are deferred to the follow-up review on
-[REQ-DM-007](../../requirements/domain/REQ-DM-007.md).
+A future release bump on the release axis (e.g. 0.1.x → 0.2.0)
+may change the tool axes; the integrator re-verifies against
+the new tool-axis state but the wire-format pin still holds
+unless a deliberate wire-format major bump occurred.
 
 ## What this document does NOT cover
 

@@ -2,7 +2,7 @@
 id: REQ-DM-007
 title: Versioning policy for schema language and wire format
 type: domain
-status: proposed
+status: accepted
 phase_target: 2
 verification: review
 ---
@@ -38,21 +38,31 @@ The policy SHALL state, for each axis:
 The policy SHALL reside in
 [`docs/spec/compatibility.md`](../../docs/spec/compatibility.md).
 
-## Status: proposed
+## Initial assignments
 
-This requirement is `proposed` rather than `accepted` because
-the assignment of the *initial version numbers* on each axis is
-deferred to a separate review. The policy itself is committed;
-the starting numbers and the relationship to `zserio-c` release
-versions need a structured discussion that the requirement text
-alone is not the right place for.
+zserio-c uses a two-tier scheme: two **spec axes** with their
+own independent versions, and three **tool axes** whose
+compatibility tracks the release version.
 
-The next step on this requirement is a separate PR that:
+| Axis | Tier | Current version |
+|---|---|---|
+| Release (zserio-c overall) | release | `0.1.0` |
+| Wire format | spec (independent) | `1.0` |
+| Schema language | spec (independent) | `1.0` |
+| Runtime library API | tool (tracks release-major) | `0.1` |
+| Generated-code API | tool (tracks release-major) | `0.1` |
+| Command-line interface | tool (tracks release-major + deprecation cycle) | `0.1` |
 
-1. Selects initial version numbers for each axis.
-2. Defines the relationship between axes (e.g. "wire format
-   version X.Y is consumed by runtime version X.*").
-3. Promotes this requirement from `proposed` to `accepted`.
+Wire format `1.0` is compatible with upstream Zserio BIN 1.0
+and byte-equal with upstream zserio v2.18.1
+([REQ-FN-001](../functional/REQ-FN-001.md)). Schema language
+`1.0` is the subset of upstream Zserio language v2.18.1 that
+the parser accepts (no `service`, `pubsub`, `sql_table`,
+`sql_database`).
+
+The release version `0.1.0` is pre-1.0: the three tool axes
+are **not** under stability guarantees until `zserio-c 1.0.0`.
+The two spec axes are stable from day one regardless.
 
 ## Rationale
 
@@ -82,11 +92,12 @@ Reviewed at every release: each axis SHALL declare a version,
 each version change SHALL link to the policy clause that
 justifies the bump.
 
-Automated check: a CI gate
-(`tools/check_version_consistency.py`) SHALL fail the build if
-the version numbers in `docs/spec/compatibility.md`,
-`runtime/include/zserio/version.h`, and `parser/cli/version.h`
-disagree.
+Automated check: the CI gate
+[`tools/check_version_consistency.py`](../../tools/check_version_consistency.py)
+fails the build if the version numbers in
+`<zserio/version.h>`, the `project()` clause of
+`CMakeLists.txt`, and the "Current versions" table of
+`docs/spec/compatibility.md` disagree.
 
 ## Notes
 

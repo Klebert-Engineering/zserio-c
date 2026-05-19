@@ -1,5 +1,7 @@
 # Wire format reference
 
+**Version:** 1.0 (compatible with upstream Zserio BIN 1.0; byte-equal with upstream zserio v2.18.1).
+
 **Status:** normative for zserio-c. Discharges [REQ-DM-005](../../requirements/domain/REQ-DM-005.md).
 
 **Origin:** This document is adapted from upstream zserio's `ZserioEncodingGuide.md` (BSD-3-Clause, © Navigation Data Standard e.v.) at pinned version v2.18.1. The adaptation preserves all normative content; structural and editorial changes are zserio-c project conventions.

@@ -6,6 +6,9 @@ runtime designed for automotive functional-safety use (ISO 26262
 ASIL-B target, ASIL-D headroom).
 
 [![CI](https://github.com/ke-fritz/zserio-c-shadow/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ke-fritz/zserio-c-shadow/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/badge/release-0.1.0-blue.svg)](docs/spec/compatibility.md)
+[![Wire format](https://img.shields.io/badge/wire%20format-1.0-success.svg)](docs/spec/wire-format.md)
+[![Schema language](https://img.shields.io/badge/schema%20language-1.0-success.svg)](docs/spec/schema-language.md)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Standard](https://img.shields.io/badge/C-99-informational.svg)](https://www.iso.org/standard/29237.html)
 [![Upstream zserio](https://img.shields.io/badge/upstream-v2.18.1-orange.svg)](https://github.com/ndsev/zserio/releases/tag/v2.18.1)
@@ -192,14 +195,36 @@ tools/                   measure_*, check_*, render_*, run_misra,
 
 ## Versioning
 
-`zserio-c` tracks upstream `ndsev/zserio` at a single pinned version
-(currently `v2.18.1`). The submodule pin is the single source of
-truth for wire-format compatibility.
+`zserio-c` uses a two-tier scheme — two independently-versioned spec
+axes plus a release version covering tool API churn. Full policy in
+[`docs/spec/compatibility.md`](docs/spec/compatibility.md).
 
-There is no public ABI yet — we ship the C99 source. Consumers
-vendor or submodule the runtime and rebuild from source against
-their chosen toolchain. This is intentional for safety integrators
-who need to qualify the toolchain end to end.
+| Axis | Current | What it means |
+|---|---|---|
+| Release | `0.1.0` | pre-1.0; runtime / generated-code / CLI APIs may change between minor releases |
+| Wire format | `1.0` | byte-equal with upstream Zserio BIN 1.0 / upstream zserio v2.18.1; stable |
+| Schema language | `1.0` | accepted subset of upstream Zserio language v2.18.1; stable |
+
+The two spec axes are stable from day one regardless of release
+version. The release version being pre-1.0 captures the still-evolving
+tool surface; reaching `1.0.0` commits to API stability across the
+`1.x` series.
+
+```sh
+$ zserio_c_gen --version
+zserio_c_gen 0.1.0
+  schema language : 1.0   (subset of upstream Zserio v2.18.1)
+  wire format     : 1.0   (compatible with upstream Zserio BIN 1.0)
+  runtime API     : 0.1   (pre-1.0; may change between minor releases)
+  generated code  : 0.1   (pre-1.0; may change between minor releases)
+```
+
+The same values are available at build time as preprocessor
+constants in [`<zserio/version.h>`](runtime/include/zserio/version.h).
+Consumers vendor or submodule the runtime and rebuild from source —
+there is no shared library to install. The CI gate
+`tools/check_version_consistency.py` keeps `version.h`,
+`CMakeLists.txt`, and the spec docs in sync.
 
 ## License
 

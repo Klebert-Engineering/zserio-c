@@ -56,7 +56,7 @@ safety/performance. Each layer cites the layer above.
 | [REQ-DM-004](domain/REQ-DM-004.md) | Schema-language reference is owned by zserio-c |
 | [REQ-DM-005](domain/REQ-DM-005.md) | Wire-format reference is owned by zserio-c |
 | [REQ-DM-006](domain/REQ-DM-006.md) | Schema evolution constructs |
-| [REQ-DM-007](domain/REQ-DM-007.md) | Versioning policy for schema language and wire format *(proposed)* |
+| [REQ-DM-007](domain/REQ-DM-007.md) | Versioning policy for schema language and wire format |
 
 ### Functional — parser (`REQ-FN-002..006`)
 
