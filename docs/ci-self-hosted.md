@@ -64,15 +64,32 @@ The constraints that actually matter:
   (`build-xvalidation/`, `build-benchmarks/`, 1500+ files for the
   ndslive schema). Budget ~20 GB of working space.
 
+## Scope: repo runner vs org runner
+
+A self-hosted runner is bound to exactly one target at registration
+time. `entrypoint.sh` supports two scopes; pick one per deployment:
+
+| Scope | When to use | `ci/.env` |
+|---|---|---|
+| **Repo** | The legacy `ke-fritz/zserio-c-shadow` mirror (a personal account, not under an org), or any single-repo deployment. | `GITHUB_REPO=owner/name` |
+| **Org**  | The canonical `Klebert-Engineering/zserio-c` deployment, and any future repo in that org. One runner pool serves every repo in the org's runner groups it belongs to. | `GITHUB_ORG=org-name` |
+
+Set **exactly one** of `GITHUB_REPO` or `GITHUB_ORG` per `.env` —
+the entrypoint refuses both-set and neither-set configurations.
+
 ## One-time: create the PAT
 
-The runners need a token to register themselves. Create a GitHub
-Personal Access Token with permission to administer repository
-runners:
+The runners need a token to register themselves. Permissions depend
+on the scope:
 
-- **Classic PAT**: `repo` scope.
-- **Fine-grained PAT**: `Administration: Read and write` on the
-  `zserio-c` repository.
+- **Repo scope:**
+  - Classic PAT: `repo` scope.
+  - Fine-grained PAT: Resource owner = target repo's owner;
+    Repository → **Administration: Read and write** on the target repo.
+- **Org scope:**
+  - Classic PAT: `admin:org` scope.
+  - Fine-grained PAT: Resource owner = the org; Organization →
+    **Self-hosted runners: Read and write**.
 
 GitHub → Settings → Developer settings → Personal access tokens.
 
@@ -80,7 +97,7 @@ The PAT is exchanged for a short-lived *registration* token at
 container start (`entrypoint.sh`); it is never baked into the image
 or the compose file. It lives only in `ci/.env`, which is gitignored.
 
-## Deploying a runner (Linux x86_64 host, terminal-only)
+## Deploying a repo-scoped runner (e.g. the shadow mirror)
 
 The canonical path for the `primary` perf box and other Linux
 runners is `docker compose` from a checkout of the repo on the
@@ -91,10 +108,9 @@ git clone https://github.com/Klebert-Engineering/zserio-c.git /opt/zserio-ci
 cd /opt/zserio-ci/ci
 
 cp .env.example .env
-$EDITOR .env       # GITHUB_PAT=<your PAT>; GITHUB_REPO already defaults
-                   # to Klebert-Engineering/zserio-c. Set it explicitly
-                   # to ke-fritz/zserio-c-shadow if registering against
-                   # the legacy shadow mirror instead.
+$EDITOR .env       # GITHUB_PAT=<your PAT>
+                   # Set GITHUB_REPO=ke-fritz/zserio-c-shadow (or any
+                   # owner/name) and comment out GITHUB_ORG.
                    #
                    # On the primary perf box, also set:
                    #   RUNNER_LABELS=perf,primary
@@ -106,11 +122,78 @@ docker compose logs -f          # tail to watch registration
 ```
 
 Within ~30 s of containers starting, three runners (default
-`zserio-ci-1/2/3`) appear under **Settings → Actions → Runners**
-showing **Idle**. To run more concurrent CI jobs on a beefier host
-(e.g. the 16-core / 128 GB primary), duplicate the `runner-2`
-block in `ci/docker-compose.yml` up to `runner-6` before the first
-`docker compose up`.
+`zserio-ci-1/2/3`) appear under **Repo → Settings → Actions →
+Runners** showing **Idle**. To run more concurrent CI jobs on a
+beefier host (e.g. the 16-core / 128 GB primary), duplicate the
+`runner-2` block in `ci/docker-compose.yml` up to `runner-6` before
+the first `docker compose up`.
+
+## Deploying an org-scoped runner (Klebert-Engineering)
+
+Org-scoped runners live in **org-level runner groups** and serve any
+repo the group is enabled for. The default group ("Default") is
+available to every repo in the org — fine for now with one repo;
+narrow it later via Org → Settings → Actions → Runner groups if you
+add lightweight projects that shouldn't be allowed to grab heavy
+perf runners.
+
+If the same host already hosts a repo-scoped deployment (e.g. the
+shadow runners), the org deployment runs **alongside** it as a
+separate compose project. Distinct `-p` project name + distinct
+`RUNNER_NAME_PREFIX` keep the runner names from colliding on GitHub
+and the container names from colliding in Docker:
+
+```bash
+# Pick a directory that is NOT the existing /opt/zserio-ci checkout —
+# the two deployments need separate ci/.env files.
+git clone https://github.com/Klebert-Engineering/zserio-c.git /opt/zserio-ci-org
+cd /opt/zserio-ci-org/ci
+
+cp .env.example .env
+$EDITOR .env       # GITHUB_PAT=<org-scoped PAT, see "One-time" above>
+                   # GITHUB_ORG=Klebert-Engineering
+                   # (comment out GITHUB_REPO)
+                   #
+                   # Required to avoid collisions when the same host
+                   # also hosts shadow runners:
+                   #   RUNNER_NAME_PREFIX=ke-org-zserio-ci
+                   #
+                   # If this is the primary perf box, also set:
+                   #   RUNNER_LABELS=perf,primary
+
+# -p namespaces the compose project so it doesn't clash with the
+# repo-scoped "zserio-ci" project also running on this host.
+docker compose -p zserio-ci-org up -d --build
+docker compose -p zserio-ci-org logs -f
+```
+
+Within ~30 s the new runners appear under **Org → Settings →
+Actions → Runners** (not the repo's runners page — that only lists
+repo-scoped runners). They show **Idle** and a label set of
+`self-hosted, linux, x64` plus whatever `RUNNER_LABELS` added. Open
+a PR or push to a branch on `Klebert-Engineering/zserio-c`; the
+jobs' `runs-on` labels match either scope identically, so the org
+runners pick them up without any workflow-side change.
+
+### Operating two compose projects on one host
+
+The two deployments are fully independent — each has its own
+`.env`, its own runner names, and its own set of containers:
+
+```bash
+# Status / restart / shutdown — pass -p to target the right project:
+docker compose -p zserio-ci      ps         # shadow runners
+docker compose -p zserio-ci-org  ps         # org runners
+docker compose -p zserio-ci-org  restart
+docker compose -p zserio-ci-org  down
+```
+
+The Docker image (`zserio-ci-runner:latest`) is the same for both;
+the first project to build it caches it for the second. Memory caps
+are per-container, so three org runners + three shadow runners =
+six × `memory: 8g` budget on the host. On the 128 GB primary that's
+trivial; on a smaller box, drop a runner or two from each compose
+file.
 
 ### Historical: Synology Container Manager GUI
 

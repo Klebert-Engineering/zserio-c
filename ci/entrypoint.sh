@@ -13,9 +13,21 @@
 # repo's runner list.
 #
 # Required env:
-#   GITHUB_PAT    classic PAT with `repo` scope (or fine-grained PAT
-#                 with Administration: read+write on the repo)
-#   GITHUB_REPO   owner/name, e.g. Klebert-Engineering/zserio-c
+#   GITHUB_PAT    classic PAT, or fine-grained PAT, with the right
+#                 scope for the registration mode chosen below:
+#                   - repo mode (GITHUB_REPO set): classic `repo` scope,
+#                     or fine-grained Repository → Administration:
+#                     read+write on the target repo.
+#                   - org mode  (GITHUB_ORG  set): classic `admin:org`
+#                     scope, or fine-grained Organization → Self-hosted
+#                     runners: read+write on the target org.
+# Required env (exactly one of):
+#   GITHUB_REPO   owner/name, e.g. Klebert-Engineering/zserio-c — the
+#                 runner is bound to a single repository.
+#   GITHUB_ORG    organization name, e.g. Klebert-Engineering — the
+#                 runner is bound to an org and serves every repo in
+#                 the org's runner group it's added to (default group
+#                 = all repos). Future-proof when more repos join.
 # Optional env:
 #   RUNNER_NAME   defaults to the container hostname
 #   RUNNER_LABELS extra comma-separated labels added to the agent's
@@ -31,11 +43,30 @@
 set -euo pipefail
 
 : "${GITHUB_PAT:?GITHUB_PAT must be set (see ci/.env.example)}"
-: "${GITHUB_REPO:?GITHUB_REPO must be set, e.g. Klebert-Engineering/zserio-c}"
+
+GITHUB_REPO="${GITHUB_REPO:-}"
+GITHUB_ORG="${GITHUB_ORG:-}"
+if [[ -n "${GITHUB_REPO}" && -n "${GITHUB_ORG}" ]]; then
+    echo "entrypoint: set exactly one of GITHUB_REPO or GITHUB_ORG, not both" >&2
+    exit 1
+fi
+if [[ -n "${GITHUB_ORG}" ]]; then
+    API="https://api.github.com/orgs/${GITHUB_ORG}"
+    RUNNER_URL="https://github.com/${GITHUB_ORG}"
+    SCOPE_DESC="org ${GITHUB_ORG}"
+elif [[ -n "${GITHUB_REPO}" ]]; then
+    API="https://api.github.com/repos/${GITHUB_REPO}"
+    RUNNER_URL="https://github.com/${GITHUB_REPO}"
+    SCOPE_DESC="repo ${GITHUB_REPO}"
+else
+    echo "entrypoint: set GITHUB_REPO=owner/name (repo scope)" \
+         "or GITHUB_ORG=org (org scope)" >&2
+    exit 1
+fi
+
 RUNNER_NAME="${RUNNER_NAME:-$(hostname)}"
 RUNNER_LABELS="${RUNNER_LABELS:-}"
 
-API="https://api.github.com/repos/${GITHUB_REPO}"
 RUNNER_DIR="/home/runner/actions-runner"
 cd "${RUNNER_DIR}"
 
@@ -67,14 +98,14 @@ trap deregister SIGTERM SIGINT
 # If a previous run left a .runner config behind (persistent _work
 # volume), reuse it; otherwise register fresh.
 if [[ ! -f "${RUNNER_DIR}/.runner" ]]; then
-    echo "entrypoint: registering runner ${RUNNER_NAME} for ${GITHUB_REPO}"
+    echo "entrypoint: registering runner ${RUNNER_NAME} for ${SCOPE_DESC}"
     reg_token="$(get_registration_token)"
     # `--labels` carries ONLY our custom labels. The agent auto-adds
     # `self-hosted`, `linux`, and the host arch, so we don't repeat
     # those (and don't lie about the arch).
     config_args=(
         --unattended
-        --url "https://github.com/${GITHUB_REPO}"
+        --url "${RUNNER_URL}"
         --token "${reg_token}"
         --name "${RUNNER_NAME}"
         --work "_work"
