@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2026 Fabian Klebert
+# Copyright (c) 2026 Klebert Engineering
 """
 Static check: no allocator vtable in `_write` paths.
 

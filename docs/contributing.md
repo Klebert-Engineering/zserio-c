@@ -18,8 +18,8 @@ output is byte-equal against the upstream cpp generator on all
 ## Building
 
 ```sh
-git clone https://github.com/ke-fritz/zserio-c-shadow.git
-cd zserio-c-shadow
+git clone https://github.com/Klebert-Engineering/zserio-c.git
+cd zserio-c
 cmake -B build -S . -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ```
@@ -206,6 +206,6 @@ analysis and reference it from the PR description.
 
 ## Where to ask
 
-Open an issue at https://github.com/ke-fritz/zserio-c-shadow/issues.
+Open an issue at https://github.com/Klebert-Engineering/zserio-c/issues.
 Prefer reproducers as `tests/xvalidation/harnesses/<name>/` shells
 with a minimal `.zs` + `c_driver.c`.

@@ -139,8 +139,9 @@ in the certified subset.
 | 3     | Full schema-language coverage (compounds, choices, parameterized…).    | done                                |
 | 4     | Conformance against the upstream zserio test corpus.                   | done — xvalidation gate (182 × 5)   |
 | 5     | Safety case maturation — MISRA-clean pass, ISO 26262 work products.    | substantively complete (all `draft`) |
-| 6     | Performance benchmarks vs. C++ runtime; tune.                          | active — measurement framework live (advisory CI gate) |
-| 7     | C-native parser replaces the Java front-end.                           | open                                |
+| 6     | Performance benchmarks vs. C++ runtime; tune.                          | done — both perf hosts green, advisory gate live |
+| 7     | C-native parser replaces the Java front-end on the C target.           | done — `zserio_c_gen` drives xvalidation; planning record at [`phase-7/scope.md`](phase-7/scope.md) |
+| 8     | Bidirectional cpp ↔ C round-trip under ASan + UBSan; ndslive C-native. | done — 182 / 182 byte-equal both directions, clean under sanitizers |
 
 The current phase is recorded at the repository root in `.phase` and
 read by `tools/check_traceability.py`. Every accepted requirement

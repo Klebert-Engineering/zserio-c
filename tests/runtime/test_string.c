@@ -1,6 +1,6 @@
 /*
  * SPDX-License-Identifier: MIT
- * Copyright (c) 2026 Fabian Klebert
+ * Copyright (c) 2026 Klebert Engineering
  *
  * Verifies: REQ-FN-017 — owned `zserio_string_t` payload allocates via
  *                        the supplied vtable; failing-allocator path

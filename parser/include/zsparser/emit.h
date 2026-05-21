@@ -1,6 +1,6 @@
 /*
  * SPDX-License-Identifier: MIT
- * Copyright (c) 2026 Fabian Klebert
+ * Copyright (c) 2026 Klebert Engineering
  */
 
 #ifndef ZSPARSER_EMIT_H_

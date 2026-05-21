@@ -1,6 +1,6 @@
 /*
  * SPDX-License-Identifier: MIT
- * Copyright (c) 2026 Fabian Klebert
+ * Copyright (c) 2026 Klebert Engineering
  *
  * Emitter tests: parse → analyse → emit and inspect the
  * generated C output. Also runs a smoke compilation of the

@@ -1,6 +1,6 @@
 /*
  * SPDX-License-Identifier: MIT
- * Copyright (c) 2026 Fabian Klebert
+ * Copyright (c) 2026 Klebert Engineering
  *
  * libFuzzer harness for the runtime decode path, exercised through
  * the generated codec for `builtin_types/all_builtin_types`. That

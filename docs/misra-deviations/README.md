@@ -56,4 +56,12 @@ and tracked in an issue.
 
 ## Current deviations
 
-(none yet)
+| ID | Rule(s) | Scope | Summary |
+|---|---|---|---|
+| [D001](D001-rule-15.5-multiple-returns.md) | 15.5 | project-wide | Early `return` on error paths is the project's chosen control-flow idiom. |
+| [D002](D002-rule-21.3-allocator-libc.md) | 21.3 | `runtime/src/allocator.c` only | `zserio_allocator_libc` wraps `malloc` / `realloc` / `free` so callers can use libc through the same vtable as any other backend. |
+| [D003](D003-rule-21.15-memcpy-float-bits.md) | 21.15 | `runtime/src/float.c` | `memcpy` used to extract IEEE-754 bit patterns — the standard idiom for type-punning floats without aliasing UB. |
+| [D004](D004-rule-11.5-allocator-void-cast.md) | 11.5 (+ overlapping 11.8) | runtime + generated code | Allocator vtable returns `void *`; callers cast to the destination element type. |
+| [D005](D005-rule-18.4-buffer-pointer-arithmetic.md) | 18.4 | `runtime/src/bitstream.c` + sibling buffer-walkers | Byte-offset pointer arithmetic on the bitstream's `uint8_t *` backing buffer. |
+| [D006](D006-rule-20.7-type-param-macros.md) | 20.7, 20.10 | `runtime/src/varint.c` | Type-parametric `DELTA_TRAITS_{UNSIGNED,SIGNED}` macros — token-paste / type-name parameters are categorically outside the rules' precedence-bug intent. |
+| [D007](D007-rule-19.2-tagged-union.md) | 19.2 | generator output only | Zserio `choice` / `union` types map to a tagged C `union` by design. Generator-output scope only, applied via `tools/run_misra_generated.sh`. |

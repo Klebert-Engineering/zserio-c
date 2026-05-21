@@ -1,6 +1,6 @@
 /*
  * SPDX-License-Identifier: MIT
- * Copyright (c) 2026 Fabian Klebert
+ * Copyright (c) 2026 Klebert Engineering
  *
  * Multi-file compilation-session tests: load a top schema +
  * its imported dependencies, analyse across the combined

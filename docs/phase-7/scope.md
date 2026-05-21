@@ -1,9 +1,13 @@
 # Phase 7 — scope
 
-**Status:** draft, planning. No implementation work yet. This file is the
-shared working surface for the Phase 7 scoping conversation; the
-"Open design questions" section captures the decisions that have to
-land before the first commit.
+**Status:** historical planning record. Phase 7 is substantively
+complete on `main` — the C-native `zserio_c_gen` is the C-side of
+the xvalidation gate, replacing the Java front-end as planned.
+This document captures the scoping conversation that preceded
+implementation; references to "future" / "not yet" / counts of
+deviations on file (e.g. "6 deviations" at planning time, now seven
+after the Phase 7 tagged-union deviation D007 landed) are frozen
+in time and should be read as such.
 
 ## Goal
 

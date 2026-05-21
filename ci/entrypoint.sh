@@ -15,7 +15,7 @@
 # Required env:
 #   GITHUB_PAT    classic PAT with `repo` scope (or fine-grained PAT
 #                 with Administration: read+write on the repo)
-#   GITHUB_REPO   owner/name, e.g. ke-fritz/zserio-c-shadow
+#   GITHUB_REPO   owner/name, e.g. Klebert-Engineering/zserio-c
 # Optional env:
 #   RUNNER_NAME   defaults to the container hostname
 #   RUNNER_LABELS extra comma-separated labels added to the agent's
@@ -31,7 +31,7 @@
 set -euo pipefail
 
 : "${GITHUB_PAT:?GITHUB_PAT must be set (see ci/.env.example)}"
-: "${GITHUB_REPO:?GITHUB_REPO must be set, e.g. ke-fritz/zserio-c-shadow}"
+: "${GITHUB_REPO:?GITHUB_REPO must be set, e.g. Klebert-Engineering/zserio-c}"
 RUNNER_NAME="${RUNNER_NAME:-$(hostname)}"
 RUNNER_LABELS="${RUNNER_LABELS:-}"
 

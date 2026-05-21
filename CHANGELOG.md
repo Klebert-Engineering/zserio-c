@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-05-21
+
+First tagged release. Wire format 1.0 and schema language 1.0 are
+stable; release `0.1.0` declares the tool surface (runtime API,
+generated-code shape, CLI) as pre-1.0 — still subject to change
+between minor releases until `1.0.0`. See
+[`docs/spec/compatibility.md`](docs/spec/compatibility.md) for the
+full versioning policy.
+
+The C-native parser + generator (`zserio_c_gen`) replaced the Java
+front-end on the C target; the legacy Java extension under
+`generator/` remains as the cpp-side oracle for the xvalidation
+gate only. ndslive end-to-end conformance + bidirectional roundtrip
+under ASan + UBSan are clean. Safety-case documents (14 work
+products under `docs/safety-case/`) are structurally complete at
+`status: draft`, awaiting independent review.
+
 ### Phase 6 — optimisation arc (2026-05-13 → 2026-05-15)
 
 With the measurement framework live, the optimisation work that

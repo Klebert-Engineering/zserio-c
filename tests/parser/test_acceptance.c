@@ -1,6 +1,6 @@
 /*
  * SPDX-License-Identifier: MIT
- * Copyright (c) 2026 Fabian Klebert
+ * Copyright (c) 2026 Klebert Engineering
  *
  * Acceptance test: parse a curated subset of the upstream
  * zserio test-data corpus and assert every schema parses to

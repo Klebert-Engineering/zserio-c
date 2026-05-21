@@ -5,7 +5,7 @@ binary serialization framework, with a clean-room parser/generator and
 runtime designed for automotive functional-safety use (ISO 26262
 ASIL-B target, ASIL-D headroom).
 
-[![CI](https://github.com/ke-fritz/zserio-c-shadow/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ke-fritz/zserio-c-shadow/actions/workflows/ci.yml)
+[![CI](https://github.com/Klebert-Engineering/zserio-c/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Klebert-Engineering/zserio-c/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/badge/release-0.1.0-blue.svg)](docs/spec/compatibility.md)
 [![Wire format](https://img.shields.io/badge/wire%20format-1.0-success.svg)](docs/spec/wire-format.md)
 [![Schema language](https://img.shields.io/badge/schema%20language-1.0-success.svg)](docs/spec/schema-language.md)
@@ -14,7 +14,7 @@ ASIL-B target, ASIL-D headroom).
 [![Upstream zserio](https://img.shields.io/badge/upstream-v2.18.1-orange.svg)](https://github.com/ndsev/zserio/releases/tag/v2.18.1)
 [![Wire compatibility](https://img.shields.io/badge/xvalidation-182%20%2F%20182-success.svg)](tests/xvalidation/)
 [![Coverage](https://img.shields.io/badge/coverage-99.9%25%20line%20%C2%B7%2088%25%20branch-success.svg)](docs/safety-case/tool-qualification-coverage.md)
-[![MISRA](https://img.shields.io/badge/MISRA--C%3A2012-strict%20%2B%20D001..D006-blue.svg)](docs/misra-deviations/)
+[![MISRA](https://img.shields.io/badge/MISRA--C%3A2012-strict%20%2B%20D001..D007-blue.svg)](docs/misra-deviations/)
 [![ISO 26262](https://img.shields.io/badge/ISO%2026262-ASIL--B%20target-blue.svg)](docs/safety-case/)
 
 --------
@@ -82,7 +82,7 @@ The four are CI-gated on every commit, not aspirational:
 |---|---|
 | Pure C99 generated code | `-std=c99 -pedantic -Werror` plus strict warnings in [`CMakeLists.txt`](CMakeLists.txt) on every supported compiler (clang, gcc). No GNU extensions. |
 | No implicit heap | Forbidden-symbol grep blocks any direct `malloc`/`calloc`/`realloc`/`free` in `runtime/src/*.c` or generated code. All allocation flows through `zserio_allocator_t`. |
-| MISRA C:2012 strict | `cppcheck --addon=misra` clean on runtime sources AND on generated output from the upstream test corpus. Six documented deviations under [`docs/misra-deviations/`](docs/misra-deviations/). |
+| MISRA C:2012 strict | `cppcheck --addon=misra` clean on runtime sources AND on generated output from the upstream test corpus. Seven documented deviations under [`docs/misra-deviations/`](docs/misra-deviations/). |
 | ISO 26262 alignment | 14 work products under [`docs/safety-case/`](docs/safety-case/) grown alongside the code, not retrofitted. |
 
 ## Numbers
@@ -167,7 +167,7 @@ For **working on** zserio-c, or **deploying it under ISO 26262**:
 | [Requirements](requirements/) | Domain, functional, safety, and performance requirements. |
 | [Safety case](docs/safety-case/) | 14 ISO 26262 work products. |
 | [Integration responsibilities](docs/integration-guide.md) | What the safety case delegates to the embedding system. |
-| [MISRA deviations](docs/misra-deviations/) | D001..D006 with justifications. |
+| [MISRA deviations](docs/misra-deviations/) | D001..D007 with justifications. |
 | [Upstream analysis](docs/upstream-analysis/) | Six deep-reads of zserio that motivated v1 design. |
 
 ## Repository layout
@@ -228,7 +228,7 @@ there is no shared library to install. The CI gate
 
 ## License
 
-[MIT](LICENSE). Copyright © 2026 Fabian Klebert.
+[MIT](LICENSE). Copyright © 2026 Klebert Engineering.
 
 The upstream `ndsev/zserio` submodule retains its own license
 (Apache 2.0). No upstream source is copied into this repository —

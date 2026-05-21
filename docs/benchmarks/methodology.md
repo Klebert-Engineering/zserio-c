@@ -95,7 +95,7 @@ desktop replaces it as the canonical x86_64 baseline.
 2. **Bring up the runner.** On the host (terminal-only):
 
    ```bash
-   git clone https://github.com/ke-fritz/zserio-c-shadow.git /opt/zserio-ci
+   git clone https://github.com/Klebert-Engineering/zserio-c.git /opt/zserio-ci
    cd /opt/zserio-ci/ci
    cp .env.example .env
    $EDITOR .env          # GITHUB_PAT=..., RUNNER_LABELS=perf,<host-label>

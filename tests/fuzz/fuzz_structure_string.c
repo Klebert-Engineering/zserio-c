@@ -1,6 +1,6 @@
 /*
  * SPDX-License-Identifier: MIT
- * Copyright (c) 2026 Fabian Klebert
+ * Copyright (c) 2026 Klebert Engineering
  *
  * libFuzzer harness for the runtime decode path exercised through
  * `functions/structure_string`. That schema is chosen because it

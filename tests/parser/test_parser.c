@@ -1,6 +1,6 @@
 /*
  * SPDX-License-Identifier: MIT
- * Copyright (c) 2026 Fabian Klebert
+ * Copyright (c) 2026 Klebert Engineering
  *
  * Integration tests for the recursive-descent parser. Each case
  * registers a hand-built schema buffer, parses it, asserts that

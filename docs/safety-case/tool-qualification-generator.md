@@ -16,7 +16,7 @@ tool: zserio_c.jar
 | Source         | This repository, `generator/`. Built by `tools/build_generator_jar.sh`.                            |
 | Pinned by      | Repository state (commit SHA). The generator's jar is rebuilt from source on every CI run; there is no cached binary. |
 | Configuration  | Invoked from `tests/xvalidation/run_xvalidation.sh` and from integrator-side build scripts; no per-schema configuration beyond `-setTopLevelPackage` (only used for `packages/zs/index.zs`). |
-| License        | MIT (Fabian Klebert, 2026), same as the runtime.                                                   |
+| License        | MIT (Klebert Engineering, 2026), same as the runtime.                                              |
 
 ## TCL analysis (ISO 26262-8 §11.4.5)
 

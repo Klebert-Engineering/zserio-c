@@ -1,6 +1,6 @@
 /*
  * SPDX-License-Identifier: MIT
- * Copyright (c) 2026 Fabian Klebert
+ * Copyright (c) 2026 Klebert Engineering
  *
  * Semantic-analyser tests: drive parse → analyse and check the
  * `resolved` annotations + diagnostic emission.

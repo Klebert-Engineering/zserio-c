@@ -49,7 +49,8 @@ Method **(3) — validation of the software tool** per ISO 26262-8
 | 11.x (pointer/integer casts)    | Same as above; the four file-scoped deviations (`*allocator.c`, `*float.c`, `*string.c`, `*bytes.c`, `*extern.c`) are independently justified in `docs/misra-deviations/D004` and `D005`. |
 | 15.x (control flow)             | Rule 15.5 (multiple-returns) deviation is global and documented (`D001`). Rule 15.6 had specific findings (now fixed) — confirmed by re-running the gate. |
 | 17.2 (no recursion)             | The runtime's safety case rests on this; the rule has never triggered, but its operation is verified by inspection of a known-recursive test program (described under "Specific criteria"). |
-| 20.x (preprocessor)             | All four deviations (`D006` covers 20.7 + 20.10 for type-parametric macros; the inline 21.6 suppression on the debug-only `<stdio.h>` include is documented inline). |
+| 19.x (overlapping storage)      | `D007` (Rule 19.2): generated tagged unions for zserio `choice` / `union` types, generator-output scope only. |
+| 20.x (preprocessor)             | `D006` covers 20.7 + 20.10 for type-parametric macros; the inline 21.6 suppression on the debug-only `<stdio.h>` include is documented inline. |
 | 21.x (banned library functions) | `D002` (Rule 21.3 in `allocator.c` only), `D003` (Rule 21.15 in `float.c` only). Both file-scoped. |
 
 ## Specific criteria and evidence

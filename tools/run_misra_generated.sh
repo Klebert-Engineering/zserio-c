@@ -138,7 +138,7 @@ CPPCHECK_ARGS_BASE=(
     #   `*string.c/...` in the runtime list) because generated file
     #   names are schema-dependent.
     # - misra-c2012-19.2: union usage. Zserio choice/union types
-    #   map to a tagged C union by design; see deviation D006.
+    #   map to a tagged C union by design; see deviation D007.
     --suppress=unmatchedSuppression
     --suppress=constParameterPointer
     --suppress=misra-c2012-2.5

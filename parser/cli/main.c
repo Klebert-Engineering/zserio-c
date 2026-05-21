@@ -1,6 +1,6 @@
 /*
  * SPDX-License-Identifier: MIT
- * Copyright (c) 2026 Fabian Klebert
+ * Copyright (c) 2026 Klebert Engineering
  *
  * zserio-c-gen: command-line driver for the C-native parser
  * pipeline. Reads a `.zs` schema, parses + analyses + emits

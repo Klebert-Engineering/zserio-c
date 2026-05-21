@@ -1,6 +1,6 @@
 /*
  * SPDX-License-Identifier: MIT
- * Copyright (c) 2026 Fabian Klebert
+ * Copyright (c) 2026 Klebert Engineering
  *
  * End-to-end emit + compile test. Parses a small schema, runs
  * the analyser, emits the generated C, writes the output to a

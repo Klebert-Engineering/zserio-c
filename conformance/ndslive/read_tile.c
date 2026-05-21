@@ -1,6 +1,6 @@
 /*
  * SPDX-License-Identifier: MIT
- * Copyright (c) 2026 Fabian Klebert
+ * Copyright (c) 2026 Klebert Engineering
  *
  * Phase 4 conformance entry point: read the user-supplied
  * tile.bin (a SmartLayerTile encoded by the upstream zserio

@@ -1,6 +1,6 @@
 /*
  * SPDX-License-Identifier: MIT
- * Copyright (c) 2026 Fabian Klebert
+ * Copyright (c) 2026 Klebert Engineering
  *
  * Corpus compile sweep: for every parseable+analysable schema
  * in the upstream language corpus, emit C code and then invoke

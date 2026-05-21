@@ -72,7 +72,7 @@ runners:
 
 - **Classic PAT**: `repo` scope.
 - **Fine-grained PAT**: `Administration: Read and write` on the
-  `zserio-c-shadow` repository.
+  `zserio-c` repository.
 
 GitHub → Settings → Developer settings → Personal access tokens.
 
@@ -87,12 +87,14 @@ runners is `docker compose` from a checkout of the repo on the
 host. No GUI required.
 
 ```bash
-git clone https://github.com/ke-fritz/zserio-c-shadow.git /opt/zserio-ci
+git clone https://github.com/Klebert-Engineering/zserio-c.git /opt/zserio-ci
 cd /opt/zserio-ci/ci
 
 cp .env.example .env
 $EDITOR .env       # GITHUB_PAT=<your PAT>; GITHUB_REPO already defaults
-                   # to ke-fritz/zserio-c-shadow.
+                   # to Klebert-Engineering/zserio-c. Set it explicitly
+                   # to ke-fritz/zserio-c-shadow if registering against
+                   # the legacy shadow mirror instead.
                    #
                    # On the primary perf box, also set:
                    #   RUNNER_LABELS=perf,primary
@@ -163,11 +165,10 @@ the same names), so within ~30 s they're back to **Idle**.
 Self-hosted runners on a **private** repository are safe — only
 collaborators can push code that runs on them.
 
-If `zserio-c-shadow` is ever made **public**, this changes: a fork
-pull request could run arbitrary code on the runner host. Before
-going public, either disable self-hosted runners for fork PRs or
-restrict them under **Settings → Actions → Fork pull request
-workflows**. The runner containers run as a non-root `runner` user
+If `zserio-c` is ever made **public**, this changes: a fork pull
+request could run arbitrary code on the runner host. Before going
+public, either disable self-hosted runners for fork PRs or restrict
+them under **Settings → Actions → Fork pull request workflows**. The runner containers run as a non-root `runner` user
 with passwordless sudo scoped to the container — a compromised job
 is contained to the container, but the container still shares the
 host kernel, so the public-repo caveat stands.

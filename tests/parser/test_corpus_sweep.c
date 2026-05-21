@@ -1,6 +1,6 @@
 /*
  * SPDX-License-Identifier: MIT
- * Copyright (c) 2026 Fabian Klebert
+ * Copyright (c) 2026 Klebert Engineering
  *
  * Corpus sweep: walks the upstream language test schema tree,
  * parses every `.zs` file it finds, and reports per-file

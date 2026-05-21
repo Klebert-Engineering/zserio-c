@@ -18,8 +18,8 @@ extension under `generator/` is a separate, optional component.
 ## 1. Build the generator and runtime
 
 ```sh
-git clone https://github.com/ke-fritz/zserio-c-shadow.git
-cd zserio-c-shadow
+git clone https://github.com/Klebert-Engineering/zserio-c.git
+cd zserio-c
 cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
 ```
