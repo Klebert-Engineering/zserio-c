@@ -7,6 +7,9 @@
  * zero errors. This is the milestone-7.2 sanity gate; the
  * full 182-schema xvalidation gate runs against the analyser
  * + emitter (later phases).
+ *
+ * Verifies: REQ-FN-002 — parser accepts the schema language
+ *                        defined in docs/spec/schema-language.md.
  */
 
 #include <stdint.h>

@@ -11,6 +11,16 @@
  * parse must yield C that the toolchain accepts. Byte-equal
  * vs the Java generator is a stricter follow-up gate that
  * requires matched driver harnesses.
+ *
+ * Verifies: REQ-FN-008 — output file layout mirrors package hierarchy
+ *                        (the compile step finds files at expected paths)
+ * Verifies: REQ-FN-009 — schema → C identifier mapping is total
+ *                        (compile fails if generated symbols are malformed)
+ * Verifies: REQ-FN-011 — all-or-nothing emission
+ *                        (partial output fails to compile)
+ * Verifies: REQ-FN-012 — cross-package include qualification
+ * Verifies: REQ-FN-015 — generated-code lifecycle entry points
+ *                        (compile fails if entry points are missing)
  */
 
 #define _POSIX_C_SOURCE 200809L

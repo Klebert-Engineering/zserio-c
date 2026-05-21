@@ -5,6 +5,11 @@
  * Multi-file compilation-session tests: load a top schema +
  * its imported dependencies, analyse across the combined
  * symbol table, assert cross-file references resolve.
+ *
+ * Verifies: REQ-FN-005 — import resolution rules (search-order
+ *                        and parse-once-by-canonical-path).
+ * Verifies: REQ-FN-006 — import-graph cycle handling
+ *                        (cycle dedup test ensures bounded work).
  */
 
 #define _POSIX_C_SOURCE 200809L

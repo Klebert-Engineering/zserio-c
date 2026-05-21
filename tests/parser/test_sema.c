@@ -4,6 +4,9 @@
  *
  * Semantic-analyser tests: drive parse → analyse and check the
  * `resolved` annotations + diagnostic emission.
+ *
+ * Verifies: REQ-FN-002 — parser accepts the schema language
+ *                        (semantic validation of resolved schemas).
  */
 
 #include <string.h>

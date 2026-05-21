@@ -1,10 +1,17 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(zserio-c
-    VERSION 0.0.0
+    VERSION 0.1.0
     DESCRIPTION "ANSI C port of the zserio schema IDL, designed for ISO 26262 / MISRA C:2012"
     LANGUAGES C
 )
+
+# Wire-format and schema-language are independently versioned axes
+# (REQ-DM-007 / docs/spec/compatibility.md). These remain stable
+# regardless of the project's release version.
+set(ZSERIO_WIRE_FORMAT_VERSION "1.0")
+set(ZSERIO_SCHEMA_LANGUAGE_VERSION "1.0")
+set(ZSERIO_UPSTREAM_PIN "v2.18.1")
 
 # C99 strict, no compiler extensions. MISRA C:2012 baseline.
 set(CMAKE_C_STANDARD 99)

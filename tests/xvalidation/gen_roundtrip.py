@@ -9,6 +9,15 @@ top-level `_set_parameters(&pkg, ...)` call) with the original
 c_driver, then replaces the populate-and-write body with a
 `<type>_read` + `<type>_write` round-trip.
 
+The round-trip driver, plus the SAN-enabled invocation of
+run_xvalidation.sh (XVAL_SAN=1), is the primary verifier for
+several runtime correctness requirements:
+
+   Verifies: REQ-FN-018 — _free is idempotent and safe on partial state
+                          (SAN run exercises malformed-input + _free path)
+   Verifies: REQ-FN-020 — output validity conditioned on ZSERIO_OK status
+   Verifies: REQ-FN-022 — round-trip byte equality on valid bitstreams
+
 Invocation:
     python3 gen_roundtrip.py [<harnesses_dir>]
 

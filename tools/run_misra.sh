@@ -10,6 +10,15 @@
 # Verifies: REQ-FS-001
 # Verifies: REQ-FS-002
 # Verifies: REQ-FS-003
+# Verifies: REQ-FN-016 — encoder performs no heap allocation
+#                        (the no-direct-libc-heap check + the API-shape
+#                        constraint that `_write` does not take an
+#                        allocator parameter together establish the
+#                        no-allocation property on the write path; a
+#                        future static-graph walk under
+#                        tools/check_no_alloc_in_writers.py is a
+#                        follow-up for the stricter "no vtable in write"
+#                        property).
 #
 # REQ-FS-003 (no recursion) is enforced by cppcheck's misra Rule 17.2,
 # which fires under --strict mode now that all categorical findings

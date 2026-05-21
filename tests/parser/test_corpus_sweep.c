@@ -8,6 +8,9 @@
  * the test unless the success ratio drops below the expected
  * threshold — this is the milestone 7.2 gate at the "broad
  * coverage" level.
+ *
+ * Verifies: REQ-FN-002 — parser accepts the schema language
+ *                        (broad-coverage gate over upstream corpus).
  */
 
 #define _POSIX_C_SOURCE 200809L

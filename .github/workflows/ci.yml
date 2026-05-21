@@ -18,6 +18,16 @@ jobs:
       - name: Run traceability check
         run: python3 tools/check_traceability.py
 
+  version-consistency:
+    name: Version consistency (REQ-DM-007)
+    runs-on: [self-hosted, linux, x64]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - name: Cross-check version sources
+        run: python3 tools/check_version_consistency.py
+
   build-and-test:
     name: Build and test (${{ matrix.compiler }})
     runs-on: [self-hosted, linux, x64]
@@ -637,6 +647,18 @@ jobs:
           set -o pipefail
           SEEDS="1 2 7 42 999" \
             bash tests/xvalidation/run_xvalidation.sh 2>&1 | tee /tmp/xval.log
+      - name: Static check — no allocator in _write paths (REQ-FN-016)
+        # Strict static check: scan every `_write` function in the
+        # runtime and in the generated output produced by the xval
+        # harness; assert none takes or references an allocator.
+        shell: bash
+        run: |
+          set -e
+          GEN_DIRS=()
+          while IFS= read -r d; do
+            GEN_DIRS+=(--gen "$d")
+          done < <(find build-xvalidation -maxdepth 2 -type d -name c_out | sort)
+          python3 tools/check_no_alloc_in_writers.py "${GEN_DIRS[@]}"
       - name: Summarise xvalidation result
         if: always()
         run: |

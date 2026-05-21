@@ -97,4 +97,19 @@ zserio_status_t zsp_session_load(zsp_session_t   *s,
  */
 zserio_status_t zsp_session_analyse(zsp_session_t *s);
 
+/**
+ * Prepend the dotted `prefix` (e.g. "index_workaround" or
+ * "x.y.z") to every loaded unit's `package` declaration. Mirrors
+ * upstream zserio's `-setTopLevelPackage` CLI flag.
+ *
+ * Mutates the AST in place; MUST be called between
+ * `zsp_session_load` and `zsp_session_analyse`.
+ *
+ * Returns `ZSERIO_OK` on success, `ZSERIO_ERR_INVALID_ARGUMENT`
+ * if `s` is NULL, `ZSERIO_ERR_OUT_OF_MEMORY` on allocation
+ * failure. An empty or NULL `prefix` is a no-op and returns OK.
+ */
+zserio_status_t zsp_session_set_top_level_package(zsp_session_t *s,
+                                                  const char    *prefix);
+
 #endif /* ZSPARSER_SESSION_H_ */

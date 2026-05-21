@@ -3,6 +3,11 @@
  * Copyright (c) 2026 Fabian Klebert
  *
  * Unit tests for zsparser/diag.
+ *
+ * Verifies: REQ-FN-003 — diagnostic message format
+ *                        (file:line:col: severity: message on a single line).
+ * Verifies: REQ-FN-004 — diagnostics carry precise source locations
+ *                        (file path + 1-based line + 1-based byte column).
  */
 
 #include <string.h>

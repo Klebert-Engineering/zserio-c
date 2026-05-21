@@ -3,6 +3,9 @@
  * Copyright (c) 2026 Fabian Klebert
  *
  * Unit tests for zsparser/source.
+ *
+ * Verifies: REQ-FN-005 — import resolution rules
+ *                        (source loading and parse-once-by-canonical-path).
  */
 
 #include <string.h>
