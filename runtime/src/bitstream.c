@@ -176,7 +176,36 @@ zserio_status_t zserio_bitstream_reader_init(zserio_bitstream_reader_t *bs,
     bs->bit_index = 0U;
     bs->bit_cache = 0U;
     bs->cache_bits = 0U;
+    bs->depth = 0U;
+    bs->max_depth = ZSERIO_BITSTREAM_DEFAULT_MAX_DEPTH;
     return ZSERIO_OK;
+}
+
+zserio_status_t zserio_bitstream_reader_enter(zserio_bitstream_reader_t *bs)
+{
+    if (bs == NULL) {
+        return ZSERIO_ERR_INVALID_ARGUMENT;
+    }
+    if (bs->depth >= bs->max_depth) {
+        return ZSERIO_ERR_MAX_DEPTH_EXCEEDED;
+    }
+    bs->depth += 1U;
+    return ZSERIO_OK;
+}
+
+void zserio_bitstream_reader_leave(zserio_bitstream_reader_t *bs)
+{
+    if ((bs != NULL) && (bs->depth > 0U)) {
+        bs->depth -= 1U;
+    }
+}
+
+void zserio_bitstream_reader_set_max_depth(zserio_bitstream_reader_t *bs,
+                                           size_t max_depth)
+{
+    if (bs != NULL) {
+        bs->max_depth = max_depth;
+    }
 }
 
 zserio_status_t zserio_bitstream_read_bits(zserio_bitstream_reader_t *bs,

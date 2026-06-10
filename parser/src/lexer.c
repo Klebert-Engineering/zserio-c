@@ -341,7 +341,17 @@ static double parse_decimal_f64(const uint8_t *bytes, size_t len)
                 exp_sign = -1;
                 continue;
             }
-            exp_val = (exp_val * 10) + (int)(c - (uint8_t)'0');
+            /* Clamp the exponent magnitude. Without this, a literal
+             * like `1e9999999999` (a) overflows the `int` accumulator
+             * — undefined behaviour — and (b) drives the scaling loop
+             * below up to ~2e9 iterations, a CPU denial of service on
+             * a single token. 512 is far past the IEEE-754 double
+             * range (~1e308), so the result saturates to +/-inf or 0
+             * exactly as the unclamped value would once it leaves the
+             * representable range. */
+            if (exp_val < 512) {
+                exp_val = (exp_val * 10) + (int)(c - (uint8_t)'0');
+            }
             continue;
         }
         if ((c == (uint8_t)'e') || (c == (uint8_t)'E')) {

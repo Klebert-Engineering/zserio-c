@@ -2174,6 +2174,41 @@ static void emit_element_read(buf_t *b, const zsp_ast_node_t *ty,
     }
 }
 
+/* Emit the post-length, pre-allocation sanity guards for a
+ * wire-driven array, immediately inside `if (arr_count_ > 0u)`.
+ *
+ * Two guards:
+ *   1. Overflow — reject `arr_count_` so large that
+ *      `arr_count_ * sizeof(elem)` would wrap `size_t`. Without this
+ *      a wire-supplied length (up to 2^31-1 from `varsize`) times an
+ *      element size >= 2 overflows on a 32-bit target, under-sizing
+ *      the allocation while the element loop writes the full count —
+ *      a remote heap buffer overflow. Always emitted.
+ *   2. Bomb — reject `arr_count_` larger than the bits left in the
+ *      stream. Every unpacked element occupies at least one bit, so a
+ *      valid stream can never declare more elements than remaining
+ *      bits; a tiny input claiming a huge array is malformed. This
+ *      mirrors the runtime string/bytes readers. Skipped for packed
+ *      arrays, whose delta encoding can legitimately pack many equal
+ *      elements into very few bits.
+ *
+ * `slot_prefix` is "self->" (struct) or "self->u." (choice/union arm).
+ * (REQ-FS-005 / REQ-FN-017 — bound resource use on malformed input.) */
+static void emit_array_alloc_guard(buf_t *b, const char *slot_prefix,
+                                   const uint8_t *fn, size_t fl,
+                                   bool packed)
+{
+    emit_lit(b, "            if (arr_count_ > (SIZE_MAX / sizeof(*");
+    emit_lit(b, slot_prefix);
+    emit_snake(b, fn, fl);
+    emit_lit(b, "))) return ZSERIO_ERR_ARRAY_TOO_LARGE;\n");
+    if (!packed) {
+        emit_lit(b, "            if (arr_count_ > (zserio_bitstream_reader_size(bs)"
+                    " - zserio_bitstream_reader_position(bs)))"
+                    " return ZSERIO_ERR_ARRAY_TOO_LARGE;\n");
+    }
+}
+
 /* Emit the read function body for one field. */
 static void emit_field_read(buf_t *b, const zsp_ast_node_t *field,
                             const zsp_source_t *src)
@@ -2302,6 +2337,8 @@ static void emit_field_read(buf_t *b, const zsp_ast_node_t *field,
             emit_snake(b, fn, fl);
             emit_lit(b, " = NULL;\n");
             emit_lit(b, "        if (arr_count_ > 0u) {\n");
+            emit_array_alloc_guard(b, "self->", fn, fl,
+                                   ty->u.type_array.packed);
             emit_lit(b, "            self->");
             emit_snake(b, fn, fl);
             emit_lit(b, " = (");
@@ -3392,6 +3429,14 @@ static void emit_source_for_compound(buf_t *b, const zsp_ast_node_t *cmpd,
     emit_lit(b, "    (void)alloc;\n");
     emit_lit(b, "    (void)self;\n");
     emit_lit(b, "    (void)bs;\n");
+    /* Bound decode recursion: every nesting level of a compound read
+     * costs one C stack frame, so a cyclic type (linked list, tree,
+     * mutually-recursive structs) decoding adversarial input would
+     * otherwise recurse until the stack is exhausted. `_enter`/`_leave`
+     * track depth on the reader and fail past its ceiling (REQ-FS-003).
+     * `_leave` runs only on the success path — an error abandons the
+     * whole decode, so leaking depth there is harmless. */
+    emit_lit(b, "    ZSERIO_TRY(zserio_bitstream_reader_enter(bs));\n");
     if (is_union) {
         emit_lit(b, "    ZSERIO_TRY(zserio_read_varsize(bs, &self->tag));\n");
         emit_lit(b, "    switch (self->tag) {\n");
@@ -3406,7 +3451,12 @@ static void emit_source_for_compound(buf_t *b, const zsp_ast_node_t *cmpd,
             emit_lit(b, "        break;\n");
             arm++;
         }
-        emit_lit(b, "    default: break;\n");
+        /* A union tag read from the wire that names no declared arm is
+         * malformed input: reject it rather than returning OK with an
+         * untouched (zero) union. Mirrors the runtime's INVALID_TAG
+         * contract and the FreeMarker generator. (REQ-FS-006 — validate
+         * decoded values at the boundary.) */
+        emit_lit(b, "    default: return ZSERIO_ERR_INVALID_TAG;\n");
         emit_lit(b, "    }\n");
     }
     else {
@@ -3495,6 +3545,7 @@ static void emit_source_for_compound(buf_t *b, const zsp_ast_node_t *cmpd,
             emit_field_read(b, m, src);
         }
     }
+    emit_lit(b, "    zserio_bitstream_reader_leave(bs);\n");
     emit_lit(b, "    return ZSERIO_OK;\n");
     emit_lit(b, "}\n\n");
 
@@ -4418,6 +4469,8 @@ static void emit_choice_case_read(buf_t *b, const zsp_ast_node_t *f,
         emit_snake(b, fn, fl);
         emit_lit(b, " = NULL;\n");
         emit_lit(b, "        if (arr_count_ > 0u) {\n");
+        emit_array_alloc_guard(b, "self->u.", fn, fl,
+                               ty->u.type_array.packed);
         emit_lit(b, "            self->u.");
         emit_snake(b, fn, fl);
         emit_lit(b, " = (");
@@ -4748,6 +4801,8 @@ static void emit_choice_source(buf_t *b, const zsp_ast_node_t *ch,
     emit_lit(b, "    (void)self;\n");
     emit_lit(b, "    (void)bs;\n");
     emit_lit(b, "    (void)alloc;\n");
+    /* Bound decode recursion (REQ-FS-003); see the compound reader. */
+    emit_lit(b, "    ZSERIO_TRY(zserio_bitstream_reader_enter(bs));\n");
     emit_lit(b, "    switch ((int)(");
     emit_expr_c(b, ch->u.choice.selector, src);
     emit_lit(b, ")) {\n");
@@ -4783,7 +4838,8 @@ static void emit_choice_source(buf_t *b, const zsp_ast_node_t *ch,
         emit_choice_case_read(b, ch->u.choice.default_case->u.choice_default.field, src);
     }
     emit_lit(b, "        break;\n");
-    emit_lit(b, "    }\n    return ZSERIO_OK;\n}\n\n");
+    emit_lit(b, "    }\n    zserio_bitstream_reader_leave(bs);\n"
+                "    return ZSERIO_OK;\n}\n\n");
 
     /* write */
     emit_lit(b, "zserio_status_t "); (void)emit_type_id(b, ch, src);

@@ -182,6 +182,25 @@ def main() -> int:
             )
         return EXIT_FAIL
 
+    if writers_seen == 0 and args.gen:
+        # Fail closed: --gen was supplied (so the caller intends to
+        # verify generated code), yet not one `_write` function was
+        # found. Generated encoders are named `<type>_write`, so zero
+        # writers means the paths are wrong/empty and the gate would
+        # otherwise pass vacuously — exactly the misconfiguration that
+        # lets an un-scanned regression slip through.
+        sys.stderr.write(
+            "check_no_alloc_in_writers: FAIL — --gen supplied but no "
+            "`_write` functions were found in:\n"
+        )
+        for gen_root in args.gen:
+            sys.stderr.write(f"    {gen_root}\n")
+        sys.stderr.write(
+            "Generated encoders end in `_write`; an empty scan means "
+            "the generated tree is missing or the paths are wrong.\n"
+        )
+        return EXIT_FAIL
+
     if writers_seen == 0 and not args.gen:
         # Runtime-only scan finds no `_write` functions — that's
         # expected (runtime helpers are named `zserio_write_<type>`,

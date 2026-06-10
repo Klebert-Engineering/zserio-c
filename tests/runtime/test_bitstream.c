@@ -845,6 +845,90 @@ static void test_trace_set_enabled_is_callable(void)
     zsc_trace_set_enabled(false);
 }
 
+/* --------------------------------------------------------------------- */
+/* Decode-recursion depth guard (REQ-FS-003)                             */
+/*                                                                       */
+/* Verifies: REQ-FS-003 — generated compound readers bound recursion via */
+/*                        the reader's depth counter instead of recursing */
+/*                        until the C stack is exhausted.                 */
+/* --------------------------------------------------------------------- */
+
+static void test_reader_depth_default_after_init(void)
+{
+    uint8_t buf[8] = {0};
+    zserio_bitstream_reader_t r;
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zserio_bitstream_reader_init(&r, buf, 64U));
+    TEST_ASSERT_EQUAL_size_t(ZSERIO_BITSTREAM_DEFAULT_MAX_DEPTH, r.max_depth);
+    TEST_ASSERT_EQUAL_size_t(0U, r.depth);
+}
+
+static void test_reader_depth_enter_leave_balanced(void)
+{
+    uint8_t buf[8] = {0};
+    zserio_bitstream_reader_t r;
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zserio_bitstream_reader_init(&r, buf, 64U));
+    for (size_t i = 0U; i < 100U; ++i) {
+        TEST_ASSERT_EQUAL(ZSERIO_OK, zserio_bitstream_reader_enter(&r));
+    }
+    TEST_ASSERT_EQUAL_size_t(100U, r.depth);
+    for (size_t i = 0U; i < 100U; ++i) {
+        zserio_bitstream_reader_leave(&r);
+    }
+    TEST_ASSERT_EQUAL_size_t(0U, r.depth);
+}
+
+static void test_reader_depth_rejects_past_limit(void)
+{
+    uint8_t buf[8] = {0};
+    zserio_bitstream_reader_t r;
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zserio_bitstream_reader_init(&r, buf, 64U));
+    zserio_bitstream_reader_set_max_depth(&r, 4U);
+    for (size_t i = 0U; i < 4U; ++i) {
+        TEST_ASSERT_EQUAL(ZSERIO_OK, zserio_bitstream_reader_enter(&r));
+    }
+    /* The fifth nesting level is rejected — not a crash. */
+    TEST_ASSERT_EQUAL(ZSERIO_ERR_MAX_DEPTH_EXCEEDED,
+                      zserio_bitstream_reader_enter(&r));
+    TEST_ASSERT_EQUAL_size_t(4U, r.depth);
+}
+
+static void test_reader_depth_leave_reopens_slot(void)
+{
+    uint8_t buf[8] = {0};
+    zserio_bitstream_reader_t r;
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zserio_bitstream_reader_init(&r, buf, 64U));
+    zserio_bitstream_reader_set_max_depth(&r, 2U);
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zserio_bitstream_reader_enter(&r));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zserio_bitstream_reader_enter(&r));
+    TEST_ASSERT_EQUAL(ZSERIO_ERR_MAX_DEPTH_EXCEEDED,
+                      zserio_bitstream_reader_enter(&r));
+    /* Unwinding one level frees a slot so a sibling can be read. */
+    zserio_bitstream_reader_leave(&r);
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zserio_bitstream_reader_enter(&r));
+}
+
+static void test_reader_depth_leave_saturates_at_zero(void)
+{
+    uint8_t buf[8] = {0};
+    zserio_bitstream_reader_t r;
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zserio_bitstream_reader_init(&r, buf, 64U));
+    /* Extra leaves must not underflow the unsigned counter. */
+    zserio_bitstream_reader_leave(&r);
+    zserio_bitstream_reader_leave(&r);
+    TEST_ASSERT_EQUAL_size_t(0U, r.depth);
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zserio_bitstream_reader_enter(&r));
+    TEST_ASSERT_EQUAL_size_t(1U, r.depth);
+}
+
+static void test_reader_depth_null_safe(void)
+{
+    TEST_ASSERT_EQUAL(ZSERIO_ERR_INVALID_ARGUMENT,
+                      zserio_bitstream_reader_enter(NULL));
+    /* Must not dereference NULL. */
+    zserio_bitstream_reader_leave(NULL);
+    zserio_bitstream_reader_set_max_depth(NULL, 10U);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -933,6 +1017,14 @@ int main(void)
     RUN_TEST(test_two_readers_independent);
 
     RUN_TEST(test_trace_set_enabled_is_callable);
+
+    /* Reader: decode-recursion depth guard (REQ-FS-003) */
+    RUN_TEST(test_reader_depth_default_after_init);
+    RUN_TEST(test_reader_depth_enter_leave_balanced);
+    RUN_TEST(test_reader_depth_rejects_past_limit);
+    RUN_TEST(test_reader_depth_leave_reopens_slot);
+    RUN_TEST(test_reader_depth_leave_saturates_at_zero);
+    RUN_TEST(test_reader_depth_null_safe);
 
     return UNITY_END();
 }

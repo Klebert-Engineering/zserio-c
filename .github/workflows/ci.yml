@@ -5,6 +5,14 @@ on:
     branches: [main]
   pull_request:
 
+# Least privilege by default: the build/test/lint jobs only read the
+# checkout. Jobs that post log comments raise their own scope locally
+# with an explicit `permissions:` block. (Hardening: without a
+# workflow-level default, jobs inherit the repo's token scope, which
+# is often read-write to every API.)
+permissions:
+  contents: read
+
 jobs:
   traceability:
     name: Requirements traceability
@@ -658,6 +666,12 @@ jobs:
           while IFS= read -r d; do
             GEN_DIRS+=(--gen "$d")
           done < <(find build-xvalidation -maxdepth 2 -type d -name c_out | sort)
+          # Fail closed: if no generated trees were found the gate would
+          # otherwise scan nothing and pass vacuously (REQ-FN-016).
+          if [ "${#GEN_DIRS[@]}" -eq 0 ]; then
+            echo "FAIL: no c_out generated directories found under build-xvalidation" >&2
+            exit 1
+          fi
           python3 tools/check_no_alloc_in_writers.py "${GEN_DIRS[@]}"
       - name: Summarise xvalidation result
         if: always()

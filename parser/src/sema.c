@@ -2077,7 +2077,17 @@ typedef struct inst_ctx {
     inst_record_t  **records;
     size_t           n_records;
     size_t           cap;
+    size_t           depth;       /* Current instantiation-recursion depth. */
 } inst_ctx_t;
+
+/* Ceiling on nested template instantiation. A self-referential
+ * template (`struct Foo<T> { Foo<Foo<T>> a; }`) produces a
+ * structurally larger argument at every level, so the memo cache
+ * never hits and instantiation would otherwise recurse — and allocate
+ * a fresh clone per level — without bound. Upstream zserio rejects
+ * recursive templates outright; we cap the depth and emit a
+ * diagnostic. 64 is far past any real generic-nesting need. */
+enum { ZSP_MAX_TEMPLATE_DEPTH = 64U };
 
 static zsp_ast_node_t *get_or_instantiate(inst_ctx_t *ctx,
                                           zsp_ast_node_t *template_decl,
@@ -2101,6 +2111,17 @@ static zsp_ast_node_t *get_or_instantiate(inst_ctx_t *ctx,
                               (zsp_ast_node_t * const *)args, n_args)) {
             return r->concrete;
         }
+    }
+    /* Bound recursive instantiation: a self-referential template never
+     * hits the memo cache above (its args grow each level), so without
+     * this it would recurse and allocate without end. Returning NULL is
+     * handled by the sole caller (replace_template_refs), which leaves
+     * the reference un-instantiated. */
+    if (ctx->depth >= ZSP_MAX_TEMPLATE_DEPTH) {
+        (void)zsp_diag_emit_lit(ctx->s->diag, ZSP_SEV_ERROR,
+                                template_decl->file_id, template_decl->offset,
+                                "recursive template instantiation exceeds depth limit");
+        return NULL;
     }
     /* Determine the template decl's own package parts (used as
      * a common-prefix to keep same-package arg mangles compact). */
@@ -2269,8 +2290,12 @@ static zsp_ast_node_t *get_or_instantiate(inst_ctx_t *ctx,
                      (const uint8_t *)rec->mangled,
                      rec->mangled_len, concrete);
 
-    /* Recursively scan the concrete for further template uses. */
+    /* Recursively scan the concrete for further template uses. The
+     * depth counter brackets exactly this recursion so the cap above
+     * fires on a self-referential chain. */
+    ctx->depth++;
     replace_template_refs(ctx, concrete);
+    ctx->depth--;
 
     return concrete;
 }
@@ -2370,7 +2395,7 @@ zserio_status_t zsp_sema_instantiate_templates(zsp_sema_t *s,
     if (unit->kind != ZSP_AST_UNIT) {
         return ZSERIO_OK;
     }
-    inst_ctx_t ctx = { s, unit, NULL, 0U, 0U };
+    inst_ctx_t ctx = { s, unit, NULL, 0U, 0U, 0U };
     /* Snapshot the original decl count so newly-added clones
      * aren't iterated again (their internals are already
      * processed inside get_or_instantiate). */

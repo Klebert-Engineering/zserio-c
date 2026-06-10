@@ -63,7 +63,15 @@ typedef enum zserio_status {
     ZSERIO_ERR_ARRAY_TOO_LARGE,         /**< Decoded array length exceeds caller-supplied max_count. */
 
     /* Resource. */
-    ZSERIO_ERR_OUT_OF_MEMORY            /**< Allocator returned NULL. */
+    ZSERIO_ERR_OUT_OF_MEMORY,           /**< Allocator returned NULL. */
+
+    /* Safety limits (zserio-c specific; no upstream C++ equivalent). */
+    ZSERIO_ERR_MAX_DEPTH_EXCEEDED       /**< Decode recursion exceeded the
+                                         *   reader's configured depth limit
+                                         *   (REQ-FS-003). Raised by generated
+                                         *   compound readers on adversarially
+                                         *   nested input before the C stack is
+                                         *   exhausted. */
 } zserio_status_t;
 
 /**

@@ -47,7 +47,19 @@ typedef struct parser {
     zsp_token_t           stash;
     bool                  has_stash;
     bool                  oom;        /**< Sticky: arena ran out. */
+    unsigned              depth;      /**< Current grammar-recursion depth.
+                                       *   Gated against ZSP_MAX_PARSE_DEPTH
+                                       *   to bound stack use on adversarial
+                                       *   nesting (REQ-FS-003 / REQ-FS-005). */
 } parser_t;
+
+/* Upper bound on the two unbounded grammar recursions — parenthesised
+ * / unary / ternary expressions and nested template-argument types.
+ * A schema nesting deeper than this is rejected with a diagnostic
+ * rather than being allowed to exhaust the C stack. 256 is far beyond
+ * any legitimate schema yet leaves ample headroom under the smallest
+ * realistic task stack (256 levels * a few hundred bytes/frame). */
+enum { ZSP_MAX_PARSE_DEPTH = 256U };
 
 static zserio_status_t parser_init(parser_t *p,
                                    zsp_source_t *src, zsp_file_id_t file_id,
@@ -58,6 +70,7 @@ static zserio_status_t parser_init(parser_t *p,
     p->file_id   = file_id;
     p->oom       = false;
     p->has_stash = false;
+    p->depth     = 0U;
     ZSERIO_TRY(zsp_lexer_init(&p->lexer, src, file_id, diag));
     ZSERIO_TRY(zsp_lexer_next(&p->lexer, &p->cur));
     ZSERIO_TRY(zsp_lexer_next(&p->lexer, &p->peek));
@@ -98,6 +111,29 @@ static void emit_error_at_cur(parser_t *p, const char *msg)
 {
     (void)zsp_diag_emit_lit(p->diag, ZSP_SEV_ERROR,
                             p->cur.file_id, p->cur.offset, msg);
+}
+
+/* Recursion-depth gate. `parse_enter` is called on entry to each of
+ * the unbounded grammar recursions; it rejects nesting past
+ * ZSP_MAX_PARSE_DEPTH with a diagnostic and returns false so the
+ * caller bails out (NULL), at which point the existing panic-mode
+ * recovery resynchronises. `parse_leave` is paired with every
+ * successful `parse_enter`. The inc/dec are always balanced within a
+ * single (possibly speculative) parse, so save/restore need not track
+ * depth. */
+static bool parse_enter(parser_t *p)
+{
+    if (p->depth >= ZSP_MAX_PARSE_DEPTH) {
+        emit_error_at_cur(p, "expression or type nesting too deep");
+        return false;
+    }
+    p->depth++;
+    return true;
+}
+
+static void parse_leave(parser_t *p)
+{
+    p->depth--;
 }
 
 /* ----- Speculative-parse snapshot/restore --------------------- */
@@ -242,9 +278,12 @@ static bool push_or_oom(parser_t *p, zsp_ast_list_t *l, zsp_ast_node_t *n)
 static zsp_ast_node_t *parse_ident(parser_t *p);
 static zsp_ast_node_t *parse_dotted_name(parser_t *p);
 static zsp_ast_node_t *parse_type(parser_t *p);
+static zsp_ast_node_t *parse_type_inner(parser_t *p);
 static zsp_ast_node_t *parse_expression(parser_t *p);
 static zsp_ast_node_t *parse_ternary(parser_t *p);
+static zsp_ast_node_t *parse_ternary_inner(parser_t *p);
 static zsp_ast_node_t *parse_primary(parser_t *p);
+static zsp_ast_node_t *parse_primary_inner(parser_t *p);
 static zsp_ast_node_t *parse_binop_rhs(parser_t *p, int min_prec,
                                        zsp_ast_node_t *lhs);
 static zsp_ast_node_t *parse_decl(parser_t *p, zsp_ast_node_t **opt_anno);
@@ -587,6 +626,16 @@ static bool parse_template_args(parser_t *p,
 
 static zsp_ast_node_t *parse_type(parser_t *p)
 {
+    if (!parse_enter(p)) {
+        return NULL;
+    }
+    zsp_ast_node_t *const r = parse_type_inner(p);
+    parse_leave(p);
+    return r;
+}
+
+static zsp_ast_node_t *parse_type_inner(parser_t *p)
+{
     const uint32_t start = p->cur.offset;
 
     /* Direct keyword builtins. */
@@ -713,6 +762,16 @@ static zsp_op_code_t binop_code(zsp_token_kind_t k)
 }
 
 static zsp_ast_node_t *parse_primary(parser_t *p)
+{
+    if (!parse_enter(p)) {
+        return NULL;
+    }
+    zsp_ast_node_t *const r = parse_primary_inner(p);
+    parse_leave(p);
+    return r;
+}
+
+static zsp_ast_node_t *parse_primary_inner(parser_t *p)
 {
     const uint32_t start = p->cur.offset;
 
@@ -938,6 +997,16 @@ static zsp_ast_node_t *parse_binop_rhs(parser_t *p, int min_prec,
 }
 
 static zsp_ast_node_t *parse_ternary(parser_t *p)
+{
+    if (!parse_enter(p)) {
+        return NULL;
+    }
+    zsp_ast_node_t *const r = parse_ternary_inner(p);
+    parse_leave(p);
+    return r;
+}
+
+static zsp_ast_node_t *parse_ternary_inner(parser_t *p)
 {
     zsp_ast_node_t *cond = parse_primary(p);
     if (cond == NULL) {
@@ -1676,6 +1745,15 @@ static zsp_ast_node_t *parse_rule_group(parser_t *p)
         }
         if (!push_or_oom(p, &rules, r)) {
             return NULL;
+        }
+        /* Progress guard: if none of the expectations above consumed
+         * a token (a malformed body that starts with neither `rule`,
+         * an expression, nor `;`), force-advance so the loop cannot
+         * spin forever allocating empty rule nodes (REQ-FS-005). The
+         * sibling compound-body loops all carry this guard; rule_group
+         * was the lone omission. */
+        if (p->cur.offset == rstart) {
+            advance(p);
         }
     }
     (void)expect(p, ZSP_TOK_RBRACE, "expected '}' to close rule_group");

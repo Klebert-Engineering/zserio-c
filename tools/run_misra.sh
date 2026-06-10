@@ -101,12 +101,25 @@ done < <(find "${REPO_ROOT}/runtime/src" -name '*.c' -print0)
 
 FORBIDDEN_JMP='(?<![>.])\b(setjmp|longjmp|sigsetjmp|siglongjmp|_setjmp|_longjmp)\b\s*\('
 echo "=== forbidden-call check (REQ-FS-002) ==="
+JMP_SCANNED=0
+# NOTE: the parentheses around the -name alternation are essential.
+# Without them, `-print0` binds only to the `*.h` branch (-a binds
+# tighter than -o) and, because an explicit action is present, find
+# suppresses the implicit -print for the `*.c` branch — so zero .c
+# files would be scanned and the REQ-FS-002 gate would pass vacuously.
 while IFS= read -r -d '' src; do
+    JMP_SCANNED=$((JMP_SCANNED + 1))
     if grep -nP "${FORBIDDEN_JMP}" "${src}"; then
         echo "FAIL: non-local control flow in ${src}"
         FAILED=1
     fi
-done < <(find "${REPO_ROOT}/runtime" -name '*.c' -o -name '*.h' -print0)
+done < <(find "${REPO_ROOT}/runtime" \( -name '*.c' -o -name '*.h' \) -print0)
+# Fail closed: if the scan covered nothing, the gate is broken, not clean.
+if [[ "${JMP_SCANNED}" -eq 0 ]]; then
+    echo "FAIL: REQ-FS-002 scan matched no source files under ${REPO_ROOT}/runtime"
+    FAILED=1
+fi
+echo "REQ-FS-002: scanned ${JMP_SCANNED} file(s)"
 
 # --- 4. Combined exit ----------------------------------------------------
 

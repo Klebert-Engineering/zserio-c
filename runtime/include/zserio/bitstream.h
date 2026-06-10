@@ -50,7 +50,29 @@ typedef struct zserio_bitstream_reader {
                                        *   Implementation detail. */
     uint8_t        cache_bits;        /**< Number of valid bits in `bit_cache`,
                                        *   in [0, 64]. Implementation detail. */
+    size_t         depth;             /**< Current compound-read recursion
+                                       *   depth, maintained by generated
+                                       *   readers via `_enter`/`_leave`. */
+    size_t         max_depth;         /**< Recursion ceiling; `_enter` fails
+                                       *   once `depth` would exceed it. Set
+                                       *   to ZSERIO_BITSTREAM_DEFAULT_MAX_DEPTH
+                                       *   by `_init`; tune via
+                                       *   `_set_max_depth` for the target's
+                                       *   stack budget. */
 } zserio_bitstream_reader_t;
+
+/**
+ * Default decode-recursion ceiling installed by
+ * `zserio_bitstream_reader_init`. Generated compound readers call
+ * `zserio_bitstream_reader_enter` on entry; once the nesting would
+ * exceed this, the decode fails with `ZSERIO_ERR_MAX_DEPTH_EXCEEDED`
+ * rather than recursing until the C stack is exhausted (REQ-FS-003).
+ *
+ * 1024 is far beyond any non-adversarial schema's nesting yet bounds
+ * the worst case to a predictable stack envelope. Targets with a
+ * tighter task stack should lower it via `_set_max_depth`.
+ */
+#define ZSERIO_BITSTREAM_DEFAULT_MAX_DEPTH ((size_t)1024U)
 
 /**
  * Initialize a reader over `buffer` with `buffer_bit_size` valid bits.
@@ -296,6 +318,38 @@ size_t zserio_bitstream_reader_position(const zserio_bitstream_reader_t *bs);
  * Returns the buffer's total bit size, or 0 if `bs` is NULL.
  */
 size_t zserio_bitstream_reader_size(const zserio_bitstream_reader_t *bs);
+
+/**
+ * Enter one level of decode recursion.
+ *
+ * Generated compound readers call this on entry. It increments the
+ * reader's recursion depth and fails if the new depth would exceed
+ * `max_depth`, bounding stack use on adversarially nested input
+ * (REQ-FS-003).
+ *
+ * Returns:
+ * - `ZSERIO_OK` on success
+ * - `ZSERIO_ERR_INVALID_ARGUMENT` if `bs` is NULL
+ * - `ZSERIO_ERR_MAX_DEPTH_EXCEEDED` if the depth limit is reached
+ */
+zserio_status_t zserio_bitstream_reader_enter(zserio_bitstream_reader_t *bs);
+
+/**
+ * Leave one level of decode recursion, undoing a successful
+ * `zserio_bitstream_reader_enter`. Saturates at zero and is a no-op
+ * when `bs` is NULL. Generated readers call this only on the success
+ * path; an error abandons the decode, so an unbalanced depth on the
+ * error path is harmless.
+ */
+void zserio_bitstream_reader_leave(zserio_bitstream_reader_t *bs);
+
+/**
+ * Override the decode-recursion ceiling for this reader. Tune for the
+ * caller's stack budget; the default is
+ * `ZSERIO_BITSTREAM_DEFAULT_MAX_DEPTH`. No-op when `bs` is NULL.
+ */
+void zserio_bitstream_reader_set_max_depth(zserio_bitstream_reader_t *bs,
+                                           size_t max_depth);
 
 /**
  * Set the read position to `bit_position`.
