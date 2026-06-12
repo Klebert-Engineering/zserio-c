@@ -3,7 +3,6 @@ id: REQ-PF-002
 title: Tracked code size, regression-gated
 type: performance
 status: accepted
-phase_target: 1
 verification: test
 ---
 

@@ -3,7 +3,7 @@
  * Copyright (c) 2026 Klebert Engineering
  *
  * End-to-end emit + compile test. Parses a small schema, runs
- * the analyser, emits the generated C, writes the output to a
+ * the analyzer, emits the generated C, writes the output to a
  * temporary directory, then invokes the C compiler to confirm
  * the emitted code is syntactically valid against the runtime
  * headers.
@@ -102,7 +102,7 @@ static void test_emit_and_compile_simple_struct(void)
     (void)system(rm_cmd);
     (void)mkdir(out_dir, 0755);
 
-    /* Parse a tiny schema, analyse, emit. */
+    /* Parse a tiny schema, analyze, emit. */
     static const uint8_t INPUT[] =
             "package telemetry;\n"
             "struct Frame {\n"
@@ -122,7 +122,7 @@ static void test_emit_and_compile_simple_struct(void)
             &src, "test.zs", 7U, INPUT, sizeof(INPUT) - 1U, &fid));
     TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_parse_unit(&src, fid, &arena, &diag, &unit));
     TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_sema_init(&sema, &src, &arena, &diag));
-    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_sema_analyse_unit(&sema, unit));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_sema_analyze_unit(&sema, unit));
 
     disk_sink_t sink = { out_dir, true };
     TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_emit_unit(unit, &arena, &diag, &src,
@@ -203,7 +203,7 @@ static void test_emit_and_compile_arrays_and_nested(void)
     TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_parse_unit(&src, fid, &arena, &diag, &unit));
     TEST_ASSERT_EQUAL_size_t(0U, zsp_diag_error_count(&diag));
     TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_sema_init(&sema, &src, &arena, &diag));
-    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_sema_analyse_unit(&sema, unit));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_sema_analyze_unit(&sema, unit));
 
     disk_sink_t sink = { out_dir, true };
     TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_emit_unit(unit, &arena, &diag, &src,
@@ -254,7 +254,7 @@ static void test_emit_and_compile_arrays_and_nested(void)
     TEST_ASSERT_TRUE(all_ok);
 }
 
-static void test_emit_and_compile_parameterised_with_if_and_bitfield(void)
+static void test_emit_and_compile_parameterized_with_if_and_bitfield(void)
 {
     char out_dir[256];
     (void)snprintf(out_dir, sizeof(out_dir), "/tmp/zsp_emit_test3_%u",
@@ -286,7 +286,7 @@ static void test_emit_and_compile_parameterised_with_if_and_bitfield(void)
     TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_parse_unit(&src, fid, &arena, &diag, &unit));
     TEST_ASSERT_EQUAL_size_t(0U, zsp_diag_error_count(&diag));
     TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_sema_init(&sema, &src, &arena, &diag));
-    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_sema_analyse_unit(&sema, unit));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_sema_analyze_unit(&sema, unit));
 
     disk_sink_t sink = { out_dir, true };
     TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_emit_unit(unit, &arena, &diag, &src,
@@ -314,7 +314,7 @@ static void test_emit_and_compile_parameterised_with_if_and_bitfield(void)
             (void)fclose(f);
             (void)fprintf(stderr, "\nfailed to compile sample.c:\n%s\n", buf);
         }
-        TEST_FAIL_MESSAGE("emitted parameterised+if+bitfield code did not compile");
+        TEST_FAIL_MESSAGE("emitted parameterized+if+bitfield code did not compile");
     }
     (void)system(rm_cmd);
 }
@@ -352,7 +352,7 @@ static void test_emit_and_compile_choice(void)
     TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_parse_unit(&src, fid, &arena, &diag, &unit));
     TEST_ASSERT_EQUAL_size_t(0U, zsp_diag_error_count(&diag));
     TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_sema_init(&sema, &src, &arena, &diag));
-    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_sema_analyse_unit(&sema, unit));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_sema_analyze_unit(&sema, unit));
 
     disk_sink_t sink = { out_dir, true };
     TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_emit_unit(unit, &arena, &diag, &src,
@@ -391,7 +391,7 @@ int main(void)
     UNITY_BEGIN();
     RUN_TEST(test_emit_and_compile_simple_struct);
     RUN_TEST(test_emit_and_compile_arrays_and_nested);
-    RUN_TEST(test_emit_and_compile_parameterised_with_if_and_bitfield);
+    RUN_TEST(test_emit_and_compile_parameterized_with_if_and_bitfield);
     RUN_TEST(test_emit_and_compile_choice);
     return UNITY_END();
 }

@@ -5,7 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.0] - 2026-06-12
+
+First release. Wire format 1.0 and schema language 1.0 are stable;
+release `0.1.0` declares the tool surface (runtime API,
+generated-code shape, CLI) as pre-1.0 — still subject to change
+between minor releases until `1.0.0`. See
+[`docs/spec/compatibility.md`](docs/spec/compatibility.md) for the
+full versioning policy.
+
+The C-native parser + generator (`zserio_c_gen`) replaced the Java
+front-end on the C target; the legacy Java extension under
+`generator/` remains as the cpp-side oracle for the xvalidation
+gate only. ndslive end-to-end conformance + bidirectional roundtrip
+under ASan + UBSan are clean. Safety-case documents (14 work
+products under `docs/safety-case/`) are structurally complete at
+`status: draft`, awaiting independent review.
 
 ### Security hardening — untrusted-decode path (2026-06-10)
 
@@ -52,26 +67,9 @@ change — xvalidation stays 182/182 byte-equal in both directions.
   meant the runtime `.c` files were never scanned; now fixed and
   fails closed if the scan matches zero files.
 
-## [0.1.0] - 2026-05-21
+### Performance optimization arc (2026-05-13 → 2026-05-15)
 
-First tagged release. Wire format 1.0 and schema language 1.0 are
-stable; release `0.1.0` declares the tool surface (runtime API,
-generated-code shape, CLI) as pre-1.0 — still subject to change
-between minor releases until `1.0.0`. See
-[`docs/spec/compatibility.md`](docs/spec/compatibility.md) for the
-full versioning policy.
-
-The C-native parser + generator (`zserio_c_gen`) replaced the Java
-front-end on the C target; the legacy Java extension under
-`generator/` remains as the cpp-side oracle for the xvalidation
-gate only. ndslive end-to-end conformance + bidirectional roundtrip
-under ASan + UBSan are clean. Safety-case documents (14 work
-products under `docs/safety-case/`) are structurally complete at
-`status: draft`, awaiting independent review.
-
-### Phase 6 — optimisation arc (2026-05-13 → 2026-05-15)
-
-With the measurement framework live, the optimisation work that
+With the measurement framework live, the optimization work that
 REQ-PF-001 calls for landed across both perf hosts (AMD `primary`,
 Raspberry-Pi 4 `pi4`). Headline outcome: **zserio-c beats or ties
 upstream cpp on 9 of 13 workloads** at the libc-vs-libc default
@@ -90,7 +88,7 @@ algorithmic gap.
   is a no-op. The runtime's allocator vtable already supported
   this kind of plug-in; what was missing was a usable reference
   implementation so callers don't roll their own. Unit-tested
-  for alignment-up, OOM, integer-wrap defence, reset-preserves-
+  for alignment-up, OOM, integer-wrap defense, reset-preserves-
   high-water, free-is-noop. D004 / D005 MISRA deviations
   extended to cover the new code (allocator `void*` cast +
   buffer-byte pointer arithmetic — same patterns previously
@@ -122,7 +120,7 @@ algorithmic gap.
   calls out the arena-workload framing explicitly so a row at
   cpp/c > 2 isn't mistaken for a wire-format advantage.
 
-#### Optimisations landed
+#### Optimizations landed
 
 Listed in order of commit and impact:
 
@@ -181,7 +179,7 @@ malloc on short names; ours always allocates. An embedded
 caller plugs the bump arena and the gap collapses (see
 `addressbook_align_arena`).
 
-### Phase 6 — measurement framework (2026-05-13)
+### Performance measurement framework (2026-05-13)
 
 #### Added
 
@@ -201,7 +199,7 @@ caller plugs the bump arena and the gap collapses (see
   public CI runner noise; tightening is a follow-up).
 - **`docs/benchmarks/perf.baseline.json`** — initial baseline,
   seeded from a local measurement. To be replaced with CI-measured
-  numbers once 2–3 green runs characterise the runner noise floor.
+  numbers once 2–3 green runs characterize the runner noise floor.
 - **`docs/benchmarks/README.md`** — methodology + gate-semantics
   + planned workloads.
 - **CI: new `perf` job (advisory)** — runs the harness on every
@@ -217,11 +215,11 @@ caller plugs the bump arena and the gap collapses (see
 | small_flat | encode_ns/op   |         69.24 |           34.91 | 0.504 |
 | small_flat | decode_ns/op   |         68.74 |           19.94 | 0.290 |
 
-The cpp/c ratio < 1.0 confirms the optimisation gap REQ-PF-001
+The cpp/c ratio < 1.0 confirms the optimization gap REQ-PF-001
 exists to close. The documented next step is the bit-cache +
 mask-table read pattern in `runtime/src/bitstream.c:78-80`.
 
-### Phase 5 — substantively complete (2026-05-13)
+### ISO 26262 safety case (2026-05-13)
 
 The ISO 26262 safety case is drafted end to end. Every work product
 listed in `docs/safety-case/safety-plan.md` exists at `status: draft`;
@@ -266,21 +264,21 @@ the closure of the three Open items recorded in
   (Rules 20.7 and 20.10); covers the `DELTA_TRAITS_{UNSIGNED,SIGNED}`
   family. Token-paste and type-name parameters are categorically
   outside the rules' precedence-bug intent.
-- **`docs/safety-case.md`** rewritten from "Phase 0 placeholder" to
+- **`docs/safety-case.md`** rewritten from an early placeholder to
   the current-state navigation entry pointing into the new
   directory.
 
 #### Changed
 
-- `.phase` advanced from 3 to 4 (REQ-FN-001 byte-equal wire
-  conformance is now CI-gated by the xvalidation suite).
+- REQ-FN-001 byte-equal wire conformance is now CI-gated by the
+  xvalidation suite.
 - Coverage gate snapshot: line **99.89%**, branch **88.03%**,
   function **100.00%** on `runtime/src/*`. Function coverage rose
   from 70.37% after `test_delta_traits.c` exercised the trait-
   driven delta path's 27 generated wrapper functions plus the 9
   `zserio_bitsize_var*` helpers.
-- Size baseline updated to reflect the legitimate Phase 4 packed-
-  array runtime growth: `.text` 8221 → 9756 B, `.rodata` 432 → 720 B
+- Size baseline updated to reflect the legitimate packed-array
+  runtime growth: `.text` 8221 → 9756 B, `.rodata` 432 → 720 B
   (the 9 `zserio_delta_traits_*` structs at 32 B each = 288 B
   bucketed into `.rodata` via `.data.rel.ro.local.*`).
 - xvalidation surface expanded from 181 to **182 schemas** by
@@ -300,7 +298,7 @@ the closure of the three Open items recorded in
 - 1 finding in `varint.h:107` addressed by moving
   `#include "zserio/delta.h"` to the top of the file.
 
-### Phase 4 — complete (2026-05-12)
+### Wire-format cross-validation + packed arrays (2026-05-12)
 
 #### Added
 
@@ -313,7 +311,7 @@ the closure of the three Open items recorded in
   for a 50,896-byte NDS Live SmartLayerTile encoded by upstream
   zserio v2.18.1; verifies every decoded field against zs-yaml
   ground truth.
-- Phase 4 packed-array runtime work:
+- Packed-array runtime work:
   - Trait-driven delta context for varint elements
     (`zserio_delta_traits_t` + 9 traits structs in `varint.c`).
   - Nested packing contexts.
@@ -337,7 +335,7 @@ the closure of the three Open items recorded in
   `align(3) / align(5) / align(6) / align(7)`), but the tests had
   not been updated.
 
-### Phase 3 — complete
+### Full schema-language coverage
 
 #### Added
 
@@ -345,16 +343,16 @@ the closure of the three Open items recorded in
   the upstream test corpus. The generator emits codecs for every
   zserio construct in scope for v1:
   - All compound kinds (struct, choice, union, bitmask, enum).
-  - Parameterised types, including templated array elements.
+  - Parameterized types, including templated array elements.
   - Constraints + if-optionals.
   - Indexed offsets with `@index` semantics.
   - Builtin expression functions (`lengthof`, `valueof`,
     `numbits`, `isset`).
   - User-defined zserio functions.
   - Packed arrays of all element kinds (fixed-width, bit-field,
-    varint, bool, dynamic-width, compound, parameterised compound).
+    varint, bool, dynamic-width, compound, parameterized compound).
 
-### Phase 2 — complete
+### Java generator extension (now the xvalidation oracle)
 
 #### Added
 
@@ -371,7 +369,7 @@ the closure of the three Open items recorded in
   `EnumerationEmitter`, `BitmaskEmitter`, `StructureEmitter`,
   `UnionEmitter`, `ChoiceEmitter`.
 
-### Phase 1 — complete
+### Runtime library
 
 #### Added
 
@@ -389,7 +387,7 @@ the closure of the three Open items recorded in
   baseline at `docs/benchmarks/sizes.baseline.json`, fails CI on
   > 5% growth on any of `.text` / `.rodata` / `.data` / `.bss`.
 
-### Phase 0 — complete
+### Bootstrap and upstream analysis
 
 #### Added
 

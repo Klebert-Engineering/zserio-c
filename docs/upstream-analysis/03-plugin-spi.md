@@ -543,7 +543,7 @@ This document is *accepted* when:
       enumerated (§3).
 - [x] The generator structure pattern is documented with a concrete
       `CExtension` skeleton (§4).
-- [x] Common helpers are catalogued so Phase 2 doesn't reinvent (§5).
+- [x] Common helpers are catalogd so Phase 2 doesn't reinvent (§5).
 - [x] FreeMarker conventions and our expected template inventory are
       fixed (§6).
 - [x] Build and packaging strategy is decided — no Ant in our repo,

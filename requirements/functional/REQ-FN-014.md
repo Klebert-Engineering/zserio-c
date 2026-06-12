@@ -3,7 +3,6 @@ id: REQ-FN-014
 title: -setTopLevelPackage prefix propagation
 type: functional
 status: accepted
-phase_target: 1
 verification: test
 ---
 
@@ -65,7 +64,7 @@ unchanged.
   - Schema importing other schemas — verify imports resolve
     against original (unprefixed) paths, but emitted symbols
     carry the prefix.
-  - Empty prefix — verify no-op behaviour.
+  - Empty prefix — verify no-op behavior.
   - Double specification — verify diagnostic.
 - A cross-validation harness uses `-setTopLevelPackage` to
   verify the byte-equality property holds under the prefix.

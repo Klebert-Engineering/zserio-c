@@ -3,7 +3,6 @@ id: REQ-FN-021
 title: Canonical encoding (struct values to bytes)
 type: functional
 status: accepted
-phase_target: 1
 verification: test
 ---
 
@@ -30,7 +29,7 @@ byte-identical encoded bitstreams. In particular:
    the encoded bytes are determined by the selector and the
    selected arm's value, not by any field outside that union.
 2. Optional fields whose `_present` is false SHALL produce
-   identical bytes regardless of the (uninitialised) value of
+   identical bytes regardless of the (uninitialized) value of
    the optional's storage slot.
 3. The byte ordering of the encoding is determined by the
    schema and the wire format spec
@@ -45,7 +44,7 @@ makes byte-comparison a sound equality check on encoded
 messages, what enables content-addressed message handling, and
 what makes the cross-validation byte-equality test meaningful.
 
-The "uninitialised storage" clause is what makes the encoder
+The "uninitialized storage" clause is what makes the encoder
 *safe* on struct values where some fields legitimately hold
 unspecified bytes (e.g. the unselected arm of a `choice`'s
 union storage). Without this clause an integrator would have to
@@ -76,6 +75,6 @@ schema-declared alignment, and no host-byte-order shortcuts.
 The bitstream primitives are byte-order-explicit in their
 implementation.
 
-The encoder is the canonicalising side of canonical encoding;
+The encoder is the canonicalizing side of canonical encoding;
 the decoder is the *interpreting* side ([REQ-FN-022](REQ-FN-022.md)
 ensures the round-trip).

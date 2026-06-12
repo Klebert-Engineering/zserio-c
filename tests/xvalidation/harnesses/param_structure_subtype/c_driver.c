@@ -1,4 +1,4 @@
-/* Subtype-of-subtype of a parameterised struct, used both as a field
+/* Subtype-of-subtype of a parameterized struct, used both as a field
  * and as an auto-array element type. */
 
 #include <stdio.h>

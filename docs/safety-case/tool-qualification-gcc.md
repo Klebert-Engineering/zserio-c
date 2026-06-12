@@ -1,7 +1,6 @@
 ---
 work_product: ISO 26262-8 §11 — Tool qualification (gcc)
 status: draft
-phase_target: 5
 tool: gcc
 ---
 
@@ -84,7 +83,7 @@ use **method (1) — increased confidence from use** combined with
   to the extent that the validation gates still pass; if a gate
   fails, the bump is treated as a re-qualification trigger.
 - **Optimization-level coupling.** Stack-usage numbers and
-  inlining behaviour depend on the optimization flag. The runtime
+  inlining behavior depend on the optimization flag. The runtime
   build uses default `CMAKE_BUILD_TYPE=Release` for `build-and-test`
   but `Debug -O0` for `coverage`. The `stack` gate uses
   `MinSizeRel` indirectly (the `-fstack-usage` build inherits

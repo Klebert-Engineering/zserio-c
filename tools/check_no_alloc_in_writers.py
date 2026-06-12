@@ -16,7 +16,7 @@ Two scans, both run as part of the standard CI:
    NOT reference the identifier `alloc` (the conventional name
    for the allocator parameter in the rest of the runtime).
    Comments and string literals are excluded; the check looks at
-   tokenised C source.
+   tokenized C source.
 
 The two checks together establish that no `_write` function can
 plumb an allocator down to a helper that allocates. Combined with
@@ -63,13 +63,13 @@ FUNC_DEF_RE = re.compile(
     re.VERBOSE | re.MULTILINE,
 )
 
-# C single-line and block comments. Removed before tokenising.
+# C single-line and block comments. Removed before tokenizing.
 COMMENT_RE = re.compile(
     r"//[^\n]*|/\*.*?\*/",
     re.DOTALL,
 )
 
-# C string and char literals. Removed before tokenising bodies.
+# C string and char literals. Removed before tokenizing bodies.
 STRING_RE = re.compile(r'"(?:\\.|[^"\\])*"' r"|'(?:\\.|[^'\\])*'")
 
 # `alloc` as a whole-word identifier in the body (not e.g.

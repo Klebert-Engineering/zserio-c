@@ -1,7 +1,6 @@
 ---
 work_product: ISO 26262-6 §10 — Software integration and verification report
 status: draft
-phase_target: 5
 ---
 
 # Software integration and verification report — `zserio-c`
@@ -97,7 +96,7 @@ verification evidence. Every commit to `main` reproduces them:
 | `Build and test (gcc)`                     | Compiles runtime + generated codec for the xvalidation harness; runs the runtime test suite. |
 | `Build and test (clang)`                   | Independent toolchain re-runs the same tests.           |
 | `Wire-format cross-validation (REQ-FN-001)` | The 182-schema × 5-seed harness.                       |
-| `Phase 2 generator (build JAR + smoke load)` | Smoke-builds the generator jar end-to-end.            |
+| `Legacy Java generator (build JAR + smoke load)` | Smoke-builds the generator jar end-to-end.        |
 | `Test-data discovery (advisory)`           | Reports schemas in the upstream corpus that are not yet in xvalidation. |
 | `Requirements traceability`                | Enforces the `Verifies:` marker contract.               |
 | `Stack-budget analysis (REQ-FS-003, hazard H-09)` | Per-function frame ceiling.                      |

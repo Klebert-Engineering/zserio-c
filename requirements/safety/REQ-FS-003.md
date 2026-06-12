@@ -3,7 +3,6 @@ id: REQ-FS-003
 title: Bounded decode depth
 type: safety
 status: accepted
-phase_target: 1
 verification: test
 ---
 

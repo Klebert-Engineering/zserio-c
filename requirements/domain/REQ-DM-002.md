@@ -3,7 +3,6 @@ id: REQ-DM-002
 title: Encode and decode are mutual inverses
 type: domain
 status: accepted
-phase_target: 1
 verification: test
 ---
 

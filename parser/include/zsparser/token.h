@@ -21,7 +21,7 @@
  * the source manager's bytes) and the (line, col) position (via
  * the source manager's lazy line-start table). This is the same
  * locator shape the AST uses (Q6 decision in
- * `docs/phase-7/scope.md`); tokens are simply locators stamped
+ * `docs/design/parser.md`); tokens are simply locators stamped
  * with a kind.
  *
  * Atomic-literal payloads (integers, floats) are decoded by the

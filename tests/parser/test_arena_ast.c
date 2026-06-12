@@ -29,7 +29,7 @@ static void test_arena_basic_alloc(void)
     uint32_t *const p = (uint32_t *)zsp_arena_alloc(&a, sizeof(uint32_t),
                                                     sizeof(uint32_t));
     TEST_ASSERT_NOT_NULL(p);
-    TEST_ASSERT_EQUAL_UINT32(0U, *p);   /* zero-initialised */
+    TEST_ASSERT_EQUAL_UINT32(0U, *p);   /* zero-initialized */
     *p = 0xDEADBEEF;
     TEST_ASSERT_EQUAL_UINT32(0xDEADBEEF, *p);
 

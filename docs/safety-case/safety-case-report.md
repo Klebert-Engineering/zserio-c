@@ -1,7 +1,6 @@
 ---
 work_product: ISO 26262-2 §6.4 — Safety case report
 status: draft
-phase_target: 5
 ---
 
 # Safety case report — `zserio-c`
@@ -97,7 +96,7 @@ status at this report's snapshot:
 The technical safety concept (`technical-safety-concept.md`)
 maps each safety goal to a specific source file, a verifying
 test or tool, and a CI gate. The mechanism-to-gate matrix in
-that document is the single audit-facing artefact; an auditor
+that document is the single audit-facing artifact; an auditor
 can re-execute every claim by re-running the named CI jobs.
 
 ## Verification evidence
@@ -189,13 +188,13 @@ reviewed.
 - `README.md` — directory index
 - `safety-plan.md` — work product matrix + sequencing
 - `item-definition.md` — what `zserio-c` is
-- `hazard-analysis.md` — failure-mode catalogue
+- `hazard-analysis.md` — failure-mode catalog
 - `functional-safety-concept.md` — goals and goal-to-requirement mapping
 - `technical-safety-concept.md` — implementation mechanisms
 - `unit-verification.md` — per-runtime-module evidence
 - `integration-verification.md` — wire-format evidence
 - `stack-budget.md` — H-09 closure
 - `tool-qualification-{gcc,cppcheck,coverage,generator}.md` —
-  per-tool qualification analyses
+  per-tool qualification analyzes
 - `../misra-deviations/` — deviation register
 - `../../requirements/` — requirements set

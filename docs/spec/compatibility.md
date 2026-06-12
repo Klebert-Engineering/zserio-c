@@ -130,8 +130,8 @@ A wire-format minor or patch bump may accompany:
   rules without changing them (e.g. a new packed-array
   flavor for a new primitive type added in a separate
   schema-language bump).
-- A clarification of previously-underspecified behaviour that
-  matches the existing reference implementation's behaviour.
+- A clarification of previously-underspecified behavior that
+  matches the existing reference implementation's behavior.
 
 The wire-format version is recorded in
 [`wire-format.md`](wire-format.md). Integrators with safety
@@ -156,7 +156,7 @@ A generated-code-API major bump is required when:
 
 A minor or patch bump is sufficient when:
 
-- An emitted entry point gains a new optional behaviour
+- An emitted entry point gains a new optional behavior
   (e.g. additional helper function).
 - Generated identifier mangling changes in a way that
   introduces new names without breaking old ones (e.g.
@@ -191,7 +191,7 @@ A minor or patch bump is sufficient when:
 - A new allocator vtable is added (existing vtables unchanged).
 
 The runtime API version is consumed by generated code via
-`<zserio/version.h>` (build artefact); a generated-code-API
+`<zserio/version.h>` (build artifact); a generated-code-API
 major version pins a corresponding runtime-API major version.
 
 ## CLI compatibility

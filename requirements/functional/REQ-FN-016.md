@@ -3,7 +3,6 @@ id: REQ-FN-016
 title: Encoder performs no heap allocation
 type: functional
 status: accepted
-phase_target: 1
 verification: analysis
 ---
 

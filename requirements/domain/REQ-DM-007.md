@@ -3,7 +3,6 @@ id: REQ-DM-007
 title: Versioning policy for schema language and wire format
 type: domain
 status: accepted
-phase_target: 2
 verification: review
 ---
 

@@ -3,7 +3,6 @@ id: REQ-DM-006
 title: Schema evolution constructs
 type: domain
 status: accepted
-phase_target: 1
 verification: review
 ---
 
@@ -30,7 +29,7 @@ minimum:
 
 The behavior of each construct SHALL be normatively specified in
 `docs/spec/schema-evolution.md` and SHALL be sufficient to
-characterise the compatibility property the schema author is
+characterize the compatibility property the schema author is
 opting into.
 
 The wire format SHALL NOT include any per-field tag or

@@ -1,6 +1,6 @@
 # Schema language
 
-This page summarises which zserio-language features the C
+This page summarizes which zserio-language features the C
 generator supports and how they map to C. The
 [upstream language overview](https://github.com/ndsev/zserio/blob/master/doc/ZserioLanguageOverview.md)
 is the normative description of the language itself; this page
@@ -189,7 +189,7 @@ conditional fields, dynamic-width bit fields, array length
 expressions. C emits a `_set_parameters` setter; see
 [Generated code](generated-code.md#parameters).
 
-When a parameterised type is a field, the generator chains
+When a parameterized type is a field, the generator chains
 parameter propagation automatically. You set parameters on the
 outermost type, and inner `_set_parameters` calls are emitted at
 the right places in the read / write path.

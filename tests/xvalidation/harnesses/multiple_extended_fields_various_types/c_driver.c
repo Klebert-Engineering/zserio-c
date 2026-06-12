@@ -2,7 +2,7 @@
  * stack of `extend` fields: int:7 + optional uint32 + extern + bytes.
  * The .zs file also defines Extended2 which contains
  * `extend optional Union(...) extendedValue8[]` exercising the
- * parametised packed-union path; that's tested via Extended1 + the
+ * parameterized packed-union path; that's tested via Extended1 + the
  * codegen succeeding for Union2's packed helpers. */
 
 #include <stdio.h>

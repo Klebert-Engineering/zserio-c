@@ -86,7 +86,7 @@ zserio_status_t zserio_read_string(zserio_bitstream_reader_t *bs,
 
 /**
  * Free an owned string previously returned from `zserio_read_string`.
- * Safe to call on a zero-initialised `zserio_string_t`. After the call,
+ * Safe to call on a zero-initialized `zserio_string_t`. After the call,
  * `s->bytes` is NULL and `s->length` is 0.
  */
 void zserio_string_free(zserio_string_t *s, const zserio_allocator_t *alloc);

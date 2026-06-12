@@ -1,6 +1,6 @@
 # `tests/xvalidation/` — schema-driven cross-validation harness
 
-Closes the third leg of Phase 4 acceptance (REQ-FN-001): for each
+Verifies wire-format interoperability (REQ-FN-001): for each
 schema in `schemas.txt`, the C generator + C runtime must produce
 **byte-identical** wire output to upstream's C++ generator + C++
 runtime for the same struct value.
@@ -24,7 +24,7 @@ The pattern is intentionally narrow:
 
 Mismatch ⇒ run the trace-diff workflow in
 `conformance/ndslive/cpp_oracle/README.md` against the failing
-schema to localise the divergent field.
+schema to localize the divergent field.
 
 ## Adding a schema
 
@@ -64,7 +64,7 @@ schema to localise the divergent field.
 
 ## Why not random-generate the drivers?
 
-We could, and probably will once the schema-shape catalogue stabilises.
+We could, and probably will once the schema-shape catalog stabilises.
 The hand-written drivers force us to think about which field shapes
 each schema actually exercises, and they're small enough that the
 maintenance cost is negligible. When a new schema-language feature

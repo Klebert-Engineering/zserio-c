@@ -13,7 +13,7 @@ no-op pass (zero deltas).
 
 When the baseline does not yet exist, the script writes the current
 measurement to the baseline path and exits successfully (initial-
-seeding behaviour).
+seeding behavior).
 
 Verifies: REQ-PF-002
 """

@@ -29,7 +29,7 @@ if [[ ! -f "${CORE_JAR}" ]]; then
 fi
 if [[ ! -f "${COMMONS_CLI_JAR}" ]]; then
     echo "build_generator_jar: missing ${COMMONS_CLI_JAR}" >&2
-    echo "(make sure third_party/zserio submodule is initialised)" >&2
+    echo "(make sure third_party/zserio submodule is initialized)" >&2
     exit 1
 fi
 

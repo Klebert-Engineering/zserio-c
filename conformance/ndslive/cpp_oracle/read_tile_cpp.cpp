@@ -8,7 +8,7 @@
 // extern payload is re-opened as a fresh BitStreamReader and decoded
 // as the appropriate layer type with tracing enabled. The resulting
 // trace can be diff'd against our C reader's equivalent trace
-// (build-conformance/read_tile with ZSERIO_TRACE_LAYER=N) to localise
+// (build-conformance/read_tile with ZSERIO_TRACE_LAYER=N) to localize
 // wire-format divergence to a specific bit position.
 
 #include <cstdio>

@@ -1,7 +1,6 @@
 ---
 work_product: ISO 26262-4 §6 — Technical safety concept
 status: draft
-phase_target: 5
 ---
 
 # Technical safety concept — `zserio-c`
@@ -17,7 +16,7 @@ specific source file, a specific test (or static analysis run),
 and a specific CI gate.
 
 This document is intended to be read alongside the FSC. Tables in
-the FSC summarise the safety case; tables here describe the
+the FSC summarize the safety case; tables here describe the
 implementation in enough detail that an auditor can verify each
 claim by inspecting the named artifacts.
 
@@ -56,7 +55,7 @@ elements. Counter values out of range produce
 
 | Element                              | Verifies                                                                |
 | ------------------------------------ | ----------------------------------------------------------------------- |
-| `runtime/src/varint.c` `read_varuint_impl` / `read_varint_impl` | Loop runs at most `max_bytes` iterations, parameterised at the call site |
+| `runtime/src/varint.c` `read_varuint_impl` / `read_varint_impl` | Loop runs at most `max_bytes` iterations, parameterized at the call site |
 | `tests/runtime/test_failure_modes.c` | `test_h02_varuint16_decoder_is_bounded_by_max_bytes`, `test_h02_truncated_varuint_returns_eof` |
 | `tests/runtime/test_varint.c`        | `test_read_eof_propagation` and the round-trip suite                    |
 
@@ -215,7 +214,7 @@ single audit-friendly table:
 | Coverage thresholds                      | `runtime/src/*.c`                        | `tools/check_coverage.py`                      | `coverage`                                      |
 | Size regression                          | `runtime/libzserio_c_runtime.a`          | `tools/check_size_regression.py`               | `size`                                          |
 | Requirements traceability                | `requirements/`, `tests/`, `tools/`      | `tools/check_traceability.py`                  | `traceability`                                  |
-| Tool qualification (open)                | n/a                                      | Planned                                        | n/a (Phase 5 open)                              |
+| Tool qualification (open)                | n/a                                      | Planned                                        | n/a (safety-plan open item)                     |
 
 ## Acceptance criterion for the TSC
 

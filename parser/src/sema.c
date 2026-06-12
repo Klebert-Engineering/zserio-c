@@ -9,7 +9,7 @@
 #include <string.h>
 
 /*
- * Semantic analyser — first slice. Builds a symbol table over
+ * Semantic analyzer — first slice. Builds a symbol table over
  * top-level declarations, walks the AST resolving type-ref and
  * identifier references, emits diagnostics for duplicates and
  * unresolved names. Resolved declarations land on
@@ -2428,11 +2428,11 @@ zserio_status_t zsp_sema_resolve_unit(zsp_sema_t *s, zsp_ast_node_t *unit)
     /* Template instantiation runs in its own session-level
      * phase so that it sees fully-resolved AST across all
      * units (templates and their uses may live in different
-     * files). See `zsp_session_analyse`. */
+     * files). See `zsp_session_analyze`. */
     return ZSERIO_OK;
 }
 
-zserio_status_t zsp_sema_analyse_unit(zsp_sema_t *s, zsp_ast_node_t *unit)
+zserio_status_t zsp_sema_analyze_unit(zsp_sema_t *s, zsp_ast_node_t *unit)
 {
     if ((s == NULL) || (unit == NULL)) {
         return ZSERIO_ERR_INVALID_ARGUMENT;

@@ -18,7 +18,7 @@
  * Each call to zserio_bitstream_read_bits / read_signed emits one line:
  *   <pos_after> <op> <nbits> <value>
  * Same format as the cpp oracle (conformance/ndslive/cpp). The two
- * traces are intended to be diffed to localise wire-format divergence
+ * traces are intended to be diffed to localize wire-format divergence
  * field-by-field rather than guessing from end-state error codes.
  *
  * Build with -DZSERIO_TRACE_ENABLED, set ZSERIO_TRACE to a writable

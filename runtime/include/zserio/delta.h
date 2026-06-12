@@ -56,7 +56,7 @@
  * the very first element on the packed path). `bit_size_unpacked`
  * returns the wire size of one element under the unpacked codec —
  * this drives the packed-vs-unpacked cost comparison in
- * {@code delta_finalise}. Returning the actual per-value bit size
+ * {@code delta_finalize}. Returning the actual per-value bit size
  * (e.g. {@code 8 * varuint32_byte_count(value)}) keeps the decision
  * consistent with upstream zserio's encoder, which is required for
  * byte-exact write-side round-trip.
@@ -85,7 +85,7 @@ typedef struct zserio_delta_context {
 } zserio_delta_context_t;
 
 /**
- * Initialise a context for an array of `num_bits`-wide elements with
+ * Initialize a context for an array of `num_bits`-wide elements with
  * the given signedness. `num_bits` MUST be in [1, 64].
  *
  * The context starts empty: 0 elements observed, packed flag clear.
@@ -95,7 +95,7 @@ zserio_status_t zserio_delta_init(zserio_delta_context_t *ctx,
                                   bool is_signed);
 
 /**
- * Initialise a context in trait-driven mode. {@code traits} MUST
+ * Initialize a context in trait-driven mode. {@code traits} MUST
  * point at a non-NULL struct with all callbacks populated; the
  * struct must remain valid for the lifetime of the context (typically
  * a static const instance per varint flavour).
@@ -122,7 +122,7 @@ zserio_status_t zserio_delta_observe(zserio_delta_context_t *ctx,
 #define ZSERIO_DELTA_FLAG_INIT_STARTED  ((uint8_t)0x01U)
 #define ZSERIO_DELTA_FLAG_IS_PACKED     ((uint8_t)0x02U)
 #define ZSERIO_DELTA_FLAG_USE_STARTED   ((uint8_t)0x04U)
-#define ZSERIO_DELTA_FLAG_FINALISED     ((uint8_t)0x08U)
+#define ZSERIO_DELTA_FLAG_FINALIZED     ((uint8_t)0x08U)
 
 /**
  * Out-of-line slow path that handles every state of the read state
@@ -188,9 +188,9 @@ static inline zserio_status_t zserio_delta_read(zserio_delta_context_t *ctx,
 
 /**
  * Write one element during the use pass. The fast path (packed
- * steady-state, finalised) is inlined to mirror the read shape; cold
+ * steady-state, finalized) is inlined to mirror the read shape; cold
  * paths defer to {@link zserio_delta_write_slow}. The first write()
- * call has to write the packing descriptor AND finalise the
+ * call has to write the packing descriptor AND finalize the
  * decision, so it always takes the slow path; subsequent calls on
  * the same context can hit the inlined branch.
  */
@@ -203,7 +203,7 @@ static inline zserio_status_t zserio_delta_write(zserio_delta_context_t *ctx,
     }
     const uint8_t fast_mask = ZSERIO_DELTA_FLAG_USE_STARTED
                             | ZSERIO_DELTA_FLAG_IS_PACKED
-                            | ZSERIO_DELTA_FLAG_FINALISED;
+                            | ZSERIO_DELTA_FLAG_FINALIZED;
     if ((ctx->flags & fast_mask) == fast_mask) {
         if (ctx->max_bit_number > 0U) {
             const uint64_t delta_bits = element - ctx->previous;

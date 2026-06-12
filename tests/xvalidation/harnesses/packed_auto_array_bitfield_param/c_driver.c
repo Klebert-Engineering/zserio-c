@@ -1,4 +1,4 @@
-/* Top-level parameterised struct holding a packed dynamic-bit array.
+/* Top-level parameterized struct holding a packed dynamic-bit array.
  * The delta context's bit width is the parameter (`self->num_bits`),
  * not the storage container's 64-bit width. */
 

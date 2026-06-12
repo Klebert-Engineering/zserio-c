@@ -3,7 +3,6 @@ id: REQ-FN-012
 title: Cross-package include qualification
 type: functional
 status: accepted
-phase_target: 1
 verification: test
 ---
 
@@ -44,7 +43,7 @@ absolute) are what make the output directory self-contained: a
 build can use a single `-I <output-dir>` flag, and every
 generated `#include` resolves from there.
 
-Forward-slash normalisation is the convention every C
+Forward-slash normalization is the convention every C
 preprocessor accepts on every platform we target. The dual
 acceptance on Windows (forward or backward slash) makes this a
 free choice; choosing forward-slash makes the output portable

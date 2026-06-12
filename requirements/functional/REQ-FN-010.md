@@ -3,7 +3,6 @@ id: REQ-FN-010
 title: Identifier-length cap with deterministic hash truncation
 type: functional
 status: accepted
-phase_target: 1
 verification: test
 ---
 
@@ -42,7 +41,7 @@ POSIX NAME_MAX. Without truncation, the generator fails at file
 creation time with an opaque OS error.
 
 The chosen scheme (prefix + hash suffix) preserves *prefix
-readability* (so a developer can still recognise the identifier
+readability* (so a developer can still recognize the identifier
 in error messages) while guaranteeing global uniqueness via the
 hash (FNV-1a has acceptable collision properties for this size
 of input). 64 bits of hash makes the collision probability
@@ -69,7 +68,7 @@ target) must be a one-line edit.
 The threshold of 160 (rather than 255) leaves headroom for the
 build system's own concatenations of file paths (e.g. the
 xvalidation driver concatenates package path components with
-`/` separators into per-driver build artefact names).
+`/` separators into per-driver build artifact names).
 
 FNV-1a is chosen over more secure hashes (SHA-256, BLAKE2)
 because the collision tolerance here is engineering-grade not

@@ -398,7 +398,7 @@ static void test_read_string_truncated_buffer_no_leak(void)
 
 static void test_string_free_on_zero_struct(void)
 {
-    /* Calling free on a zero-initialised struct must be a no-op. */
+    /* Calling free on a zero-initialized struct must be a no-op. */
     const zserio_allocator_t alloc = test_allocator();
     zserio_string_t s = { NULL, 0U };
     zserio_string_free(&s, &alloc);

@@ -21,7 +21,7 @@
  * touches. Hands out u16 file identifiers that the lexer and
  * parser stamp on every token and AST node alongside a u32 byte
  * offset; this `(file_id, offset)` pair is the Q6 decision recorded
- * in `docs/phase-7/scope.md`.
+ * in `docs/design/parser.md`.
  *
  * Line and column information is computed lazily on first
  * diagnostic emission via a per-file line-start table — most
@@ -91,7 +91,7 @@ typedef struct zsp_source {
 } zsp_source_t;
 
 /**
- * Initialise an empty source manager backed by `alloc`. `alloc`
+ * Initialize an empty source manager backed by `alloc`. `alloc`
  * MUST outlive the source manager.
  *
  * Returns ZSERIO_OK on success, ZSERIO_ERR_INVALID_ARGUMENT if
@@ -103,10 +103,10 @@ zserio_status_t zsp_source_init(zsp_source_t *src,
 
 /**
  * Release every owned resource held by the source manager. After
- * the call returns, `src` is back to its zero-initialised state
- * and may be re-initialised via `zsp_source_init`.
+ * the call returns, `src` is back to its zero-initialized state
+ * and may be re-initialized via `zsp_source_init`.
  *
- * Safe to call on a partially-initialised source manager (e.g. if
+ * Safe to call on a partially-initialized source manager (e.g. if
  * a prior `zsp_source_init` returned an error mid-way).
  */
 void zsp_source_dispose(zsp_source_t *src);

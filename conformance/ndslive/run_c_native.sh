@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Phase 8 conformance driver: regenerate the ndslive SmartLayerTile
+# C-native conformance driver: regenerate the ndslive SmartLayerTile
 # corpus using our C-native zserio_c_gen (no Java) and run the
 # read_tile decode + round-trip check on tile.bin. Mirrors
 # `run.sh` but swaps the Java codegen step for our gen.

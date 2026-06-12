@@ -3,7 +3,7 @@
  * Copyright (c) 2026 Klebert Engineering
  *
  * zserio-c-gen: command-line driver for the C-native parser
- * pipeline. Reads a `.zs` schema, parses + analyses + emits
+ * pipeline. Reads a `.zs` schema, parses + analyzes + emits
  * the generated C code to the specified output directory.
  *
  * Usage:
@@ -208,7 +208,7 @@ int main(int argc, char **argv)
         }
     }
     if (rc == 0) {
-        (void)zsp_session_analyse(&session);
+        (void)zsp_session_analyze(&session);
     }
     if ((rc == 0) && (top_unit != NULL)) {
         /* Emit every loaded unit (top + transitively imported

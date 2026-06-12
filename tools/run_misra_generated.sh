@@ -3,7 +3,7 @@
 # Run cppcheck with the MISRA C:2012 addon over the generator's
 # output for a small, representative schema set.
 #
-# Closes the Phase 5 Open item recorded in
+# Closes the safety-plan open item recorded in
 # docs/safety-case/tool-qualification-generator.md § "Known limitations":
 #
 #     Gap to close: add a CI step that runs cppcheck against the
@@ -53,7 +53,7 @@ echo "Using ${CPPCHECK_VERSION}"
 #   - every primitive width + varint family + bitfields
 #   - struct, choice, union, enum, bitmask
 #   - auto / packed arrays (+ packed array of struct)
-#   - optional, parameterised, templates
+#   - optional, parameterized, templates
 #   - strings, floats, offsets, function-typed
 # Each entry is the schema's path relative to its category's `zs/` root.
 # The harness derives the source root by splitting at the first `/zs/`.

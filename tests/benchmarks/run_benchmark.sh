@@ -31,7 +31,7 @@ RUNS="${RUNS:-5}"
 # override to a smaller count so each run stays in the low-seconds.
 INNER_ITERS_DEFAULT="${INNER_ITERS:-200000}"
 
-# Link-time optimisation toggle. Defaults to on for the benchmark
+# Link-time optimization toggle. Defaults to on for the benchmark
 # build — `gcc -flto` lets the compiler inline across TU boundaries,
 # which is the dominant overhead on small messages. Set `BENCH_LTO=0`
 # to disable for a comparison run; ar must then be plain `ar`.
@@ -134,7 +134,7 @@ for workload_dir in "${WORKLOADS_DIR}"/*/; do
             echo "perf: ${name}: schema.config must set schema_dir and entry" >&2
             exit 1
         fi
-        # Skip cleanly when the schema tree isn't materialised on this
+        # Skip cleanly when the schema tree isn't materialized on this
         # host (e.g. conformance/ndslive/zs is user-asset-extracted and
         # not present in CI). Workloads that need a schema-tree we
         # don't have are silently dropped rather than failing the gate.

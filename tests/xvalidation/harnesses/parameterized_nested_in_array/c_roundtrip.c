@@ -9,9 +9,9 @@
 
 #define FREE_INBUF do { if (in_buf != &dummy_byte) free(in_buf); } while (0)
 
-/* `packed Element[]` where Element holds a parameterised Parameterized(5).
+/* `packed Element[]` where Element holds a parameterized Parameterized(5).
  * Tests that the packed-compound-array dispatch recurses into a nested
- * parameterised struct subfield. */
+ * parameterized struct subfield. */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -52,7 +52,7 @@ int main(int argc, char *argv[])
     fclose(fi);
 
     /* Setup phase reused from c_driver.c — produces a `pkg` of the
-     * right type and, for parameterised top-level types, the matching
+     * right type and, for parameterized top-level types, the matching
      * `_set_parameters` call from the same seed. */
     parameterized_types_parameterized_nested_in_array_holder_t pkg;
     parameterized_types_parameterized_nested_in_array_holder_init(&pkg);

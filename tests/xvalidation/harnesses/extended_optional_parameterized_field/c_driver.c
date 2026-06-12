@@ -1,5 +1,5 @@
 /* extend optional Parameterized(value) — combines extend, optional, and
- * a parameterised compound that reads its parameter from a sibling field. */
+ * a parameterized compound that reads its parameter from a sibling field. */
 
 #include <stdio.h>
 #include <stdlib.h>

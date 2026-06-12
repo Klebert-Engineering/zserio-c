@@ -11,7 +11,7 @@ wire-format compatible with upstream `ndsev/zserio` (pinned at `v2.18.1`,
 
 Three deliverables live in this tree:
 
-- `parser/` — `zserio_c_gen`, a C-native parser + sema + emitter (Phase 7).
+- `parser/` — `zserio_c_gen`, a C-native parser + sema + emitter.
   Replaces the old Java generator on the C target. Layout: `lexer → parser
   (recursive descent) → AST (arena-allocated) → sema → emit`. Public headers in
   `parser/include/zsparser/`.
@@ -62,7 +62,7 @@ FUZZ_SECONDS=60 tools/run_fuzz.sh               # libFuzzer + ASan + UBSan
 The xvalidation, perf, fuzz, and MISRA-on-generator gates require the upstream
 Java jars built first (`tools/build_zserio_core_jar.sh`,
 `tools/build_zserio_bundle_jar.sh`, `tools/build_generator_jar.sh`) — they need
-`ant` + JDK 17 and the `third_party/zserio` submodule initialised.
+`ant` + JDK 17 and the `third_party/zserio` submodule initialized.
 
 ## Architecture invariants — load-bearing
 
@@ -105,18 +105,18 @@ D001..D007 — six runtime + one generator-output-scoped).
 
 Requirements live in `requirements/{domain,functional,safety,performance}/` as
 one `.md` per ID (`REQ-DM-*`, `REQ-FN-*`, `REQ-FS-*`, `REQ-PF-*`). Every
-accepted requirement whose `phase_target <= .phase` (currently phase **6**,
-file at repo root) must be referenced by at least one test via a comment of
+accepted requirement must be referenced by at least one test via a comment of
 the form:
 
 ```c
 /* Verifies: REQ-FS-001 */
 ```
 
-`tools/check_traceability.py` fails CI if any required ID has no marker.
-**IDs are append-only** — never reuse or renumber, even after withdrawal.
-When adding tests, add the `Verifies:` marker for whichever requirement the
-test exercises.
+`tools/check_traceability.py` fails CI if any accepted ID has no marker, and
+`--write-csv` regenerates `requirements/traceability.csv` (CI fails on drift —
+regenerate and commit it whenever markers change). **IDs are append-only** —
+never reuse or renumber, even after withdrawal. When adding tests, add the
+`Verifies:` marker for whichever requirement the test exercises.
 
 ## Versioning — three independent axes
 
@@ -147,13 +147,6 @@ For schema-language gaps, follow this loop (full version in `docs/contributing.m
 6. Confirm bidirectionally: `XVAL_SAN=1 ./tests/xvalidation/run_xvalidation.sh`.
 
 The 182 existing harnesses are the canonical reference shapes.
-
-## Phase plan
-
-The current phase is recorded in `.phase` at repo root (read by
-`tools/check_traceability.py`). Phases 0–5 are done; Phase 6 (performance
-tuning) is active; Phase 7 (C-native parser) shipped on the C target — Java
-front-end remains only as the cpp xvalidation oracle.
 
 ## Style
 

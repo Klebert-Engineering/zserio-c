@@ -47,7 +47,7 @@ typedef struct zsp_lexer {
 } zsp_lexer_t;
 
 /**
- * Initialise a lexer over the given source file. `src` and
+ * Initialize a lexer over the given source file. `src` and
  * `diag` MUST outlive the lexer. `file_id` MUST refer to a
  * registered file; `ZSERIO_ERR_INVALID_ARGUMENT` is returned
  * otherwise.

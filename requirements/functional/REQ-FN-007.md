@@ -3,7 +3,6 @@ id: REQ-FN-007
 title: Generator output is deterministic across runs
 type: functional
 status: accepted
-phase_target: 1
 verification: test
 ---
 
@@ -16,7 +15,7 @@ outputs across:
    binary.
 2. Distinct hosts running the same `zserio-c` version (different
    operating systems, CPUs, working directories).
-3. Distinct compilers and optimisation levels applied when
+3. Distinct compilers and optimization levels applied when
    building the generator.
 
 "Identical inputs" means the same set of schema files, the same
@@ -69,6 +68,6 @@ layer is discharged by REQ-DM-003).
 Implementation note: the generator uses a stable
 package-source-order ordering for output files and a stable
 alphabetical ordering for emitted symbols. Iteration order of
-internal hashmaps is normalised before emission. Changes that
+internal hashmaps is normalized before emission. Changes that
 introduce a new hashmap dependency on the emission path require
 sorting before output.

@@ -1,15 +1,15 @@
 # parser/ — libzserio_c_parser
 #
-# The C-native parser library. Phase 7 deliverable: replaces the
-# Java front-end (zserio_core.jar + generator/zserio_c.jar) with a
-# pure C99 toolchain.
+# The C-native parser library: replaces the Java front-end
+# (zserio_core.jar + generator/zserio_c.jar) with a pure C99
+# toolchain.
 #
 # This first slice covers the foundation infrastructure:
 #   - source manager (file table + lazy line-start lookup)
 #   - diagnostic collector + gcc-style / JSON formatters
 #
 # Lexer + AST + recursive-descent parser arrive in subsequent
-# slices per the milestones in docs/phase-7/scope.md.
+# slices per the milestones in docs/design/parser.md.
 
 add_library(zserio_c_parser STATIC
     src/source.c

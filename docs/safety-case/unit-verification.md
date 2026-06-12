@@ -1,7 +1,6 @@
 ---
 work_product: ISO 26262-6 §9 — Software unit verification report
 status: draft
-phase_target: 5
 ---
 
 # Software unit verification report — `zserio-c`
@@ -82,7 +81,7 @@ threshold rationale.
 ## Requirements traceability (snapshot against `main`)
 
 `tools/check_traceability.py` runs as a CI gate. Every
-`accepted` requirement whose `phase_target ≤ current phase` must
+`accepted` requirement must
 be referenced by at least one `Verifies:` marker. Output of the
 last green run is preserved in the `traceability` job log; key
 counts:
@@ -91,7 +90,7 @@ counts:
 - Test files referencing requirements: 18 (one per runtime test
   file plus the cross-cutting test_failure_modes.c plus the four
   tools/run_misra.sh/run_xvalidation.sh markers).
-- Pending requirements (phase > 4): 1 (REQ-PF-001, phase 6).
+- Pending requirements: none — every accepted requirement is gated.
 
 ## How to reproduce this report
 

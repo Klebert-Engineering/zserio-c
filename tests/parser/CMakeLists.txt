@@ -36,7 +36,7 @@ target_compile_definitions(test_emit_compile PRIVATE
 
 # Acceptance test: parses real upstream schemas from
 # third_party/zserio-test-data. Tests gracefully skip when the
-# submodule is uninitialised.
+# submodule is uninitialized.
 zserio_c_add_parser_test(test_acceptance)
 target_compile_definitions(test_acceptance PRIVATE
     "ZSP_CORPUS_ROOT=\"${CMAKE_SOURCE_DIR}/third_party/zserio-test-data\""

@@ -7,7 +7,7 @@ covers the status taxonomy and the propagation pattern.
 ## The status type
 
 `zserio_status_t` is an enum from `<zserio/status.h>`. `ZSERIO_OK`
-is zero; all error codes are non-zero, organised into five bands:
+is zero; all error codes are non-zero, organized into five bands:
 
 ```c
 typedef enum zserio_status {

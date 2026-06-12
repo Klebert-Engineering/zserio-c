@@ -1,4 +1,4 @@
-/* Array element type is parameterised by a sibling field whose own
+/* Array element type is parameterized by a sibling field whose own
  * optional sub-field flows into the element. */
 
 #include <stdio.h>

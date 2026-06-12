@@ -131,7 +131,7 @@ desktop replaces it as the canonical x86_64 baseline.
 - **Gated:** zserio-c's own `ns/op` per workload per host. A
   regression vs the host's previous baseline fails the build.
 - **Reported, not gated:** the `cpp/c` ratio. Bringing this above
-  1.0 is the Phase 6 optimisation work; the gate measures
+  1.0 is the optimization work; the gate measures
   *progress*, not a threshold.
 - **Reported, not gated:** cross-host comparison. The aggregation
   step in the commit-comment chain produces a side-by-side table
@@ -186,7 +186,7 @@ numbers to be useful:
 - **CPU governor:** **must** be set to `performance` and made
   persistent. Default is `ondemand` (Pi 4) / `schedutil` (Pi 5);
   both scale the clock with load and add a startup ramp-up
-  artefact to every short-lived measurement. To pin:
+  artifact to every short-lived measurement. To pin:
 
   ```bash
   sudo apt install -y cpufrequtils

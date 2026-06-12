@@ -122,7 +122,7 @@ zserio_allocator_t zserio_allocator_libc(void);
  * sub-ranges until the buffer is exhausted. `free` calls are no-ops
  * — the whole arena is released at once by
  * {@link zserio_arena_reset}. Decode workloads with many small
- * owned strings amortise to a single bump per allocation, which is
+ * owned strings amortize to a single bump per allocation, which is
  * dramatically cheaper than per-string `malloc` / `free` on every
  * libc tested (REQ-FS-007).
  *
@@ -142,7 +142,7 @@ typedef struct zserio_arena {
 } zserio_arena_t;
 
 /**
- * Initialise an arena over `buf` with `cap` bytes of capacity. The
+ * Initialize an arena over `buf` with `cap` bytes of capacity. The
  * arena does not take ownership of `buf`; the caller MUST keep it
  * valid for the lifetime of any allocation handed out.
  *

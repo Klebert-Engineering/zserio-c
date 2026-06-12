@@ -122,7 +122,7 @@ static void test_simple_struct(void)
     fixture_dispose(&f);
 }
 
-static void test_parameterised_struct_with_optional(void)
+static void test_parameterized_struct_with_optional(void)
 {
     fixture_t f;
     static const uint8_t INPUT[] =
@@ -416,7 +416,7 @@ int main(void)
     RUN_TEST(test_package_only);
     RUN_TEST(test_imports);
     RUN_TEST(test_simple_struct);
-    RUN_TEST(test_parameterised_struct_with_optional);
+    RUN_TEST(test_parameterized_struct_with_optional);
     RUN_TEST(test_array_field);
     RUN_TEST(test_enum);
     RUN_TEST(test_choice);

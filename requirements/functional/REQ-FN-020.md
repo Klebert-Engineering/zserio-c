@@ -3,7 +3,6 @@ id: REQ-FN-020
 title: Output validity conditioned on ZSERIO_OK status
 type: functional
 status: accepted
-phase_target: 1
 verification: test
 ---
 
@@ -42,7 +41,7 @@ clean up the mutation.
 
 The output-validity rule is the *semantic contract* that the
 status code anchors. Without it, a caller observing non-OK has
-no defined behaviour to follow: a partial output that looks
+no defined behavior to follow: a partial output that looks
 plausible may be silently consumed and propagate corruption.
 
 The rule is the positive counterpart of

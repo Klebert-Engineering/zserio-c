@@ -22,8 +22,8 @@ as the initial baseline behavior.
 
 The regression check is **us vs. our own per-host baseline**, not
 us vs. upstream cpp. The cpp ratio is reported for visibility but
-is not itself a gate; bringing the ratio above 1.0 is the Phase 6
-optimisation work that this gate measures the progress of.
+is not itself a gate; bringing the ratio above 1.0 is the
+optimization work that this gate measures the progress of.
 
 Verifies: REQ-PF-001
 """

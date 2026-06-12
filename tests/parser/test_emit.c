@@ -2,7 +2,7 @@
  * SPDX-License-Identifier: MIT
  * Copyright (c) 2026 Klebert Engineering
  *
- * Emitter tests: parse → analyse → emit and inspect the
+ * Emitter tests: parse → analyze → emit and inspect the
  * generated C output. Also runs a smoke compilation of the
  * generated C against the runtime to confirm the output is
  * at least syntactically valid.
@@ -95,7 +95,7 @@ static const emitted_file_t *find_file(const memory_sink_t *s,
     return NULL;
 }
 
-static void parse_analyse_emit(const uint8_t *bytes, size_t len,
+static void parse_analyze_emit(const uint8_t *bytes, size_t len,
                                memory_sink_t *sink)
 {
     zsp_source_t         src;
@@ -113,7 +113,7 @@ static void parse_analyse_emit(const uint8_t *bytes, size_t len,
     TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_parse_unit(&src, fid, &arena, &diag, &unit));
     TEST_ASSERT_EQUAL_size_t(0U, zsp_diag_error_count(&diag));
     TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_sema_init(&sema, &src, &arena, &diag));
-    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_sema_analyse_unit(&sema, unit));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_sema_analyze_unit(&sema, unit));
     TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_emit_unit(unit, &arena, &diag, &src,
                                               memory_write, sink));
 
@@ -133,7 +133,7 @@ static void test_emit_simple_struct(void)
             "    string device_label;\n"
             "};\n";
     memory_sink_t sink = {0};
-    parse_analyse_emit(INPUT, sizeof(INPUT) - 1U, &sink);
+    parse_analyze_emit(INPUT, sizeof(INPUT) - 1U, &sink);
     TEST_ASSERT_TRUE(sink.count >= 2U);
 
     const emitted_file_t *const h = find_file(&sink, "frame.h");
@@ -168,7 +168,7 @@ static void test_emit_enum(void)
             "package x;\n"
             "enum uint8 Color { RED = 0, GREEN = 1, BLUE = 2 };\n";
     memory_sink_t sink = {0};
-    parse_analyse_emit(INPUT, sizeof(INPUT) - 1U, &sink);
+    parse_analyze_emit(INPUT, sizeof(INPUT) - 1U, &sink);
 
     const emitted_file_t *const h = find_file(&sink, "color.h");
     TEST_ASSERT_NOT_NULL(h);
@@ -187,7 +187,7 @@ static void test_emit_writes_to_package_path(void)
             "package geo.tile;\n"
             "struct Header { uint32 magic; };\n";
     memory_sink_t sink = {0};
-    parse_analyse_emit(INPUT, sizeof(INPUT) - 1U, &sink);
+    parse_analyze_emit(INPUT, sizeof(INPUT) - 1U, &sink);
 
     bool found_h = false;
     bool found_c = false;

@@ -3,7 +3,6 @@ id: REQ-FN-022
 title: Round-trip byte equality on valid bitstreams
 type: functional
 status: accepted
-phase_target: 1
 verification: test
 ---
 
@@ -39,7 +38,7 @@ test we can apply to the codec. It catches:
   the other does not produce on re-encode).
 - Lossy decode paths (where a field reads then writes back a
   defaulted value).
-- Encoder-side normalisation that the decoder does not invert
+- Encoder-side normalization that the decoder does not invert
   (e.g. trimming trailing zero bits).
 - Padding mishandling at the schema-level alignment boundaries.
 
@@ -72,7 +71,7 @@ The schema-evolution constructs are partially exempt from this
 identity: a buffer encoded under schema version 1 then decoded
 under version 2 may re-encode to a *longer* buffer (the
 version-2 fields are present on re-encode). This is correct
-behaviour, not a round-trip violation. The
+behavior, not a round-trip violation. The
 [REQ-DM-006](../domain/REQ-DM-006.md) evolution semantics
 define which schema-version transitions preserve byte identity
 and which extend it.

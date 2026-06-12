@@ -1,4 +1,4 @@
-/* Optional condition reads through a nested parameterised array's
+/* Optional condition reads through a nested parameterized array's
  * element: `holder.array[0].value1 == 0`. */
 
 #include <stdio.h>

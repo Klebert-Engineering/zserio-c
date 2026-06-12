@@ -1,6 +1,6 @@
 /* ValueCalculator has a bit:4 default + bit:4 optional. The function
  * value() returns one or the other. ValueConsumerCreator chains a
- * ValueConsumer parameterised by the function's return value. */
+ * ValueConsumer parameterized by the function's return value. */
 
 #include <stdio.h>
 #include <stdlib.h>

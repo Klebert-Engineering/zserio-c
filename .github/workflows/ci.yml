@@ -400,7 +400,7 @@ jobs:
         # Per-host baseline at docs/benchmarks/perf.baseline.<host>.json.
         # First run on a new host seeds the file and exits OK; subsequent
         # runs compare against it. Each host has its own noise floor;
-        # cross-host comparison is a *reporting* artefact, never a gate.
+        # cross-host comparison is a *reporting* artifact, never a gate.
         # See docs/benchmarks/methodology.md.
         env:
           PERF_HOST: ${{ matrix.host }}
@@ -432,7 +432,7 @@ jobs:
             -H 'Accept: application/vnd.github+json'
 
   generator:
-    name: Phase 2 generator (build JAR + smoke load)
+    name: Legacy Java generator (build JAR + smoke load)
     runs-on: [self-hosted, linux, x64]
     permissions:
       contents: write   # for posting build logs as a commit comment
@@ -475,7 +475,7 @@ jobs:
             echo "(no log captured)" > /tmp/generator.log
           fi
           {
-            printf 'generator (Phase 2 skeleton) build log for commit %s:\n\n```\n' "${GITHUB_SHA}"
+            printf 'legacy Java generator build log for commit %s:\n\n```\n' "${GITHUB_SHA}"
             tail -c 50000 /tmp/generator.log
             printf '\n```\n'
           } > /tmp/comment_body.md
@@ -632,7 +632,7 @@ jobs:
       - name: Build zserio_c.jar
         run: tools/build_generator_jar.sh
       - name: Build C-native zserio_c_gen
-        # Phase 7 replaced the Java front-end on the C target; the
+        # The C-native zserio_c_gen is the C-side generator; the
         # xvalidation harness now invokes build/parser/zserio_c_gen
         # for the C side of each schema.
         run: |
@@ -675,7 +675,7 @@ jobs:
             exit 1
           fi
           python3 tools/check_no_alloc_in_writers.py "${GEN_DIRS[@]}"
-      - name: Summarise xvalidation result
+      - name: Summarize xvalidation result
         if: always()
         run: |
           set -u

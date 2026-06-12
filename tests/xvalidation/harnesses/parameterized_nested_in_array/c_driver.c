@@ -1,6 +1,6 @@
-/* `packed Element[]` where Element holds a parameterised Parameterized(5).
+/* `packed Element[]` where Element holds a parameterized Parameterized(5).
  * Tests that the packed-compound-array dispatch recurses into a nested
- * parameterised struct subfield. */
+ * parameterized struct subfield. */
 
 #include <stdio.h>
 #include <stdlib.h>

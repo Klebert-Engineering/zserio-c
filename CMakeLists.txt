@@ -44,9 +44,9 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     endif()
 endif()
 
-# Subdirectories are added only if they contain a CMakeLists.txt.
-# Phase 0 stubs are empty placeholders; this guard keeps the configure
-# step honest while the tree grows.
+# Subdirectories are added only if they contain a CMakeLists.txt,
+# so partial checkouts and out-of-tree harness builds configure
+# cleanly.
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/runtime/CMakeLists.txt")
     add_subdirectory(runtime)
 endif()

@@ -18,7 +18,7 @@
  * bottom of this file pass the right max-bytes / max-value table.
  *
  * The encoding spec is in docs/upstream-analysis/02-wire-format.md §2.3
- * and the per-type bit budgets are summarised in varint.h.
+ * and the per-type bit budgets are summarized in varint.h.
  */
 
 /* ------------------------------------------------------------------------ */
@@ -159,7 +159,7 @@ static zserio_status_t read_varuint_impl(zserio_bitstream_reader_t *bs,
         }
     }
     /* Unreachable: the loop returns from the is_last branch on the
-     * final iteration. Defensive fall-through for the static analyser. */
+     * final iteration. Defensive fall-through for the static analyzer. */
     return ZSERIO_ERR_INVALID_ENCODING; /* LCOV_EXCL_LINE — unreachable */
 }
 
@@ -571,7 +571,7 @@ zserio_status_t zserio_write_varint(zserio_bitstream_writer_t *bs, int64_t v)
 
 /* ------------------------------------------------------------------------ */
 /* Delta-context traits, one per varint flavour. Each pair of read/write    */
-/* wrappers materialises the typed varint codec through the                 */
+/* wrappers materializes the typed varint codec through the                 */
 /* zserio_delta_traits_t (uint64_t-typed) interface. The bit-size callback  */
 /* drives upstream-compatible packed-vs-unpacked decisions.                 */
 /* ------------------------------------------------------------------------ */

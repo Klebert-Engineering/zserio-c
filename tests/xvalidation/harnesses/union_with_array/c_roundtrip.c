@@ -11,7 +11,7 @@
 
 /* Union whose arms are arrays. The active arm's count is filled in;
  * the inactive arm's count is left at zero (matches upstream cpp's
- * Vector-default behaviour). */
+ * Vector-default behavior). */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -52,7 +52,7 @@ int main(int argc, char *argv[])
     fclose(fi);
 
     /* Setup phase reused from c_driver.c — produces a `pkg` of the
-     * right type and, for parameterised top-level types, the matching
+     * right type and, for parameterized top-level types, the matching
      * `_set_parameters` call from the same seed. */
     union_types_union_with_array_test_union_t pkg;
     union_types_union_with_array_test_union_init(&pkg);

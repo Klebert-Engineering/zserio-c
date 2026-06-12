@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 #
-# Phase 4 conformance driver for the NDS Live SmartLayerTile fixture.
+# Conformance driver for the NDS Live SmartLayerTile fixture
+# (legacy Java-generator path; see run_c_native.sh for zserio_c_gen).
 #
 # 1. Stage corpus from the asset zip (extract.sh).
 # 2. Run our zserio-c generator on the staged schema.

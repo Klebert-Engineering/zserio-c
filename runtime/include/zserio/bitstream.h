@@ -194,7 +194,7 @@ static inline void zserio_bitstream_load_cache_next(zserio_bitstream_reader_t *b
  * read.
  *
  * Implementation detail. Calling this without the preconditions is
- * undefined behaviour.
+ * undefined behavior.
  */
 static inline uint64_t zserio_bitstream_read_bits_impl(
     zserio_bitstream_reader_t *bs, uint8_t num_bits)
@@ -471,7 +471,7 @@ zserio_status_t zserio_bitstream_writer_seek(zserio_bitstream_writer_t *bs,
  * funnel through) emits one line to <path> in the form
  *   <pos_after> <op> <nbits> <value>
  * with the same format the cpp oracle emits. The two traces can be
- * diff'd to localise wire-format divergence to a specific bit
+ * diff'd to localize wire-format divergence to a specific bit
  * position. NOT part of the public ABI — the symbol is exposed so
  * a test driver can scope the trace to a single layer's decode. */
 void zsc_trace_set_enabled(bool enabled);

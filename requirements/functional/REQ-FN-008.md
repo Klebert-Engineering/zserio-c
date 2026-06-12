@@ -3,7 +3,6 @@ id: REQ-FN-008
 title: Output file layout mirrors schema package hierarchy
 type: functional
 status: accepted
-phase_target: 1
 verification: test
 ---
 

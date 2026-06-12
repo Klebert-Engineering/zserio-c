@@ -2,7 +2,7 @@
 
 This directory holds the pieces needed to build upstream's C++ NDS Live
 reader as a **wire-format oracle**: an authoritative reference that we
-can diff our own zserio-c reader against, bit by bit, to localise
+can diff our own zserio-c reader against, bit by bit, to localize
 divergence to a specific field instead of guessing from an end-state
 error code.
 
@@ -66,7 +66,7 @@ rewrite). The wire format must match upstream **byte for byte**.
 Differential testing against tile.bin alone gives only an end-state
 error code; without an oracle we'd have to read upstream's FreeMarker
 templates and replay their semantics in our head. The oracle skips
-that — when readers diverge, the diff localises the field within
+that — when readers diverge, the diff localizes the field within
 seconds. The trace hook adds one branch + one fprintf per primitive
 read; production builds compile both files without any tracing
 overhead (the `ZSERIO_TRACE` env var has to be set AND

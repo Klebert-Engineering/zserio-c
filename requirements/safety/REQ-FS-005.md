@@ -3,7 +3,6 @@ id: REQ-FS-005
 title: All loops have a statically determinable upper bound
 type: safety
 status: accepted
-phase_target: 1
 verification: analysis
 ---
 

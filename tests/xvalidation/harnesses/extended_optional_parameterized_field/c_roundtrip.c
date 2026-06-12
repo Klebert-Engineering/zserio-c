@@ -10,7 +10,7 @@
 #define FREE_INBUF do { if (in_buf != &dummy_byte) free(in_buf); } while (0)
 
 /* extend optional Parameterized(value) — combines extend, optional, and
- * a parameterised compound that reads its parameter from a sibling field. */
+ * a parameterized compound that reads its parameter from a sibling field. */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -52,7 +52,7 @@ int main(int argc, char *argv[])
     fclose(fi);
 
     /* Setup phase reused from c_driver.c — produces a `pkg` of the
-     * right type and, for parameterised top-level types, the matching
+     * right type and, for parameterized top-level types, the matching
      * `_set_parameters` call from the same seed. */
     extended_members_extended_optional_parameterized_field_extended_t pkg;
     extended_members_extended_optional_parameterized_field_extended_init(&pkg);

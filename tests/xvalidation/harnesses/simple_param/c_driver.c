@@ -1,4 +1,4 @@
-/* Parameterised struct: `Item(uint32 version)` with a conditional field
+/* Parameterized struct: `Item(uint32 version)` with a conditional field
  * `uint32 extraParam if version >= 10`. Both sides must drive `version`
  * from the seed (it is not on the wire); cpp_driver receives it via
  * argv[3]. */

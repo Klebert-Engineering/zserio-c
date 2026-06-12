@@ -3,7 +3,6 @@ id: REQ-DM-001
 title: System purpose — schema-driven binary serialization
 type: domain
 status: accepted
-phase_target: 1
 verification: review
 ---
 

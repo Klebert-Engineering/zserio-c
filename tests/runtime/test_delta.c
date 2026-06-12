@@ -237,7 +237,7 @@ static void test_delta_two_equal_elements_packed(void)
 static void test_delta_single_element_unpacked(void)
 {
     /* Single element: packed encoding's 6-bit maxBitNumber is pure
-     * overhead, so finalise picks unpacked. Bits: 1 + 8 = 9. */
+     * overhead, so finalize picks unpacked. Bits: 1 + 8 = 9. */
     const uint8_t in[1] = { 0xABU };
     uint8_t buf[2] = { 0 };
     const size_t pos = encode_delta_uint8(buf, 16U, in, 1U);
@@ -269,9 +269,9 @@ static void test_delta_init_invalid_args(void)
                       zserio_delta_init(&ctx, 65U, false));
 }
 
-static void test_delta_observe_after_finalise(void)
+static void test_delta_observe_after_finalize(void)
 {
-    /* After write begins, finalise has run; observe must reject. */
+    /* After write begins, finalize has run; observe must reject. */
     zserio_delta_context_t ctx;
     (void)memset(&ctx, 0, sizeof(ctx));
     (void)zserio_delta_init(&ctx, 8U, false);
@@ -282,7 +282,7 @@ static void test_delta_observe_after_finalise(void)
     zserio_bitstream_writer_t w;
     (void)zserio_bitstream_writer_init(&w, buf, 16U);
     (void)zserio_delta_write(&ctx, &w, 1U);
-    /* finalise has run inside delta_write. observe must now reject. */
+    /* finalize has run inside delta_write. observe must now reject. */
     TEST_ASSERT_EQUAL(ZSERIO_ERR_INVALID_ARGUMENT,
                       zserio_delta_observe(&ctx, 3U));
 }
@@ -295,7 +295,7 @@ static void test_delta_observe_null_ctx(void)
 
 static void test_delta_write_without_observe_takes_unpacked_path(void)
 {
-    /* Skipping the init-pass observes lands the finalise() call on the
+    /* Skipping the init-pass observes lands the finalize() call on the
      * "IS_PACKED was never set" early-return branch. Subsequent write
      * proceeds through the unpacked path. */
     zserio_delta_context_t ctx;
@@ -325,7 +325,7 @@ static void test_delta_max_bit_number_exceeds_limit(void)
     (void)zserio_delta_init(&ctx, 64U, false);
     /* observe 0 and UINT64_MAX → abs_delta = UINT64_MAX, bit_length
      * = 64 > 62. The observe path clears the tentative IS_PACKED
-     * flag, so finalise takes the unpacked branch. Single observe
+     * flag, so finalize takes the unpacked branch. Single observe
      * pass (see encode_delta_uint8 helper for why double-observe is
      * a bug). */
     (void)zserio_delta_observe(&ctx, 0U);
@@ -390,7 +390,7 @@ int main(void)
     RUN_TEST(test_delta_two_equal_elements_packed);
     RUN_TEST(test_delta_single_element_unpacked);
     RUN_TEST(test_delta_init_invalid_args);
-    RUN_TEST(test_delta_observe_after_finalise);
+    RUN_TEST(test_delta_observe_after_finalize);
     RUN_TEST(test_delta_observe_null_ctx);
     RUN_TEST(test_delta_write_without_observe_takes_unpacked_path);
     RUN_TEST(test_delta_max_bit_number_exceeds_limit);

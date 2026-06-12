@@ -1,13 +1,12 @@
 ---
 work_product: ISO 26262-3 §6 — Hazard analysis and risk assessment (HARA)
 status: draft
-phase_target: 5
 ---
 
 # Hazard analysis — `zserio-c`
 
 This HARA is performed at the **item** level. Vehicle-level
-hazards (HARA-level S/E/C analyses, ASIL allocation) are the
+hazards (HARA-level S/E/C analyzes, ASIL allocation) are the
 responsibility of the integrating system; this document enumerates
 the failure modes of `zserio-c` itself that an integrator's HARA
 needs to consider when allocating safety goals to a serialization
@@ -36,7 +35,7 @@ This table is **structural**, not S/E/C-classified. The item is
 intended to be used at multiple integration levels (ASIL-B to QM
 depending on the channel). The S/E/C decision is made by the
 integrating system's HARA; what `zserio-c` provides is a stable
-catalogue of failure modes for that analysis to reference.
+catalog of failure modes for that analysis to reference.
 
 For our own development we treat all hazards in the table as
 ASIL-B-equivalent — i.e. controllable through the existing safety

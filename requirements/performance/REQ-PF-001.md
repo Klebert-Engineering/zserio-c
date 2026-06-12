@@ -3,7 +3,6 @@ id: REQ-PF-001
 title: Throughput at least matching upstream C++ runtime
 type: performance
 status: accepted
-phase_target: 6
 verification: test
 ---
 
@@ -26,7 +25,7 @@ inlinable status checks), so this requirement holds us to that thesis.
 
 ## Verification
 
-- A benchmark harness (added in Phase 1, exercised in Phase 6) measures
+- A benchmark harness (`tests/benchmarks/`) measures
   read and write throughput across a corpus of upstream-derived
   workloads:
   - Small flat struct (`small_flat`, 10 primitive fields, ~31 B).
@@ -47,7 +46,7 @@ inlinable status checks), so this requirement holds us to that thesis.
   emits an advisory `↓ rebaseline?` hint at ≥ 30% improvement so
   stale baselines get noticed. The 15% threshold is loose by design
   to absorb runner-noise; tightening per host is a follow-up once
-  the longer-term noise floor is characterised.
+  the longer-term noise floor is characterized.
 
 ## Notes
 

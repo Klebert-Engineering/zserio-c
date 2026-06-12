@@ -25,7 +25,7 @@ CACHE_JAR="${CACHE_DIR}/zserio.jar"
 STAMP="${CACHE_DIR}/zserio_bundle.stamp"
 
 if [[ ! -d "${UPSTREAM_DIR}/.git" ]] && [[ ! -f "${UPSTREAM_DIR}/build.xml" ]]; then
-    echo "upstream submodule not initialised at ${UPSTREAM_DIR}" >&2
+    echo "upstream submodule not initialized at ${UPSTREAM_DIR}" >&2
     echo "run: git submodule update --init third_party/zserio" >&2
     exit 2
 fi

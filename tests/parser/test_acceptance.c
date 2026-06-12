@@ -5,8 +5,8 @@
  * Acceptance test: parse a curated subset of the upstream
  * zserio test-data corpus and assert every schema parses to
  * zero errors. This is the milestone-7.2 sanity gate; the
- * full 182-schema xvalidation gate runs against the analyser
- * + emitter (later phases).
+ * full 182-schema xvalidation gate runs against the analyzer
+ * + emitter.
  *
  * Verifies: REQ-FN-002 — parser accepts the schema language
  *                        defined in docs/spec/schema-language.md.
@@ -100,11 +100,11 @@ static void parse_and_assert_ok(const char *rel_path)
     size_t len = 0U;
     uint8_t *const bytes = read_file(abs_path, &len);
     if (bytes == NULL) {
-        /* Missing files mean the submodule isn't initialised — skip
+        /* Missing files mean the submodule isn't initialized — skip
          * gracefully rather than failing the test suite. */
         char msg[1200];
         (void)snprintf(msg, sizeof(msg),
-                       "skipping: cannot read %s (submodule may be uninitialised)",
+                       "skipping: cannot read %s (submodule may be uninitialized)",
                        abs_path);
         TEST_IGNORE_MESSAGE(msg);
         return;

@@ -1,6 +1,6 @@
 /* Struct named `ElementChildrenInitializer_array` — clashes with the
  * generator's internal helper-class naming pattern for arrays of
- * parameterised compounds. */
+ * parameterized compounds. */
 
 #include <stdio.h>
 #include <stdlib.h>

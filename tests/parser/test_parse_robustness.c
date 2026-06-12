@@ -9,7 +9,7 @@
  * diagnostic rather than corrupting state.
  *
  * Coverage:
- *   - Deeply nested parenthesised / unary expressions and nested
+ *   - Deeply nested parenthesized / unary expressions and nested
  *     template-argument types are rejected past a fixed depth instead
  *     of recursing until the C stack is exhausted (REQ-FS-003).
  *   - A malformed `rule_group` body cannot spin the body loop forever
@@ -71,11 +71,11 @@ static zserio_status_t parse_only(const char *schema, size_t len,
     return st;
 }
 
-/* Run the full front end (parse → analyse → instantiate templates) on
+/* Run the full front end (parse → analyze → instantiate templates) on
  * `schema`. Returns the diagnostic error count via *err_out. The point
  * is that the call RETURNS at all — a recursive template would
  * otherwise recurse/allocate without bound. */
-static void analyse_and_instantiate(const char *schema, size_t len,
+static void analyze_and_instantiate(const char *schema, size_t len,
                                     size_t *err_out)
 {
     zsp_source_t         src;
@@ -92,7 +92,7 @@ static void analyse_and_instantiate(const char *schema, size_t len,
             &src, "adversarial.zs", 14U, (const uint8_t *)schema, len, &fid));
     TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_parse_unit(&src, fid, &arena, &diag, &unit));
     TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_sema_init(&sema, &src, &arena, &diag));
-    (void)zsp_sema_analyse_unit(&sema, unit);
+    (void)zsp_sema_analyze_unit(&sema, unit);
     (void)zsp_sema_instantiate_templates(&sema, unit);
     if (err_out != NULL) {
         *err_out = zsp_diag_error_count(&diag);
@@ -216,7 +216,7 @@ static void test_recursive_template_instantiation_terminates(void)
             "struct Foo<T> { Foo<Foo<T>> inner; };\n"
             "struct Root { Foo<uint32> r; };\n";
     size_t errs = 0U;
-    analyse_and_instantiate(SCHEMA, sizeof(SCHEMA) - 1U, &errs);
+    analyze_and_instantiate(SCHEMA, sizeof(SCHEMA) - 1U, &errs);
     TEST_ASSERT_GREATER_THAN_size_t(0U, errs);
 }
 

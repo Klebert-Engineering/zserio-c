@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Phase 4 closing leg: schema-driven cross-validation harness.
+# Schema-driven cross-validation harness (REQ-FN-001).
 #
 # For each schema listed in schemas.txt (one path-relative-to-corpus
 # per line), this script:
@@ -99,7 +99,7 @@ python3 "${REPO_ROOT}/tests/xvalidation/gen_roundtrip.py" \
     "${REPO_ROOT}/tests/xvalidation/harnesses" 1>/dev/null
 
 # Pre-build the C runtime objs once — every per-schema driver links
-# against them. Sanitizer-built and plain artefacts live in separate
+# against them. Sanitizer-built and plain artifacts live in separate
 # sub-dirs so XVAL_SAN=1 and unset interleave without stomping each
 # other's caches.
 mkdir -p "${WORK_ROOT}/runtime-objs${SAN_TAG}"

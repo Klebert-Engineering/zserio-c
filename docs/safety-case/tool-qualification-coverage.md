@@ -1,7 +1,6 @@
 ---
 work_product: ISO 26262-8 §11 — Tool qualification (lcov / gcov)
 status: draft
-phase_target: 5
 tool: lcov, gcov
 ---
 
@@ -36,7 +35,7 @@ tool: lcov, gcov
    intentionally excluded from the safety-case coverage claim.
 4. Run `tools/check_coverage.py` against the filtered `.info` to
    enforce thresholds (line ≥ 99%, branch ≥ 85%, function = 100%).
-5. Honour `LCOV_EXCL_LINE` / `LCOV_EXCL_START` / `LCOV_EXCL_STOP`
+5. Honor `LCOV_EXCL_LINE` / `LCOV_EXCL_START` / `LCOV_EXCL_STOP`
    markers in source for documented unreachable code paths
    (defensive returns, etc.).
 
@@ -59,7 +58,7 @@ the software tool** and **(1) — increased confidence from use**:
   | --------------------------------------------------- | ------------------------------------------------------------------------------------------- |
   | Line counts equal actual executions                 | Spot-check: insert a known-untested branch, observe lcov correctly reports 0 hits.          |
   | Branch counts equal actual taken/not-taken          | Spot-check: tests for trait-driven dispatch (`test_delta_traits.c`) cover both branches of the traits-null check; lcov correctly attributes both branches. |
-  | `LCOV_EXCL_*` markers honoured                      | The three `LCOV_EXCL_LINE` lines in `varint.c` (130, 156, 209) are absent from the report despite being source-visible; verified per commit by inspecting the posted coverage report. |
+  | `LCOV_EXCL_*` markers honored                      | The three `LCOV_EXCL_LINE` lines in `varint.c` (130, 156, 209) are absent from the report despite being source-visible; verified per commit by inspecting the posted coverage report. |
   | Function counts equal actual entries                | Function coverage went from 70% to 100% when the trait wrappers were exercised (`test_delta_traits.c`); the delta exactly matched the number of newly-exercised functions. |
 
 ## Specific criteria and evidence
@@ -75,8 +74,8 @@ the software tool** and **(1) — increased confidence from use**:
 
 ## Known limitations
 
-- **Branch coverage with optimisation.** Branch coverage is
-  taken at `-O0`; at higher optimisation levels gcc may merge or
+- **Branch coverage with optimization.** Branch coverage is
+  taken at `-O0`; at higher optimization levels gcc may merge or
   hoist branches, changing the count. The gate uses `-O0 -g`
   specifically to keep the count comparable across commits.
 - **gcov line attribution.** gcov attributes execution to the

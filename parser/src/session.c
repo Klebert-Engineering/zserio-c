@@ -309,7 +309,7 @@ zserio_status_t zsp_session_load(zsp_session_t   *s,
     if ((s == NULL) || (path == NULL)) {
         return ZSERIO_ERR_INVALID_ARGUMENT;
     }
-    /* Normalise: resolve to absolute path. For the MVP we just
+    /* Normalize: resolve to absolute path. For the MVP we just
      * use the path as-given; callers pass absolute or correctly
      * relative paths. */
     if (already_loaded(s, path)) {
@@ -371,12 +371,12 @@ zserio_status_t zsp_session_load(zsp_session_t   *s,
              * reference" for anything that wasn't found. */
         }
         /* Missing dependency files are not fatal here — they
-         * surface as unresolved type-refs at analyse time. */
+         * surface as unresolved type-refs at analyze time. */
     }
     return ZSERIO_OK;
 }
 
-zserio_status_t zsp_session_analyse(zsp_session_t *s)
+zserio_status_t zsp_session_analyze(zsp_session_t *s)
 {
     if (s == NULL) return ZSERIO_ERR_INVALID_ARGUMENT;
     if (!s->sema_inited) {

@@ -52,7 +52,7 @@ int main(int argc, char *argv[])
     fclose(fi);
 
     /* Setup phase reused from c_driver.c — produces a `pkg` of the
-     * right type and, for parameterised top-level types, the matching
+     * right type and, for parameterized top-level types, the matching
      * `_set_parameters` call from the same seed. */
     optional_members_optional_expression_with_removed_enum_item_compound_t pkg;
     optional_members_optional_expression_with_removed_enum_item_compound_init(&pkg);

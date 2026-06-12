@@ -3,7 +3,6 @@ id: REQ-FS-001
 title: No direct heap allocation
 type: safety
 status: accepted
-phase_target: 1
 verification: analysis
 ---
 

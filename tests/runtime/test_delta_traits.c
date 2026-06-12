@@ -140,7 +140,7 @@ static void test_delta_traits_round_trip_varint(void)
 
 /* Force the unpacked path through the trait-mode write/read callbacks:
  * widely-spaced values make the packed-delta cost exceed the unpacked
- * cost, so finalise clears the packed flag and every element goes
+ * cost, so finalize clears the packed flag and every element goes
  * through write_unpacked / read_unpacked. */
 static void test_delta_traits_unpacked_path(void)
 {

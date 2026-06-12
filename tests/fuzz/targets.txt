@@ -10,7 +10,7 @@
 # and recompiles the runtime + generated code + driver with the same
 # clang sanitizer flags.
 #
-# Closes the Phase 5 Open item "Random-input fuzzing of the decode
+# Closes the safety-plan open item "Random-input fuzzing of the decode
 # path" recorded in safety-case-report.md / integration-verification.md.
 
 builtin_types     third_party/zserio-test-data/language/builtin_types/zs  builtin_types/all_builtin_types.zs  tests/fuzz/fuzz_builtin_types.c

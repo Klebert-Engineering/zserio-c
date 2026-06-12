@@ -1,7 +1,6 @@
 ---
 work_product: ISO 26262-2 §6 — Safety plan
 status: draft
-phase_target: 5
 ---
 
 # Safety plan — `zserio-c`
@@ -34,7 +33,7 @@ sibling files in this directory and in `requirements/`.
 | done   | Architecture description                      | `docs/architecture.md`                              | Fritz       | Frozen for v1; phase-target 1 |
 | done   | Safety requirements (REQ-FS-*)                | `requirements/safety/`                              | Fritz       | 8 items, all `accepted` |
 | done   | Functional requirements (REQ-FN-*)            | `requirements/functional/`                          | Fritz       | REQ-FN-001 = wire compatibility |
-| done   | Performance requirements (REQ-PF-*)           | `requirements/performance/`                         | Fritz       | REQ-PF-001 (phase 6), REQ-PF-002 (size gate, accepted) |
+| done   | Performance requirements (REQ-PF-*)           | `requirements/performance/`                         | Fritz       | REQ-PF-001 (perf gate), REQ-PF-002 (size gate) — both accepted |
 | done   | Requirements traceability (`Verifies:` markers) | tests/* + tools/check_traceability.py             | Fritz       | CI-gated |
 | done   | MISRA enforcement                             | tools/run_misra.sh + cppcheck-suppressions.txt      | Fritz       | CI-gated, strict mode, zero findings |
 | done   | Coding rules                                  | `docs/coding-rules.md`                              | Fritz       | Frozen for v1 |
@@ -59,9 +58,9 @@ sibling files in this directory and in `requirements/`.
 
 ## Sequencing
 
-Phase 5 deliverables, in dependency order:
+Deliverables, in dependency order:
 
-1. **Done in the Phase 5 launch commit:** item definition, HARA,
+1. **Done in the safety-case launch commit:** item definition, HARA,
    this plan.
 2. **Done after that:** stack-budget analysis —
    `tools/measure_stack_usage.py`, the `stack` CI gate, and
@@ -90,12 +89,12 @@ Phase 5 deliverables, in dependency order:
    ndslive). Each is taken as a snapshot against `main` HEAD;
    per-release versions replace the snapshot tables.
 7. **Done after that:** the safety case report — `safety-case-report.md`.
-   Phase 5 is structurally complete; every work product is at
+   The safety case is structurally complete; every work product is at
    `draft`. With every internal Open item in
    `safety-case-report.md` § Open items now closed, acceptance is
    gated only on the case-wide independent reviewer sign-off.
 
-The Phase 5 → Phase 6 transition gate is: every row in the work
+The completion gate is: every row in the work
 product table above is at status `done` or has an explicit
 "deferred to v2" disposition recorded in the safety case report.
 

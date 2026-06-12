@@ -2,7 +2,7 @@
  * SPDX-License-Identifier: MIT
  * Copyright (c) 2026 Klebert Engineering
  *
- * Semantic-analyser tests: drive parse → analyse and check the
+ * Semantic-analyzer tests: drive parse → analyze and check the
  * `resolved` annotations + diagnostic emission.
  *
  * Verifies: REQ-FN-002 — parser accepts the schema language
@@ -46,7 +46,7 @@ static void fixture_setup(fixture_t *f, const uint8_t *bytes, size_t len)
     TEST_ASSERT_EQUAL_size_t(0U, zsp_diag_error_count(&f->diag));
     TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_sema_init(&f->sema, &f->src,
                                               &f->arena, &f->diag));
-    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_sema_analyse_unit(&f->sema, f->unit));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_sema_analyze_unit(&f->sema, f->unit));
 }
 
 static void fixture_teardown(fixture_t *f)
@@ -91,7 +91,7 @@ static void test_duplicate_declaration_is_diagnosed(void)
             &f.src, f.fid, &f.arena, &f.diag, &f.unit));
     TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_sema_init(&f.sema, &f.src,
                                               &f.arena, &f.diag));
-    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_sema_analyse_unit(&f.sema, f.unit));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_sema_analyze_unit(&f.sema, f.unit));
     TEST_ASSERT_EQUAL_size_t(1U, zsp_diag_error_count(&f.diag));
 
     fixture_teardown(&f);
@@ -112,7 +112,7 @@ static void test_unresolved_type_reference_is_diagnosed(void)
             &f.src, f.fid, &f.arena, &f.diag, &f.unit));
     TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_sema_init(&f.sema, &f.src,
                                               &f.arena, &f.diag));
-    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_sema_analyse_unit(&f.sema, f.unit));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_sema_analyze_unit(&f.sema, f.unit));
     TEST_ASSERT_EQUAL_size_t(1U, zsp_diag_error_count(&f.diag));
     fixture_teardown(&f);
 }
@@ -270,7 +270,7 @@ static void test_duplicate_field_name_is_diagnosed(void)
             &f.src, f.fid, &f.arena, &f.diag, &f.unit));
     TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_sema_init(&f.sema, &f.src,
                                               &f.arena, &f.diag));
-    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_sema_analyse_unit(&f.sema, f.unit));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_sema_analyze_unit(&f.sema, f.unit));
     TEST_ASSERT_EQUAL_size_t(1U, zsp_diag_error_count(&f.diag));
     fixture_teardown(&f);
 }
@@ -384,9 +384,9 @@ static void test_const_eval_cycle_detected(void)
             &f.src, f.fid, &f.arena, &f.diag, &f.unit));
     TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_sema_init(&f.sema, &f.src,
                                               &f.arena, &f.diag));
-    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_sema_analyse_unit(&f.sema, f.unit));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_sema_analyze_unit(&f.sema, f.unit));
     /* At least one cyclic-constant diagnostic should have been
-     * emitted; the analyser detects the cycle via the in-flight
+     * emitted; the analyzer detects the cycle via the in-flight
      * sentinel and emits a diagnostic before unwinding. */
     TEST_ASSERT_TRUE(zsp_diag_error_count(&f.diag) >= 1U);
     fixture_teardown(&f);
@@ -396,7 +396,7 @@ static void test_cross_file_type_reference_resolves(void)
 {
     /* Two files: `outer.zs` defines a struct that references
      * a type defined in `inner.zs`. We register inner first,
-     * then analyse outer — outer's reference should resolve to
+     * then analyze outer — outer's reference should resolve to
      * inner's declaration through the shared root scope. */
     zsp_source_t         src;
     zsp_arena_t          arena;
@@ -429,7 +429,7 @@ static void test_cross_file_type_reference_resolves(void)
 
     TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_sema_init(&sema, &src, &arena, &diag));
     TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_sema_register_unit(&sema, inner_unit));
-    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_sema_analyse_unit(&sema, outer_unit));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_sema_analyze_unit(&sema, outer_unit));
     TEST_ASSERT_EQUAL_size_t(0U, zsp_diag_error_count(&diag));
 
     /* Outer's `Stop.location` field's type should resolve to

@@ -3,7 +3,6 @@ id: REQ-FN-013
 title: Template instantiation
 type: functional
 status: accepted
-phase_target: 1
 verification: test
 ---
 
@@ -43,7 +42,7 @@ Live conformance corpus provides the current depth target.
 ## Rationale
 
 Templates are the schema language's mechanism for generic
-container types and parameterised compound types. Without
+container types and parameterized compound types. Without
 template support, large fractions of practical zserio schemas
 (notably NDS Live's attribute hierarchy) cannot be processed.
 

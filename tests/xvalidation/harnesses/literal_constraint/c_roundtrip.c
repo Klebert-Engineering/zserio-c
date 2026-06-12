@@ -52,7 +52,7 @@ int main(int argc, char *argv[])
     fclose(fi);
 
     /* Setup phase reused from c_driver.c — produces a `pkg` of the
-     * right type and, for parameterised top-level types, the matching
+     * right type and, for parameterized top-level types, the matching
      * `_set_parameters` call from the same seed. */
     constraints_literal_constraint_literal_constraint_t pkg;
     constraints_literal_constraint_literal_constraint_init(&pkg);

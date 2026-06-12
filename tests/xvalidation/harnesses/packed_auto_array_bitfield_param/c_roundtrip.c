@@ -9,7 +9,7 @@
 
 #define FREE_INBUF do { if (in_buf != &dummy_byte) free(in_buf); } while (0)
 
-/* Top-level parameterised struct holding a packed dynamic-bit array.
+/* Top-level parameterized struct holding a packed dynamic-bit array.
  * The delta context's bit width is the parameter (`self->num_bits`),
  * not the storage container's 64-bit width. */
 
@@ -52,7 +52,7 @@ int main(int argc, char *argv[])
     fclose(fi);
 
     /* Setup phase reused from c_driver.c — produces a `pkg` of the
-     * right type and, for parameterised top-level types, the matching
+     * right type and, for parameterized top-level types, the matching
      * `_set_parameters` call from the same seed. */
     array_types_packed_auto_array_bitfield_param_parameterized_bitfield_length_t pkg;
     array_types_packed_auto_array_bitfield_param_parameterized_bitfield_length_init(&pkg);

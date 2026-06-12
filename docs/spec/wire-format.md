@@ -179,7 +179,7 @@ the **first** byte holds the sign (`1` = negative); the next bit is the
 continuation flag; the remaining six bits hold the most significant
 magnitude bits. Negation is by sign-magnitude in the encoding, not
 two's-complement: a value `-x` encodes the magnitude of `x` and sets the
-sign bit. The decoded result is then materialised as a two's-complement
+sign bit. The decoded result is then materialized as a two's-complement
 integer of the target width.
 
 The byte layouts:
@@ -592,7 +592,7 @@ the `bool` plays the role of the presence flag.
 An `extend` field is a tail-position evolution mechanism. On the encode
 path it behaves as an unconditional field. On the decode path the field
 is treated as present iff at least one bit remains in the bitstream when
-the field's encoding begins; otherwise the decoder synthesises a default
+the field's encoding begins; otherwise the decoder synthesizes a default
 value and reads no further. See
 [`schema-evolution.md`](schema-evolution.md) for the legal placement
 rules and the round-trip guarantees that follow from them.
@@ -980,7 +980,7 @@ The packed encoding takes 139 bits vs. 240 bits unpacked
 
 The wire-equivalent elaborated schema with one explicit
 `PackingDescriptor` per packable field per element-zero, followed by
-parameterised per-element types, is:
+parameterized per-element types, is:
 
 ```zserio
 struct PackingDescriptor
@@ -1074,7 +1074,7 @@ list = [
 ]
 ```
 
-Per-field analyses:
+Per-field analyzes:
 
 - `value32`: deltas `[10, 10, 10, 10]`, packed, `maxBitNumber = 4`.
 - `text`: unpackable.
@@ -1134,7 +1134,7 @@ Offset   00 01 02 03 04 05 06 07  08 09 0A 0B 0C 0D 0E 0F
 The wire-equivalent elaborated schema is mechanical and follows the
 same pattern as §9.7 with one extra parameter row per inner packable
 field — element zero records a `PackingDescriptor` for each packable
-field in source order, and element X is parameterised on the
+field in source order, and element X is parameterized on the
 corresponding tuple of descriptors and writes a delta or a full value
 per field accordingly.
 
@@ -1221,11 +1221,11 @@ offset:
 
 Offsets can be filled in automatically by the encoder before the actual
 write pass; an integrator using the runtime is responsible for calling
-the offset-initialiser for the type before serialising it.
+the offset-initializer for the type before serializing it.
 
 ### 10.3 Indexed offsets
 
-An `offset[@index]:` declaration is the array-valued generalisation of
+An `offset[@index]:` declaration is the array-valued generalization of
 §10.2: the offsetted field is itself an array, and each element is
 aligned to a byte boundary and recorded into the corresponding
 parallel-array offset slot. The array of offsets MUST have the same
@@ -1358,9 +1358,9 @@ in the implementation, never an acceptable state.
 ## See also
 
 - [`schema-language.md`](schema-language.md) — the language whose
-  constructs the wire format is parameterised on.
+  constructs the wire format is parameterized on.
 - [`schema-evolution.md`](schema-evolution.md) — the `extend` / `optional`
-  evolution semantics summarised in §8.
+  evolution semantics summarized in §8.
 - [`types-mapping.md`](types-mapping.md) — the schema-type → C-type
   table; this document specifies the wire side, that one specifies the
   in-memory side.

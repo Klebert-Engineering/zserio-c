@@ -97,7 +97,7 @@ static void memory_sink_free(memory_sink_t *s)
     s->cap   = 0U;
 }
 
-static void parse_analyse_emit(const uint8_t *bytes, size_t len,
+static void parse_analyze_emit(const uint8_t *bytes, size_t len,
                                memory_sink_t *sink)
 {
     zsp_source_t         src;
@@ -115,7 +115,7 @@ static void parse_analyse_emit(const uint8_t *bytes, size_t len,
     TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_parse_unit(&src, fid, &arena, &diag, &unit));
     TEST_ASSERT_EQUAL_size_t(0U, zsp_diag_error_count(&diag));
     TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_sema_init(&sema, &src, &arena, &diag));
-    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_sema_analyse_unit(&sema, unit));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_sema_analyze_unit(&sema, unit));
     /* Template instantiation is a separate sema pass — without it,
      * inline template references (e.g. `Container<...>` as a field
      * type) stay as templated refs and never produce concrete
@@ -142,7 +142,7 @@ static void parse_analyse_emit(const uint8_t *bytes, size_t len,
  * the mangler produces the type name.
  *
  * A field of type `ContainerWithReasonablyLongName<...nested...>`
- * inside an outer struct forces semantic analysis to materialise
+ * inside an outer struct forces semantic analysis to materialize
  * each inner reference as a concrete instance with a mangled name.
  *
  * Per-level mangled identifier length (approx, base name = 36 chars):
@@ -221,7 +221,7 @@ static char *find_truncated_header(const memory_sink_t *sink,
 static void test_truncation_suffix_present_and_well_formed(void)
 {
     memory_sink_t sink = {0};
-    parse_analyse_emit(SCHEMA, sizeof(SCHEMA) - 1U, &sink);
+    parse_analyze_emit(SCHEMA, sizeof(SCHEMA) - 1U, &sink);
 
     size_t suffix_pos = 0U;
     char *const stem = find_truncated_header(&sink, &suffix_pos);
@@ -255,7 +255,7 @@ static void test_truncation_suffix_present_and_well_formed(void)
 static void test_filename_within_name_max(void)
 {
     memory_sink_t sink = {0};
-    parse_analyse_emit(SCHEMA, sizeof(SCHEMA) - 1U, &sink);
+    parse_analyze_emit(SCHEMA, sizeof(SCHEMA) - 1U, &sink);
 
     bool found_truncated = false;
     for (size_t i = 0U; i < sink.count; ++i) {
@@ -281,13 +281,13 @@ static void test_filename_within_name_max(void)
 static void test_truncation_is_deterministic(void)
 {
     memory_sink_t sink_a = {0};
-    parse_analyse_emit(SCHEMA, sizeof(SCHEMA) - 1U, &sink_a);
+    parse_analyze_emit(SCHEMA, sizeof(SCHEMA) - 1U, &sink_a);
     size_t suffix_pos_a = 0U;
     char *const stem_a = find_truncated_header(&sink_a, &suffix_pos_a);
     TEST_ASSERT_NOT_NULL(stem_a);
 
     memory_sink_t sink_b = {0};
-    parse_analyse_emit(SCHEMA, sizeof(SCHEMA) - 1U, &sink_b);
+    parse_analyze_emit(SCHEMA, sizeof(SCHEMA) - 1U, &sink_b);
     size_t suffix_pos_b = 0U;
     char *const stem_b = find_truncated_header(&sink_b, &suffix_pos_b);
     TEST_ASSERT_NOT_NULL(stem_b);

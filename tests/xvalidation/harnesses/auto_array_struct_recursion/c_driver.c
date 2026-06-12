@@ -1,6 +1,6 @@
 /* Recursive struct: AutoArrayRecursion has an array of itself.
  * Driver builds a tiny tree to verify both empty and non-empty
- * recursive arrays serialise correctly. */
+ * recursive arrays serialize correctly. */
 
 #include <stdio.h>
 #include <stdlib.h>

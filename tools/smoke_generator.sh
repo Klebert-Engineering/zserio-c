@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # End-to-end smoke test: invoke the upstream ZserioTool with our generator
-# JAR on the classpath, against the hello-world schema. The Phase 2
+# JAR on the classpath, against the hello-world schema. The legacy
 # skeleton's process() prints a banner and creates the output directory;
 # success is "exit 0 and the banner appeared".
 #
@@ -51,7 +51,7 @@ if [[ ! -d "${OUTPUT_DIR}" ]]; then
 fi
 
 # Verify each emitter produced its expected output file. The list
-# grows as Phase 2 batches add new emitters.
+# grows as the legacy generator gains emitters.
 EXPECTED=(
     "${OUTPUT_DIR}/hello/max_age.h"
     "${OUTPUT_DIR}/hello/max_name_length.h"

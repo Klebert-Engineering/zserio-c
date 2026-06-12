@@ -58,6 +58,6 @@ CI job and are deliberately kept out of the shared
 | Suppression          | Why                                                                  |
 |----------------------|----------------------------------------------------------------------|
 | `misra-c2012-7.2`    | Triggered by `INT64_MIN`, which is a signed integer constant by definition; a `U` suffix would be wrong. False positive on cppcheck's default rule check. |
-| `misra-c2012-10.4`   | The signed-aware `abs_delta` comparison in `delta.c` is intentionally polymorphic between signed and unsigned interpretation; the rule's "same essential type category" demand cannot be honoured here without duplicating the function. |
+| `misra-c2012-10.4`   | The signed-aware `abs_delta` comparison in `delta.c` is intentionally polymorphic between signed and unsigned interpretation; the rule's "same essential type category" demand cannot be honored here without duplicating the function. |
 | `misra-c2012-10.7`   | Routine bit-shift arithmetic where the shift amount is necessarily narrower than the value being shifted. Each affected site has explicit casts that document intent. Code-review checked. |
 | `misra-c2012-10.8`   | One site in `float.c` casting `((int32_t)1 - signed_exponent16)` to `uint32_t`. Value is non-negative by branch analysis; cast is well-defined for the input domain. Code-review checked. |

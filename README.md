@@ -175,7 +175,7 @@ For **working on** zserio-c, or **deploying it under ISO 26262**:
 ```
 parser/                  zserio_c_gen — C-native parser/sema/emitter
 runtime/                 libzserio_c_runtime — C99 source + headers
-generator/               legacy Java generator extension (Phase 2)
+generator/               legacy Java generator extension (xvalidation oracle)
 third_party/zserio/      upstream submodule, pinned at v2.18.1
 
 tests/runtime/           Unity unit tests

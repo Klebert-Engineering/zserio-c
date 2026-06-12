@@ -3,7 +3,6 @@ id: REQ-FS-008
 title: No runtime reflection in generated code
 type: safety
 status: accepted
-phase_target: 2
 verification: analysis
 ---
 
@@ -36,7 +35,7 @@ nothing on the codec's hot path and has substantial costs:
 - **Certification surface** — every byte of read-only data is part of
   the safety case argument. Type strings are inert but still need to be
   accounted for. Vtables are worse: indirect calls defeat MISRA Rule
-  19.x category analyses and complicate WCET bounding.
+  19.x category analyzes and complicate WCET bounding.
 - **API surface** — reflection encourages "generic walker" APIs that
   invite caller code to peek at internals. A reflection-free generated
   type is opaque except through the encode/decode entry points, which

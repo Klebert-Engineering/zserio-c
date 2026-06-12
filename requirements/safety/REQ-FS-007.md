@@ -3,7 +3,6 @@ id: REQ-FS-007
 title: Freedom from interference between codec instances
 type: safety
 status: accepted
-phase_target: 1
 verification: analysis
 ---
 

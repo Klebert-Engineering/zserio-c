@@ -14,9 +14,9 @@
  *
  * Three flag bits track the lifecycle:
  *   INIT_STARTED: at least one observe() call has been made
- *   IS_PACKED:    finalised decision (or running guess during init)
+ *   IS_PACKED:    finalized decision (or running guess during init)
  *   USE_STARTED:  first write() / read() has happened
- *   FINALISED:    finalize() has run; IS_PACKED is the final answer
+ *   FINALIZED:    finalize() has run; IS_PACKED is the final answer
  *
  * MAX_BIT_NUMBER_LIMIT matches upstream: 62. Above this, packed
  * encoding cannot represent the delta and we fall back to unpacked.
@@ -31,7 +31,7 @@
 #define DELTA_FLAG_INIT_STARTED  ZSERIO_DELTA_FLAG_INIT_STARTED
 #define DELTA_FLAG_IS_PACKED     ZSERIO_DELTA_FLAG_IS_PACKED
 #define DELTA_FLAG_USE_STARTED   ZSERIO_DELTA_FLAG_USE_STARTED
-#define DELTA_FLAG_FINALISED     ZSERIO_DELTA_FLAG_FINALISED
+#define DELTA_FLAG_FINALIZED     ZSERIO_DELTA_FLAG_FINALIZED
 
 #define DELTA_MAX_BIT_NUMBER_LIMIT  ((uint8_t)62U)
 #define DELTA_MAX_BIT_NUMBER_BITS   ((uint8_t)6U)
@@ -63,12 +63,12 @@ static bool delta_is_signed(const zserio_delta_context_t *ctx)
     return (ctx->traits != NULL) ? ctx->traits->is_signed : ctx->is_signed;
 }
 
-static void delta_finalise(zserio_delta_context_t *ctx)
+static void delta_finalize(zserio_delta_context_t *ctx)
 {
-    if ((ctx->flags & DELTA_FLAG_FINALISED) != 0U) {
+    if ((ctx->flags & DELTA_FLAG_FINALIZED) != 0U) {
         return;
     }
-    ctx->flags |= DELTA_FLAG_FINALISED;
+    ctx->flags |= DELTA_FLAG_FINALIZED;
 
     if ((ctx->flags & DELTA_FLAG_IS_PACKED) == 0U) {
         return; /* already disqualified during init */
@@ -181,8 +181,8 @@ zserio_status_t zserio_delta_observe(zserio_delta_context_t *ctx,
     if (ctx == NULL) {
         return ZSERIO_ERR_INVALID_ARGUMENT;
     }
-    if ((ctx->flags & DELTA_FLAG_FINALISED) != 0U) {
-        /* Once finalised, no more observations. */
+    if ((ctx->flags & DELTA_FLAG_FINALIZED) != 0U) {
+        /* Once finalized, no more observations. */
         return ZSERIO_ERR_INVALID_ARGUMENT;
     }
 
@@ -197,7 +197,7 @@ zserio_status_t zserio_delta_observe(zserio_delta_context_t *ctx,
 
     if ((ctx->flags & DELTA_FLAG_INIT_STARTED) == 0U) {
         ctx->flags |= DELTA_FLAG_INIT_STARTED;
-        ctx->flags |= DELTA_FLAG_IS_PACKED; /* tentative; finalise may revoke */
+        ctx->flags |= DELTA_FLAG_IS_PACKED; /* tentative; finalize may revoke */
         ctx->previous = element;
         ctx->first_value = element;
         return ZSERIO_OK;
@@ -209,7 +209,7 @@ zserio_status_t zserio_delta_observe(zserio_delta_context_t *ctx,
         if (bits > ctx->max_bit_number) {
             ctx->max_bit_number = bits;
             /* If the running max exceeds the limit we revoke the
-             * packing-tentative flag so finalise can short-circuit. */
+             * packing-tentative flag so finalize can short-circuit. */
             if (ctx->max_bit_number > DELTA_MAX_BIT_NUMBER_LIMIT) {
                 ctx->flags &= (uint8_t)~DELTA_FLAG_IS_PACKED;
             }
@@ -227,12 +227,12 @@ zserio_status_t zserio_delta_write_slow(zserio_delta_context_t *ctx,
      * wrapper. The slow path's only callers come through there.
      *
      * Reachable states (set by the wrapper's fast-path check failing):
-     *  - !USE_STARTED: very first write — finalise, write descriptor,
+     *  - !USE_STARTED: very first write — finalize, write descriptor,
      *    write the first full element through the trait callback.
-     *  - USE_STARTED + FINALISED + !IS_PACKED: unpacked steady state.
-     * The "USE_STARTED + IS_PACKED + FINALISED" case is handled inline
+     *  - USE_STARTED + FINALIZED + !IS_PACKED: unpacked steady state.
+     * The "USE_STARTED + IS_PACKED + FINALIZED" case is handled inline
      * by {@code zserio_delta_write} and is unreachable here. */
-    delta_finalise(ctx);
+    delta_finalize(ctx);
 
     if ((ctx->flags & DELTA_FLAG_USE_STARTED) == 0U) {
         ctx->flags |= DELTA_FLAG_USE_STARTED;

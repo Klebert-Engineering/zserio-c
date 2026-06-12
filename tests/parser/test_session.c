@@ -3,7 +3,7 @@
  * Copyright (c) 2026 Klebert Engineering
  *
  * Multi-file compilation-session tests: load a top schema +
- * its imported dependencies, analyse across the combined
+ * its imported dependencies, analyze across the combined
  * symbol table, assert cross-file references resolve.
  *
  * Verifies: REQ-FN-005 — import resolution rules (search-order
@@ -91,8 +91,8 @@ static void test_session_loads_dependencies_transitively(void)
     /* Two files should be loaded. */
     TEST_ASSERT_EQUAL_size_t(2U, s.n_files);
 
-    /* Analyse all units. */
-    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_session_analyse(&s));
+    /* Analyze all units. */
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_session_analyze(&s));
     TEST_ASSERT_EQUAL_size_t(0U, zsp_diag_error_count(&s.diag));
 
     /* Verify the Point reference in Stop resolved. */
@@ -134,7 +134,7 @@ static void test_session_handles_missing_dependency_gracefully(void)
 
     /* Analysis runs without aborting; the struct definition is
      * still picked up. */
-    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_session_analyse(&s));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_session_analyze(&s));
 
     zsp_session_dispose(&s);
     (void)system(rm_cmd);

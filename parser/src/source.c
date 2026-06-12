@@ -99,7 +99,7 @@ void zsp_source_dispose(zsp_source_t *src)
         return;
     }
     if (src->alloc == NULL) {
-        /* never initialised */
+        /* never initialized */
         return;
     }
 

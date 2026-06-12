@@ -3,14 +3,13 @@ id: REQ-FN-018
 title: _free is idempotent and safe on partial state
 type: functional
 status: accepted
-phase_target: 1
 verification: test
 ---
 
 ## Statement
 
 For every generated type `T`, the `<t>_free` entry point SHALL
-have the following behaviour:
+have the following behavior:
 
 1. **Safe on zero state** — `_free` called on a struct that has
    been `_init`-ed but never `_read` or otherwise populated

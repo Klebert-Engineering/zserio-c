@@ -9,7 +9,7 @@
 
 #define FREE_INBUF do { if (in_buf != &dummy_byte) free(in_buf); } while (0)
 
-/* Optional condition reads through a nested parameterised array's
+/* Optional condition reads through a nested parameterized array's
  * element: `holder.array[0].value1 == 0`. */
 
 #include <stdio.h>
@@ -51,7 +51,7 @@ int main(int argc, char *argv[])
     fclose(fi);
 
     /* Setup phase reused from c_driver.c — produces a `pkg` of the
-     * right type and, for parameterised top-level types, the matching
+     * right type and, for parameterized top-level types, the matching
      * `_set_parameters` call from the same seed. */
     expressions_parameterized_array_type_parameterized_array_type_expression_t pkg;
     expressions_parameterized_array_type_parameterized_array_type_expression_init(&pkg);

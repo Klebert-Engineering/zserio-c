@@ -3,7 +3,6 @@ id: REQ-FN-005
 title: Import resolution rules
 type: functional
 status: accepted
-phase_target: 1
 verification: test
 ---
 

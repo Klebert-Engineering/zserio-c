@@ -113,7 +113,7 @@ struct TopLevelStructure
 };
 ```
 
-Read-side behaviour per
+Read-side behavior per
 [REQ-FN-025](../../requirements/functional/REQ-FN-025.md):
 
 - If the bitstream has bytes remaining, decode `newFieldInVersion2`
@@ -124,7 +124,7 @@ Read-side behaviour per
 The new application accesses the field through its `_present`
 sentinel and falls back to a default when absent.
 
-Write-side behaviour: the encoder **always** emits the `extend`
+Write-side behavior: the encoder **always** emits the `extend`
 field at its declared position, byte-aligned. There is no
 "skip if zero" path on write. Forward compatibility (old reader
 on new bytes) is then provided by the top-level structure
@@ -221,7 +221,7 @@ still *consume* it without error.
 | Remove enum item without `@removed` | ✗ | ✗ |
 | Remove enum item with `@removed` | ✓ | ✓ |
 | Add choice case (no default) | ✗ | ✓ |
-| Add choice case (with default) | ✗ (silently miscategorised) | ✓ |
+| Add choice case (with default) | ✗ (silently miscategorized) | ✓ |
 
 ## Integration consequence
 

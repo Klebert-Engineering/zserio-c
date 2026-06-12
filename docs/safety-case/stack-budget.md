@@ -1,7 +1,6 @@
 ---
 work_product: Stack-budget analysis (hazard H-09)
 status: draft
-phase_target: 5
 ---
 
 # Stack-budget analysis — `zserio-c`
@@ -40,7 +39,7 @@ options, both enabled in the dedicated build:
   same frame-size + qualifier the `.su` does, and each `edge:`
   records one caller → callee relationship.
 
-Combined, the two artefacts allow the analysis to enforce three
+Combined, the two artifacts allow the analysis to enforce three
 properties:
 
 1. Every function in the runtime has a `static` qualifier.
@@ -74,7 +73,7 @@ Measured against `runtime/src/*.c` on the current `main`:
 
 | metric                                    | value                |
 | ----------------------------------------- | -------------------- |
-| functions analysed                        | 126                  |
+| functions analyzed                        | 126                  |
 | max per-function frame                    | **160 bytes**        |
 | function holding the max                  | `zserio_read_extern` |
 | qualifier on every function               | `static`             |
@@ -134,7 +133,7 @@ the commit message — same pattern as the size-baseline gate.
   generator's output to the gate is the natural next step once a
   representative schema is chosen.
 - **Compiler version specific.** Frame sizes vary slightly across
-  gcc versions and optimisation levels. The CI configuration pins
+  gcc versions and optimization levels. The CI configuration pins
   the gcc version through the Ubuntu image; integrators using a
   different toolchain MUST re-run the analysis with theirs.
 

@@ -3,7 +3,6 @@ id: REQ-DM-005
 title: Wire-format reference is owned by zserio-c
 type: domain
 status: accepted
-phase_target: 1
 verification: review
 ---
 
@@ -80,7 +79,7 @@ implementation
 This requirement is the wire-format counterpart of
 [REQ-DM-004](REQ-DM-004.md) (schema language reference) and is
 related to [REQ-DM-003](REQ-DM-003.md) (canonical encoding) —
-canonicalisation is a property of the wire format, not of the
+canonicalization is a property of the wire format, not of the
 implementation.
 
 The first version of `docs/spec/wire-format.md` is adapted from

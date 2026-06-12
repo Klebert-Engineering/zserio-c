@@ -3,14 +3,13 @@ id: REQ-FN-017
 title: Decoder allocates only via the supplied allocator vtable
 type: functional
 status: accepted
-phase_target: 1
 verification: analysis
 ---
 
 ## Statement
 
 The `<t>_read` entry point of any generated type, and every
-runtime function reachable from it that needs to materialise
+runtime function reachable from it that needs to materialize
 variable-length data, SHALL acquire that memory exclusively
 through the `zserio_allocator_t` vtable supplied as the
 `alloc` parameter.

@@ -4,7 +4,7 @@ Measure stack usage of the zserio-c runtime library.
 
 Configures and builds the runtime in a dedicated `build-stack/`
 directory with ``-fstack-usage`` AND ``-fcallgraph-info=su,da``, then
-runs two analyses against the resulting ``.su`` (per-function frame
+runs two analyzes against the resulting ``.su`` (per-function frame
 sizes) and ``.ci`` (per-TU call graphs, VCG format) files:
 
   1. **Per-function gate.** Fails when any function's frame exceeds
@@ -338,7 +338,7 @@ def main() -> int:
         sys.stdout.write("\n")
     else:
         print(f"max frame: {max_frame} bytes (threshold: {MAX_FRAME_BYTES})")
-        print(f"functions analysed: {len(rows)}")
+        print(f"functions analyzed: {len(rows)}")
         print()
         print(f"{'bytes':>6}  qualifier  function")
         print("-" * 70)

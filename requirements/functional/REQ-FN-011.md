@@ -3,7 +3,6 @@ id: REQ-FN-011
 title: All-or-nothing emission semantics
 type: functional
 status: accepted
-phase_target: 1
 verification: test
 ---
 

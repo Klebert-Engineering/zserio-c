@@ -146,7 +146,7 @@ varsize string length (12), and 12 bytes for the UTF-8 string.
 
 | Step | What it did |
 |---|---|
-| `hello_greeting_init` | Zero-initialised the struct. Always call before `_read` or before populating to write. |
+| `hello_greeting_init` | Zero-initialized the struct. Always call before `_read` or before populating to write. |
 | `hello_greeting_write` | Walked the schema's field order, encoded each field through the bitstream writer. No allocation. |
 | `hello_greeting_read` | Walked the schema's field order, decoded each field through the bitstream reader. String storage allocated via `alloc`. |
 | `hello_greeting_free` | Released the string storage. Always pair `_read` with `_free`. |

@@ -19,7 +19,7 @@
  *
  * These are emission (source-text) assertions: they prove the
  * generator writes the guard. The runtime mechanisms the guards call
- * are covered behaviourally in tests/runtime/test_bitstream.c, and
+ * are covered behaviorally in tests/runtime/test_bitstream.c, and
  * that valid streams still round-trip is covered by the xvalidation
  * corpus.
  *
@@ -91,7 +91,7 @@ static bool blob_write(void *ud, const char *path,
     return bl->ok;
 }
 
-/* Parse → analyse → instantiate → emit `schema`; return the emitted
+/* Parse → analyze → instantiate → emit `schema`; return the emitted
  * .c blob (caller frees). Asserts the front end produced no errors. */
 static char *emit_c_blob(const char *schema)
 {
@@ -111,7 +111,7 @@ static char *emit_c_blob(const char *schema)
     TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_parse_unit(&src, fid, &arena, &diag, &unit));
     TEST_ASSERT_EQUAL_size_t(0U, zsp_diag_error_count(&diag));
     TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_sema_init(&sema, &src, &arena, &diag));
-    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_sema_analyse_unit(&sema, unit));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_sema_analyze_unit(&sema, unit));
     TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_sema_instantiate_templates(&sema, unit));
     TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_emit_unit(unit, &arena, &diag, &src,
                                               blob_write, &bl));

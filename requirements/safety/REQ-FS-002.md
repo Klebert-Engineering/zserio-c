@@ -3,7 +3,6 @@ id: REQ-FS-002
 title: No non-local control flow
 type: safety
 status: accepted
-phase_target: 1
 verification: analysis
 ---
 

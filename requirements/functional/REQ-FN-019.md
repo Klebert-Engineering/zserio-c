@@ -3,7 +3,6 @@ id: REQ-FN-019
 title: _free returns the struct to post-_init state
 type: functional
 status: accepted
-phase_target: 1
 verification: test
 ---
 
@@ -44,7 +43,7 @@ The "byte-identical, not merely semantically equal" wording is
 deliberate. A semantic-only guarantee would let `_free` leave
 some fields in a different but still-valid zero (e.g. setting a
 sentinel to a non-default sentinel value). That would interact
-badly with `memcmp` and with caller code that initialises
+badly with `memcmp` and with caller code that initializes
 related state by `memset`.
 
 The "safe to `_read` again" clause is the practical consequence:

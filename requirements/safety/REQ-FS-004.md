@@ -3,7 +3,6 @@ id: REQ-FS-004
 title: No floating-point in control flow
 type: safety
 status: accepted
-phase_target: 1
 verification: analysis
 ---
 

@@ -3,7 +3,6 @@ id: REQ-FN-006
 title: Import-graph cycles cause bounded work
 type: functional
 status: accepted
-phase_target: 1
 verification: test
 ---
 
@@ -29,7 +28,7 @@ on any import-graph input, regardless of cycle topology.
 
 Diamond imports (`A→B`, `A→C`, `B→D`, `C→D`) are legitimate and
 common — `D` should be loaded once, not twice. The same
-"load-once" behaviour that handles diamonds also tolerates
+"load-once" behavior that handles diamonds also tolerates
 cycles harmlessly, with no downside: a cycle does not introduce
 any wire-format or semantic-analysis ambiguity at the file
 level (file-level imports are name-resolution hints, not
@@ -78,5 +77,5 @@ strictly about file-level imports.
 If a future requirement emerges to *diagnose* cycles (e.g.
 to help schema authors find unintentional dependency loops),
 a separate requirement should add the diagnostic emission as
-an additional behaviour, not a replacement for the
+an additional behavior, not a replacement for the
 parse-once-by-canonical-path invariant defined here.

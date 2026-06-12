@@ -275,7 +275,7 @@ offsets[@index]:
 The runtime patches `offsets[]` during write; the schema author
 declares the storage but does not populate it.
 
-## Parameterised types
+## Parameterized types
 
 ```zserio
 struct Header

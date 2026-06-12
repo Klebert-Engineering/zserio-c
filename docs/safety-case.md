@@ -1,9 +1,8 @@
 # Safety case
 
 This is the root document for the ISO 26262 safety case for `zserio-c`.
-Phase 5 (safety case maturation) is open. The technical work products
-live under `docs/safety-case/`; this file is the navigation entry
-point and records the high-level target.
+The technical work products live under `docs/safety-case/`; this file
+is the navigation entry point and records the high-level target.
 
 ## Target
 
@@ -18,7 +17,7 @@ point and records the high-level target.
 
 The full work-product matrix with status, owner, and dependencies
 lives in `docs/safety-case/safety-plan.md` § Work products. The
-short summary, current as of the Phase 5 launch:
+short summary:
 
 Done (CI-gated, evidence reproducible per commit):
 
@@ -37,7 +36,7 @@ Done (CI-gated, evidence reproducible per commit):
 - [x] Wire-format conformance harness — `tests/xvalidation/`,
       182 schemas × 5 seeds per CI run.
 
-Draft (delivered in the Phase 5 launch commit):
+Draft (delivered in the safety-case launch commit):
 
 - [/] Safety plan — `docs/safety-case/safety-plan.md`.
 - [/] Item definition — `docs/safety-case/item-definition.md`.
@@ -61,7 +60,7 @@ Draft (delivered in the Phase 5 launch commit):
       gcc/cppcheck/lcov-gcov at TCL2 with method (1)+(3) evidence;
       generator at TCL1 thanks to the xvalidation TD1 detection.
 
-Draft (later in Phase 5):
+Draft (delivered subsequently):
 
 - [/] Software unit verification report —
       `docs/safety-case/unit-verification.md`. Snapshot of per-
@@ -73,7 +72,7 @@ Draft (later in Phase 5):
       `docs/safety-case/safety-case-report.md`. Single entry
       document for a reviewer.
 
-Phase 5 is structurally complete; every work product is at
+The safety case is structurally complete; every work product is at
 `draft`. The case as a whole moves to `accepted` when the three
 Open items in `safety-case-report.md` § Open items close.
 

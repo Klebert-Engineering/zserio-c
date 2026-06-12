@@ -151,7 +151,7 @@ Notable design choices we **reject**:
 - **Virtual dispatch**: the base class uses C++ virtual functions.
   In C99 we use a function-pointer vtable struct. Same indirection cost
   at the call site, no C++ ABI dependency, and amenable to MISRA
-  Rule 8 / Rule 12.x analyses without special handling.
+  Rule 8 / Rule 12.x analyzes without special handling.
 - **`isEqual`**: needed only when containers move between resources
   (so a Vector created with allocator A can be assigned to a
   Vector backed by allocator B; `isEqual` checks compatibility).
@@ -577,7 +577,7 @@ This document is *accepted* when:
       choices are explained (§3).
 - [x] A concrete `zserio_allocator_t` ABI is proposed with rationale
       (§4).
-- [x] Bitstream hot-path techniques worth adopting are catalogued
+- [x] Bitstream hot-path techniques worth adopting are catalogd
       (§5).
 - [x] Anti-patterns we explicitly reject are enumerated for the safety
       case (§7).

@@ -7,7 +7,7 @@
  * the C compiler on each generated .c file. Failure means the
  * emitter produced C that doesn't compile against our runtime.
  *
- * This is the Phase 7 xvalidation MVP gate: every schema we
+ * This is the parser's corpus-compile gate: every schema we
  * parse must yield C that the toolchain accepts. Byte-equal
  * vs the Java generator is a stricter follow-up gate that
  * requires matched driver harnesses.
@@ -174,7 +174,7 @@ static void compile_one_schema(const char *schema_path, compile_state_t *st)
 
     if ((zsp_session_load(&session, schema_path, &top_unit) == ZSERIO_OK)
             && (top_unit != NULL)
-            && (zsp_session_analyse(&session) == ZSERIO_OK)) {
+            && (zsp_session_analyze(&session) == ZSERIO_OK)) {
         /* Emit every loaded unit so cross-package references
          * resolve in the generated output. */
         bool ok = true;
@@ -305,7 +305,7 @@ static void test_corpus_compile_sweep(void)
     (void)snprintf(root, sizeof(root), "%s/language", ZSP_CORPUS_ROOT);
     struct stat root_st;
     if (stat(root, &root_st) != 0) {
-        TEST_IGNORE_MESSAGE("corpus submodule not initialised; skipping");
+        TEST_IGNORE_MESSAGE("corpus submodule not initialized; skipping");
         return;
     }
 

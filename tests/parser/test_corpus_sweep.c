@@ -110,7 +110,7 @@ static size_t errors_for_file(const zsp_diag_collector_t *c,
     return n;
 }
 
-static corpus_result_t try_parse_and_analyse(const char *path)
+static corpus_result_t try_parse_and_analyze(const char *path)
 {
     corpus_result_t r = { false, false, false };
 
@@ -130,7 +130,7 @@ static corpus_result_t try_parse_and_analyse(const char *path)
         const zsp_file_id_t target_fid = top_unit->file_id;
         r.parse_ok = (errors_for_file(&session.diag, target_fid) == 0U);
         if (r.parse_ok) {
-            (void)zsp_session_analyse(&session);
+            (void)zsp_session_analyze(&session);
             r.sema_ok = (errors_for_file(&session.diag, target_fid) == 0U);
             if (r.sema_ok) {
                 counter_sink_t cs = { 0U, 0U };
@@ -241,7 +241,7 @@ static void sweep_directory(const char *root, sweep_state_t *s)
             }
             else if (S_ISREG(st.st_mode) && ends_with_zs(ent->d_name)) {
                 s->total += 1U;
-                const corpus_result_t r = try_parse_and_analyse(full);
+                const corpus_result_t r = try_parse_and_analyze(full);
                 if (r.parse_ok) {
                     s->parse_passed += 1U;
                 }
@@ -274,7 +274,7 @@ static void test_corpus_sweep_language(void)
 
     struct stat root_st;
     if (stat(root, &root_st) != 0) {
-        TEST_IGNORE_MESSAGE("corpus submodule not initialised; skipping sweep");
+        TEST_IGNORE_MESSAGE("corpus submodule not initialized; skipping sweep");
         return;
     }
 
@@ -287,8 +287,8 @@ static void test_corpus_sweep_language(void)
 
     (void)printf("\ncorpus sweep:\n"
                  "  %zu / %zu schemas parsed with zero errors\n"
-                 "  %zu / %zu schemas survived parse + analyse\n"
-                 "  %zu / %zu schemas survived parse + analyse + emit\n",
+                 "  %zu / %zu schemas survived parse + analyze\n"
+                 "  %zu / %zu schemas survived parse + analyze + emit\n",
                  s.parse_passed, s.total,
                  s.sema_passed,  s.total,
                  s.emit_passed,  s.total);
@@ -300,7 +300,7 @@ static void test_corpus_sweep_language(void)
         }
     }
     if (s.sema_only_count > 0U) {
-        (void)printf("first sema-only failures (parsed clean but analyser found errors):\n");
+        (void)printf("first sema-only failures (parsed clean but analyzer found errors):\n");
         const size_t to_show = (s.sema_only_count < 6U) ? s.sema_only_count : 6U;
         for (size_t i = 0U; i < to_show; ++i) {
             (void)printf("  - %s\n", s.sema_only_paths[i]);
@@ -316,7 +316,7 @@ static void test_corpus_sweep_language(void)
     free(s.sema_only_paths);
 
     /* Milestone 7.2/7.3 acceptance threshold: 85% of upstream
-     * language schemas must survive parse + analyse with zero
+     * language schemas must survive parse + analyze with zero
      * diagnostic errors. */
     const size_t threshold_pct = 85U;
     const size_t parse_pct = (s.parse_passed * 100U) / s.total;
@@ -329,7 +329,7 @@ static void test_corpus_sweep_language(void)
         TEST_FAIL_MESSAGE(msg);
     }
     /* Sema is allowed to be lower than parse during slice-by-slice
-     * rollout. As the analyser tightens, the floor rises. */
+     * rollout. As the analyzer tightens, the floor rises. */
     const size_t sema_floor = 60U;
     if (sema_pct < sema_floor) {
         char msg[256];

@@ -9,7 +9,7 @@
 
 #define FREE_INBUF do { if (in_buf != &dummy_byte) free(in_buf); } while (0)
 
-/* Subtype-of-subtype of a parameterised struct, used both as a field
+/* Subtype-of-subtype of a parameterized struct, used both as a field
  * and as an auto-array element type. */
 
 #include <stdio.h>
@@ -51,7 +51,7 @@ int main(int argc, char *argv[])
     fclose(fi);
 
     /* Setup phase reused from c_driver.c — produces a `pkg` of the
-     * right type and, for parameterised top-level types, the matching
+     * right type and, for parameterized top-level types, the matching
      * `_set_parameters` call from the same seed. */
     subtypes_param_structure_subtype_parameterized_subtype_struct_t pkg;
     subtypes_param_structure_subtype_parameterized_subtype_struct_init(&pkg);

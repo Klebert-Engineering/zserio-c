@@ -1,7 +1,6 @@
 ---
 work_product: ISO 26262-8 §11 — Tool qualification (zserio-c generator)
 status: draft
-phase_target: 5
 tool: zserio_c.jar
 ---
 
@@ -23,7 +22,7 @@ tool: zserio_c.jar
 | Axis                       | Classification | Rationale                                                                                                |
 | -------------------------- | -------------- | -------------------------------------------------------------------------------------------------------- |
 | Tool Impact (TI)           | **TI2**        | The generator's output is part of every shipped binary. A generator bug could violate any safety goal whose enforcement is in the generated code (e.g. cross-compound offset patching, packing-context construction). |
-| Tool error Detection (TD)  | **TD1**        | Strongest TD on any tool in the case: every generated artefact is exercised end-to-end against an independent reference (upstream cpp generator) for 182 schemas × 5 seeds per commit. A semantic error in the generator surfaces as a wire-format divergence in the `xvalidation` job, which fails the build. |
+| Tool error Detection (TD)  | **TD1**        | Strongest TD on any tool in the case: every generated artifact is exercised end-to-end against an independent reference (upstream cpp generator) for 182 schemas × 5 seeds per commit. A semantic error in the generator surfaces as a wire-format divergence in the `xvalidation` job, which fails the build. |
 | Derived **TCL**            | **TCL1**       | TI2 × TD1 per ISO 26262-8 Table 4. The strong detection layer brings the generator down to TCL1 despite the TI2 impact. |
 
 For a TCL1 classification, ISO 26262-8 §11.4.6 requires only that
@@ -49,7 +48,7 @@ Combination of **(1) — increased confidence from use** and
   templates, a CIdentifierFormatter, and the SPI integration
   layer). Every template is exercised by at least one schema in
   the xvalidation corpus. The corpus has grown from 0 schemas at
-  Phase 3 launch to 182 schemas now, covering every primitive
+  initial bring-up to 182 schemas now, covering every primitive
   type, every compound kind (struct, choice, union, bitmask,
   enum), packed arrays in every shape, parametrized types,
   cross-compound offsets, and self-referential pointers.
@@ -57,7 +56,7 @@ Combination of **(1) — increased confidence from use** and
 - **Validation of the software tool.** The xvalidation job is the
   primary validation: every generated codec is exercised against
   the independently-built upstream cpp encoder. The test is a
-  byte-equal comparison, not a behavioural equivalence — much
+  byte-equal comparison, not a behavioral equivalence — much
   stronger.
 
   | Property the generator must hold                | Validation                                                                                  |
@@ -92,7 +91,7 @@ Combination of **(1) — increased confidence from use** and
   (`.github/workflows/ci.yml`) runs `tools/run_misra_generated.sh
   --strict` against a 13-schema representative set chosen to cover
   the major emission paths (every primitive width, varint, bitfield,
-  struct, choice, union, packed array, optional, parameterised,
+  struct, choice, union, packed array, optional, parameterized,
   template, string, float, offset, function-typed). Findings are
   either fixed in the generator's FreeMarker templates / Java
   policy, or covered by an explicit entry in
@@ -120,9 +119,9 @@ Combination of **(1) — increased confidence from use** and
   This schema requires the `-setTopLevelPackage` workaround on
   the cpp side; the workaround is applied uniformly in our
   harness, but a divergence in cpp's `-setTopLevelPackage`
-  behaviour itself would not be caught by us.
+  behavior itself would not be caught by us.
 - **Template churn risk.** The generator is under active
-  development through Phase 3/4. A template change that passes
+  development. A template change that passes
   the xvalidation corpus but produces non-MISRA code would not
   fail CI today.
 
@@ -144,7 +143,7 @@ Combination of **(1) — increased confidence from use** and
 .github/workflows/ci.yml → xvalidation job
 ```
 
-Reproduces every generated artefact for every schema in
+Reproduces every generated artifact for every schema in
 `tests/xvalidation/schemas.txt` and compares byte-for-byte
 against the upstream cpp encoder. A clean run of this job is the
 primary evidence that the generator's output is correct under

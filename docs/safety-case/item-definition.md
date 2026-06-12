@@ -1,7 +1,6 @@
 ---
 work_product: ISO 26262-3 §5 — Item definition
 status: draft
-phase_target: 5
 ---
 
 # Item definition — `zserio-c`

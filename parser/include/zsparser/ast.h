@@ -18,7 +18,7 @@
 
 /**
  * @file
- * AST node definitions. Per Q2 (`docs/phase-7/scope.md`), a
+ * AST node definitions. Per Q2 (`docs/design/parser.md`), a
  * single tagged-union node type covers all kinds; the arena
  * (zsparser/arena.h) owns every node, every children-list array,
  * and every interned identifier; nothing in the parser path uses
@@ -152,15 +152,15 @@ struct zsp_ast_node {
     uint32_t       offset;
     uint32_t       length;
 
-    /* Generic side-channel for analyser annotations. NULL on
-     * freshly-parsed nodes; semantic analyser populates per-kind:
+    /* Generic side-channel for analyzer annotations. NULL on
+     * freshly-parsed nodes; semantic analyzer populates per-kind:
      *   - TYPE_REF       → pointer to the resolved declaration node
      *   - EXPR_IDENT     → pointer to the declaration the name binds to
      *   - SUBTYPE / etc. → may carry a resolved type node
      * Other kinds leave it NULL.
      */
     struct zsp_ast_node *resolved;
-    /* Constant-evaluation result (set by the analyser when an
+    /* Constant-evaluation result (set by the analyzer when an
      * expression evaluates to a compile-time constant). NULL
      * on freshly-parsed nodes and on expressions that are
      * non-constant or have not yet been evaluated. Points to a
@@ -371,7 +371,7 @@ struct zsp_ast_node {
 /* ----- Helpers ----- */
 
 /**
- * Allocate a new zero-initialised node in the arena, with the
+ * Allocate a new zero-initialized node in the arena, with the
  * supplied kind + locator pre-filled. Returns NULL on OOM.
  */
 zsp_ast_node_t *zsp_ast_new(zsp_arena_t *a, zsp_ast_kind_t kind,
@@ -397,7 +397,7 @@ void zsp_ast_list_init(zsp_ast_list_t *l, zsp_arena_t *a);
  *  the growth. */
 zserio_status_t zsp_ast_list_push(zsp_ast_list_t *l, zsp_ast_node_t *n);
 
-/** Finalise the list into a stable `(items, count)` pair to store
+/** Finalize the list into a stable `(items, count)` pair to store
  *  on a parent node. The list builder is consumed and the caller
  *  must not use it further (no-op safe; underlying arena keeps
  *  ownership of the items). */

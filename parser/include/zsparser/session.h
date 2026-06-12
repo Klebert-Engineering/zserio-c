@@ -22,7 +22,7 @@
  * @file
  * Multi-file compilation session: loads `.zs` files from disk
  * along with their transitively imported dependencies, parses
- * them into ASTs, and analyses the combined symbol set against
+ * them into ASTs, and analyzes the combined symbol set against
  * a shared root scope.
  *
  * Import-path resolution: a dotted package name `a.b.c` is
@@ -63,7 +63,7 @@ typedef struct zsp_session {
 } zsp_session_t;
 
 /**
- * Initialise a session with the given source roots. The roots
+ * Initialize a session with the given source roots. The roots
  * array is borrowed — caller must keep the strings alive for
  * the lifetime of the session.
  *
@@ -89,13 +89,13 @@ zserio_status_t zsp_session_load(zsp_session_t   *s,
                                  zsp_ast_node_t **out_unit);
 
 /**
- * Analyse all loaded units. Registers every unit's top-level
+ * Analyze all loaded units. Registers every unit's top-level
  * declarations into a shared root scope, then runs name
  * resolution + constant evaluation on each unit.
  *
  * Idempotent: calling twice on the same session is a no-op.
  */
-zserio_status_t zsp_session_analyse(zsp_session_t *s);
+zserio_status_t zsp_session_analyze(zsp_session_t *s);
 
 /**
  * Prepend the dotted `prefix` (e.g. "index_workaround" or
@@ -103,7 +103,7 @@ zserio_status_t zsp_session_analyse(zsp_session_t *s);
  * upstream zserio's `-setTopLevelPackage` CLI flag.
  *
  * Mutates the AST in place; MUST be called between
- * `zsp_session_load` and `zsp_session_analyse`.
+ * `zsp_session_load` and `zsp_session_analyze`.
  *
  * Returns `ZSERIO_OK` on success, `ZSERIO_ERR_INVALID_ARGUMENT`
  * if `s` is NULL, `ZSERIO_ERR_OUT_OF_MEMORY` on allocation

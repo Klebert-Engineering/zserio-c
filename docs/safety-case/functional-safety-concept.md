@@ -1,7 +1,6 @@
 ---
 work_product: ISO 26262-3 §7 — Functional safety concept
 status: draft
-phase_target: 5
 ---
 
 # Functional safety concept — `zserio-c`
@@ -10,19 +9,19 @@ phase_target: 5
 
 The functional safety concept (FSC) bridges the hazard analysis
 and the technical implementation. It states **what** properties
-the item must hold to neutralise each hazard, in terms intelligible
+the item must hold to neutralize each hazard, in terms intelligible
 to system integrators, and **where** in the item each property is
 allocated. It is independent of how the property is implemented —
 that mapping is the job of the technical safety concept.
 
 Scope and boundaries follow `item-definition.md`. The hazard
-catalogue this concept addresses is `hazard-analysis.md`.
+catalog this concept addresses is `hazard-analysis.md`.
 
 ## Safety goals
 
 From each hazard in the HARA, one safety goal:
 
-| Goal ID  | Statement                                                                                                          | Hazard(s) it neutralises |
+| Goal ID  | Statement                                                                                                          | Hazard(s) it neutralizes |
 | -------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------ |
 | **SG-1** | The runtime SHALL NOT access memory outside the caller-supplied bitstream buffer.                                  | H-01                     |
 | **SG-2** | The runtime's worst-case execution time on any input SHALL be bounded by a constant times the input buffer length. | H-02                     |
@@ -53,11 +52,11 @@ when a goal is not already covered.
 | SG-6  | REQ-FS-002 (no non-local control flow), REQ-FS-003 (bounded decode depth; recursion-free runtime), REQ-FS-008 (no runtime reflection), REQ-FN-006 (no recursion at import load) | `tools/run_misra.sh` strict-mode static analysis (REQ-FS-001/002/003 enforced via the addon + forbidden-symbol grep); `test_decode_hardening.c` depth-gate tests |
 | SG-7  | REQ-DM-002 (encode/decode mutual inverses), REQ-DM-003 (canonical encoding), REQ-DM-005 (wire-format spec owned), REQ-FN-001 (interoperability with upstream v2.18.1), REQ-FN-007 (generator determinism), REQ-FN-021 (encoder canonical), REQ-FN-022 (round-trip byte equality), REQ-FN-023 (schema-source-order fields) | `tests/xvalidation/run_xvalidation.sh` (CI), 182 schemas × 5 seeds per run, byte-equal vs cpp encoder + bidirectional auto-roundtrip       |
 | SG-8  | REQ-FS-003 (bounded decode depth) **plus** the per-function frame ceiling enforced by the stack CI gate (`tools/measure_stack_usage.py --strict`) — worst-case stack = reader `max_depth` × per-level frame cost | Stack-budget CI gate (`stack` job) per commit; depth-gate unit tests                                       |
-| SG-9  | None yet; planned tool-qualification records (Phase 5 open items); REQ-DM-004 (schema-language spec owned), REQ-DM-005 (wire-format spec owned), REQ-DM-007 (versioning policy, proposed) | See `safety-plan.md` § Work products — four open items for compiler / cppcheck / coverage / generator      |
+| SG-9  | None yet; planned tool-qualification records (safety-plan open items); REQ-DM-004 (schema-language spec owned), REQ-DM-005 (wire-format spec owned), REQ-DM-007 (versioning policy, proposed) | See `safety-plan.md` § Work products — four open items for compiler / cppcheck / coverage / generator      |
 
 Every safety goal except SG-9 is currently fully discharged by a
 combination of requirement(s) and an in-CI verification mechanism.
-SG-9 is the gating Phase-5 work that remains.
+SG-9 is the gating work that remains.
 
 ## Allocation to architecture elements
 

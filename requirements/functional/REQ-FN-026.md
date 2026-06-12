@@ -3,7 +3,6 @@ id: REQ-FN-026
 title: Schema constraints enforced on the read path
 type: functional
 status: accepted
-phase_target: 1
 verification: test
 ---
 

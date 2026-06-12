@@ -9,7 +9,7 @@
 
 #define FREE_INBUF do { if (in_buf != &dummy_byte) free(in_buf); } while (0)
 
-/* Parameterised struct: `Item(uint32 version)` with a conditional field
+/* Parameterized struct: `Item(uint32 version)` with a conditional field
  * `uint32 extraParam if version >= 10`. Both sides must drive `version`
  * from the seed (it is not on the wire); cpp_driver receives it via
  * argv[3]. */
@@ -53,7 +53,7 @@ int main(int argc, char *argv[])
     fclose(fi);
 
     /* Setup phase reused from c_driver.c — produces a `pkg` of the
-     * right type and, for parameterised top-level types, the matching
+     * right type and, for parameterized top-level types, the matching
      * `_set_parameters` call from the same seed. */
     parameterized_types_simple_param_item_t pkg;
     parameterized_types_simple_param_item_init(&pkg);

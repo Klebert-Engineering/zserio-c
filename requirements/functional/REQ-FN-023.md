@@ -3,7 +3,6 @@ id: REQ-FN-023
 title: Wire-format fields are emitted in schema source order
 type: functional
 status: accepted
-phase_target: 1
 verification: test
 ---
 

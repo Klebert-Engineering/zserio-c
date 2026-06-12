@@ -1,13 +1,12 @@
-# Phase 7 — scope
+# Parser design — scope and decision record
 
-**Status:** historical planning record. Phase 7 is substantively
-complete on `main` — the C-native `zserio_c_gen` is the C-side of
-the xvalidation gate, replacing the Java front-end as planned.
-This document captures the scoping conversation that preceded
-implementation; references to "future" / "not yet" / counts of
-deviations on file (e.g. "6 deviations" at planning time, now seven
-after the Phase 7 tagged-union deviation D007 landed) are frozen
-in time and should be read as such.
+The scoping analysis and decision log (Q1..Q12 below) that shaped
+the C-native parser/generator (`zserio_c_gen`) under `parser/`.
+Written before implementation and kept as the rationale record the
+source comments cite (e.g. `parser/src/parser.c` cites Q5 for the
+recursion deviation, `parser/include/zsparser/ast.h` cites Q2 for
+the arena-allocated AST). Counts and "current state" references in
+the body reflect the time of writing.
 
 ## Goal
 
@@ -35,20 +34,20 @@ toolchain and qualified as a single TQ-2 subject.
   live in the template body. A C-native emitter lets us write the
   same logic in code we can step through, fuzz, and coverage-
   measure, instead of in a templating language.
-- **Phase 6 closure.** Runtime + generated-code optimisation is in;
+- **Phase 6 closure.** Runtime + generated-code optimization is in;
   every remaining win is in the schema → C path, which the Java
   front-end constrains.
 
 ## In scope
 
-1. **C-native schema parser.** Tokeniser + parser for the upstream
+1. **C-native schema parser.** Tokenizer + parser for the upstream
    zserio schema language (`.zs`), producing an internal AST. Must
    accept every schema in the upstream `tests/` corpus + every
    schema in the 182-schema xvalidation set.
-2. **Semantic analyser.** Name resolution, type checking, expression
+2. **Semantic analyzer.** Name resolution, type checking, expression
    evaluation, choice-resolution analysis, packed-array eligibility —
    everything upstream's `compiler/core` AST passes do today.
-3. **C code emitter.** Walks the analysed AST and emits the C files
+3. **C code emitter.** Walks the analyzed AST and emits the C files
    the current FreeMarker templates emit, byte-equal modulo
    whitespace + comments.
 4. **CLI compatibility.** Same `-src`, `-c`, etc. flags as today, so
@@ -64,8 +63,8 @@ toolchain and qualified as a single TQ-2 subject.
    out under "One real gap worth flagging" in the planning notes.
    Even though this can be done in the Java generator today, doing
    it as part of the C-native generator's first cut keeps the
-   change localised and lets us derive the bit-size from a single
-   source of truth (the analyser, not a copy of it). Implements
+   change localized and lets us derive the bit-size from a single
+   source of truth (the analyzer, not a copy of it). Implements
    the **CVE-2026-33524 Suggested Fix** (GHSA-cwq5-8pvq-j65j,
    Unbounded Memory Allocation in Deserialization, CVSS 7.5 HIGH,
    patched upstream in v2.18.1) — "Validate varsize against stream
@@ -78,7 +77,7 @@ toolchain and qualified as a single TQ-2 subject.
    remaining-bits check but still triggers an enormous upfront
    allocation — e.g., a 100 MB stream legitimately claiming
    100M 1-byte elements). Mechanism follows upstream cpp v2.18.1
-   patch `16f1b8c34` shape (byte cap, amortised doubling growth)
+   patch `16f1b8c34` shape (byte cap, amortized doubling growth)
    rather than `woven-by-toyota/go-zserio`'s element-cap shape:
    byte-caps are semantically correct (the security concern is
    peak memory commitment, which depends on element size), and
@@ -124,11 +123,11 @@ toolchain and qualified as a single TQ-2 subject.
 
    `zserio_allocator_arena(a)` returns **`UINT32_MAX` / `UINT32_MAX`**
    — arena callers automatically get single-allocation-at-claim
-   behaviour because the arena's own `cap` already bounds peak
+   behavior because the arena's own `cap` already bounds peak
    memory. No doubling-induced arena waste; the right pattern for
    ASIL deployment.
 
-   Generated reader emits **amortised-doubling realloc growth**
+   Generated reader emits **amortized-doubling realloc growth**
    (matching upstream cpp v2.18.1 `Array.h:1029`):
 
    - Allocate `min(claim, cap_bytes / sizeof(element))` upfront.
@@ -176,7 +175,7 @@ toolchain and qualified as a single TQ-2 subject.
    qualification-parser.md`, supersede `tool-qualification-
    generator.md`. Coverage gate, MISRA gate, and fuzz target for
    the parser. Records the Q5 position (MISRA strict on parser +
-   analyser + emitter with the Rule 17.2 deviation for recursive
+   analyzer + emitter with the Rule 17.2 deviation for recursive
    descent) and the deviation policy (prefer bounded documented
    deviations over Java fallback or permissive C).
 
@@ -189,8 +188,8 @@ toolchain and qualified as a single TQ-2 subject.
   C target.
 - Removing the third-party zserio submodule. We still vendor it for
   the upstream test corpus and the xvalidation oracle.
-- A new IR. The analyser walks the AST directly; we do not
-  introduce a separate optimisation IR.
+- A new IR. The analyzer walks the AST directly; we do not
+  introduce a separate optimization IR.
 
 ## Open design questions
 
@@ -242,7 +241,7 @@ Recommendation: **tagged union**. Roughly 30–50 distinct node kinds
 once collapsed (upstream's 105 includes a lot of trivial wrappers we
 don't need to mirror). Arena-allocate everything to a single
 schema-scoped arena; parser owns the arena, hands it to the
-analyser, and the emitter walks it read-only. Frees the entire AST
+analyzer, and the emitter walks it read-only. Frees the entire AST
 in O(1) at end of compile.
 
 ### Q3 — Code emission
@@ -256,7 +255,7 @@ Options:
   by node kind; placeholder substitution at emit time. Saves some
   lines but reintroduces a templating-style indirection.
 - **Keep FreeMarker, drive it from the C side.** Parser emits a
-  serialised AST that a small Java shim runs templates over.
+  serialized AST that a small Java shim runs templates over.
   Half-transition; doesn't deliver the build-hermeticity goal.
 
 Recommendation: **hand-written emission**. Once the templates are
@@ -291,14 +290,14 @@ xvalidation harness already catches.
 The parser is a host-side tool, not on-target code. Three positions
 are defensible:
 
-- **MISRA strict on parser + analyser + emitter.** Same gate as the
+- **MISRA strict on parser + analyzer + emitter.** Same gate as the
   runtime. Headline friction: Rule 17.2 (no recursion) and Rule
   17.1 (`<stdarg.h>` in emit helpers). Realistic effort tax: +20–30%
   vs permissive C.
-- **MISRA strict on emitter output only.** Parser/analyser source
+- **MISRA strict on emitter output only.** Parser/analyzer source
   under `-Wall -Wextra -Werror` but not MISRA. Aligns with how the
   Java front-end is qualified today. Cheapest option.
-- **Hybrid.** Emitter source under MISRA strict; parser/analyser
+- **Hybrid.** Emitter source under MISRA strict; parser/analyzer
   not. Three different gates in one toolchain.
 
 The case for strict (option A) is the safety argument for the
@@ -343,7 +342,7 @@ Decision needed early because it shapes every AST node:
   on diagnostic emission? (cost: O(log file_length) per diagnostic;
   benefit: 4 bytes per node)
 - Drop locations entirely after AST construction? (cost: bad
-  diagnostics from the analyser; benefit: smallest nodes)
+  diagnostics from the analyzer; benefit: smallest nodes)
 
 Recommendation: **`(file_id, source_offset)` pair**. Line+col is
 expensive to track during lex and not what we use during analysis;
@@ -351,20 +350,20 @@ we want it only when emitting a diagnostic. Lookup is a single
 binary search per diagnostic over a line-start table built once per
 file.
 
-### Q7 — Data/View split for parameterised types
+### Q7 — Data/View split for parameterized types
 
 Upstream `zserio-cpp17` (`doc/Cpp17Design.md:163`) introduces a
 `View<Data>` accessor wrapper: the Data struct is a POD-style owning
 container, the View carries the schema-evaluated parameters by
 value plus a `const Data&` reference. Solves the two-phase-init
-problem that parameterised types create today — in the old C++
+problem that parameterized types create today — in the old C++
 generator (and in our current generator) parameters live as struct
 members, and a `_init`-style call has to be made before `_read` to
 populate them.
 
 Options:
 
-- **Adopt the Data/View split.** Cleaner handling of parameterised
+- **Adopt the Data/View split.** Cleaner handling of parameterized
   types, no `_init` shim required, immutable accessor pattern is
   genuinely nicer ergonomically. Cost: roughly 2× the generated
   code per compound type (Data + View per node), more complex
@@ -379,7 +378,7 @@ considerations" (FC-01) rather than as a named follow-on phase —
 no commitment that the change will ever be made; re-evaluated only
 on a concrete trigger. The split is a worthwhile idea but it's an
 API-shape change with broad downstream impact, and Phase 7 already
-carries enough scope (full parser + analyser + emitter rewrite).
+carries enough scope (full parser + analyzer + emitter rewrite).
 The explicit reason this is recorded rather than silently passed
 over: upstream cpp17 has converged on the View pattern for good
 reasons, and a future reader of the safety case should see that we
@@ -404,7 +403,7 @@ documents two distinct attack surfaces:
    payload → 762 MB alloc (amplification 200,000,000×); a 5-byte
    payload → 16 GB / system crash.
 
-Item #5 alone closes (1); (2) needs a separate defence.
+Item #5 alone closes (1); (2) needs a separate defense.
 
 Industry alignment on (2):
 
@@ -412,7 +411,7 @@ Industry alignment on (2):
   wrapper class with `MAX_INITIAL_ARRAY_ALLOCATION = 128 * 1024`
   byte cap. Reader stores it; `Array.h:readImpl` does
   `reserve(min(claim, cap/sizeof(element)))`, then
-  `std::vector::push_back` grows the vector via amortised
+  `std::vector::push_back` grows the vector via amortized
   doubling as elements are read in. Companion checks: stream-
   bound (`pos + claim * elementSize <= bufferBitSize`).
 - **Upstream cpp17**: had `maxArrayPrealloc` in design pre-CVE;
@@ -424,7 +423,7 @@ Industry alignment on (2):
   legitimate-huge naturally.
 
 Decision: **mirror upstream cpp's mechanism in C** — byte-cap +
-amortised doubling growth — via compile-time defines for defaults
+amortized doubling growth — via compile-time defines for defaults
 + per-allocator vtable fields for fine-grained control. NDS-Live-
 tuned defaults (512 KB / 16 MB) rather than upstream cpp's
 numerical 128 KB so the doubling-growth path triggers only on
@@ -458,7 +457,7 @@ against small-element arrays.
 
 Arena-allocator integration: `zserio_allocator_arena()` returns
 caps set to `UINT32_MAX` by default — single-allocation-at-claim
-behaviour, no doubling-growth arena waste, arena's own `cap`
+behavior, no doubling-growth arena waste, arena's own `cap`
 provides the security bound. This is *cleaner* than upstream
 cpp's universal-doubling shape, which would force arena callers
 into 2× arena waste at default caps.
@@ -473,7 +472,7 @@ keeps the Java generator until the cutover criterion is met.
 | 7.0 | This scope doc accepted. Q1–Q6 resolved. | All six decisions written into this file as "Decided". |
 | 7.1 | Lexer + parser skeleton, accepts ~10% of schemas (primitives + structs only). No semantic analysis yet. | Unit tests on a curated 20-schema corpus pass. |
 | 7.2 | Full grammar coverage. Parser accepts all 182 xvalidation schemas + all upstream `tests/` schemas. No emitter yet. | `tools/run_parser_accept.sh` clean over both corpora. |
-| 7.3 | Semantic analyser. Name resolution, type checking, expression evaluation, packed-array eligibility. | Outputs an analysed AST that matches the Java front-end's analysis (verified via a structural-equivalence dump). |
+| 7.3 | Semantic analyzer. Name resolution, type checking, expression evaluation, packed-array eligibility. | Outputs an analyzed AST that matches the Java front-end's analysis (verified via a structural-equivalence dump). |
 | 7.4 | Emitter, first cut. Emits C for ~10 schemas hand-picked to cover the major language features. | Generated C for those 10 schemas compiles, links, and passes xvalidation byte-equal vs Java generator's output. |
 | 7.5 | Full emitter. All 182 xvalidation schemas. | xvalidation gate green with C parser, for 7 consecutive commits. |
 | 7.6 | Array-length sanity bound emitted (item #5) **and** initial-allocation caps + REQ-FS-009 wired (item #6). | Fuzz target #1 (`huge length prefix`): returns `ZSERIO_ERR_END_OF_STREAM` before alloc is called. Fuzz target #2 (`plausible-huge claim`): a 5-byte payload claiming 2 GB allocates at most `cap * sizeof(element)` bytes (verified by allocator wrapper recording peak request size). Both CVE-2026-33524 attack surfaces closed in CI evidence. |
@@ -493,7 +492,7 @@ What: adopt upstream zserio-cpp17's pattern (`doc/Cpp17Design.md:163`
 in their repo) — Data struct is a POD owning container, View is a
 `const`-only accessor that carries schema-evaluated parameters by
 value plus a `const Data *`. Eliminates the `_init`-before-`_read`
-shim our current API requires for parameterised types.
+shim our current API requires for parameterized types.
 
 Why deferred: API-shape change rippling to every downstream
 consumer of our generated headers. Phase 7's xvalidation gate is
@@ -514,7 +513,7 @@ Trigger to re-evaluate:
 
 Phase 7 design hooks: emitter is structured per-compound-kind
 (Q3), so retrofitting the Data/View shape later means rewriting
-the per-kind emit functions, not the AST / analyser / parser. Cost
+the per-kind emit functions, not the AST / analyzer / parser. Cost
 of deferral is bounded to the emitter layer.
 
 ### FC-02 — Flat-decode runtime
@@ -545,8 +544,8 @@ target.
 | ID | Risk | Mitigation |
 | -- | ---- | ---------- |
 | R-01 | Hand-written parser drifts from upstream grammar over time. | CI-pinned upstream submodule + 182-schema xvalidation gate + per-release diff of upstream `ZserioParser.g4`. |
-| R-02 | Semantic analyser misses a subtle upstream invariant (e.g. expression context). | Parallel run: every analysed AST is dumped + diffed against a "Java-front-end structural dump" the existing jar produces. Divergence fails CI. |
-| R-03 | Emitter output drifts; xvalidation catches behaviour but not source-level stability. | Byte-equal-modulo-whitespace gate during parallel run. Tightens to byte-equal at cutover. |
+| R-02 | Semantic analyzer misses a subtle upstream invariant (e.g. expression context). | Parallel run: every analyzed AST is dumped + diffed against a "Java-front-end structural dump" the existing jar produces. Divergence fails CI. |
+| R-03 | Emitter output drifts; xvalidation catches behavior but not source-level stability. | Byte-equal-modulo-whitespace gate during parallel run. Tightens to byte-equal at cutover. |
 | R-04 | Effort estimate underruns. The Java front-end has 5+ years of corner cases baked in. | Phasing above is gated, not time-bound. We don't cut over until 7.5's seven-commit criterion is met. Slip is on schedule, not safety. |
 | R-05 | Schema-language evolves upstream during Phase 7. | Pin to v2.18.1 for the duration. Upgrade upstream pin only after cutover. |
 
@@ -575,10 +574,10 @@ decision, date, rationale.)
 | Q | Decision | Date | Rationale |
 | - | -------- | ---- | --------- |
 | Q1 | Hand-written recursive descent + Pratt for expressions. | 2026-05-15 | Minimum TQ-2 surface (no third-party parser-toolkit dependency); full control over diagnostics + error recovery; single C99 toolchain preserves Phase 7's build-hermeticity goal. Grammar size (~500 LOC of `.g4`) is well inside hand-written territory. Upstream grammar change rate confirmed mature: ~2–3 substantive changes per year, decelerating to zero (20 months with no changes leading into v2.18.1). Drift risk small enough that the 182-schema xvalidation harness + a documented per-release diff procedure is sufficient. |
-| Q2 | Tagged union per node kind, arena-allocated. ~30–50 distinct kinds collapsed from upstream's 105 Java classes. | 2026-05-15 | MISRA-cleanest of the three options (no casts, no vtables, no flex arrays); memory-cheapest (single struct size, arena-allocated, zero per-node alloc overhead); visitor-cleanest (`switch(kind)` with `default: assert(0)` catches missing handlers at compile time when the enum grows). Production precedent: lua, tcc, chibicc, Zig stage1. The "every switch needs updating when kinds grow" property is the safety property we want. AST lives in a per-compilation arena; lifetime matches parser+analyser+emitter exactly. |
+| Q2 | Tagged union per node kind, arena-allocated. ~30–50 distinct kinds collapsed from upstream's 105 Java classes. | 2026-05-15 | MISRA-cleanest of the three options (no casts, no vtables, no flex arrays); memory-cheapest (single struct size, arena-allocated, zero per-node alloc overhead); visitor-cleanest (`switch(kind)` with `default: assert(0)` catches missing handlers at compile time when the enum grows). Production precedent: lua, tcc, chibicc, Zig stage1. The "every switch needs updating when kinds grow" property is the safety property we want. AST lives in a per-compilation arena; lifetime matches parser+analyzer+emitter exactly. |
 | Q3 | Hand-written tree-walking print pass via a small disciplined emitter API (`emit_lit`, `emit_indent`, `emit_block_open/close`, `emit_fmt`). One emit function per concern (~50–80 functions, est. 5–10 kLOC). No template engine. | 2026-05-15 | Single C99 toolchain end-to-end (option C would have kept FreeMarker + JVM in the build, halving Phase 7's hermeticity goal); MISRA-coverable like the rest of the project's C; debuggable in `gdb`; cross-cutting emission patterns become reusable helpers the compiler enforces. Embedded template-engine (option B) was rejected because it reintroduces a templating-engine surface (Rule 21.6 framing + multi-layer indirection) without buying much given FreeMarker's heaviest use in our templates is conditionals + loops which don't compress into template strings anyway. Per-schema xvalidation-byte-equal-at-the-wire (not source-equal-to-Java-generator) is the correctness gate. |
 | Q4 | Parallel run with byte-equal-at-the-wire cutover. Both generators build in CI for the duration; the C generator's xvalidation gate must be green for 7 consecutive main commits before cutover (matches milestone 7.5). Source-level byte-equality is **not** required — wire-level byte-equality is the gate. Java generator is **retained under `legacy/`** after cutover (not deleted), but **excluded from the safety case** at cutover. Rationale for retention: (1) integrators need to compile a dozen custom schemas through both pipelines side-by-side during their own cutover ramp; (2) a C emitter sitting alongside cpp/java generators may stay useful long-term as one of several generator outputs; (3) keeps an option open to extract `legacy/` to a separate repo at a future major-version boundary without scrambling. Excluded-from-safety-case framing: the Java generator's qualification ends at cutover; any post-cutover use is at the integrator's risk under their own QA. C-generator CI can drop from per-commit to nightly for milestones 7.1–7.4, re-entering per-commit gating at 7.5. | 2026-05-15 | Lowest regression risk (every commit runs both pipelines through xvalidation; divergence fails build); cleanest safety-case transition (gradual overlap is what ISO 26262-8 calls for); reversible at every step; aligns with the "N consecutive green commits" cutover pattern used in Phase 5/6. The legacy-retention choice (vs. delete) is a deliberate trade: small ongoing maintenance burden on a frozen tree in exchange for integrator-side cutover flexibility and the option to repurpose later. |
-| Q5 | MISRA C:2012 strict on parser + analyser + emitter, same gate as the runtime. One up-front documented deviation: **Rule 17.2 (no recursive functions)** for the recursive-descent parser, bounded by the grammar's static maximum nesting depth and closed by the existing stack-budget gate (REQ-FS-003). All other rule frictions handled by workaround, not deviation: typed `emit_lit`/`emit_ident`/`emit_block_open` helpers instead of `emit_fmt` (Rule 17.1, `<stdarg.h>`); allocator-vtable interning instead of `strdup` (Rule 21.x); open-addressing hash tables; arena-allocated AST. Policy for unanticipated frictions: **prefer adding a bounded, documented deviation over falling back to permissive C or to a Java half-step.** Each new deviation lands as a sibling under `docs/misra-deviations/` with the same evidence shape as D001–D006 (rule, scope, justification, residual-risk argument, sibling cppcheck-suppressions cross-ref). | 2026-05-15 | Captures the safety value of doing the Phase 7 rewrite at all (option B would have left the safety story essentially unchanged from today's Java front-end + qualified-by-validation model — see Q5 discussion 2026-05-15). MISRA + validation stack rather than substitute; option A gives TCL2/3-shaped confidence at TCL1 effort. Effort tax estimated at +20–30% over a permissive C parser; absorbable in Phase 7's overall scope. Removes the "which TU is under which standard" asymmetry. Aligns the source-level standard with the runtime, simplifying independent-reviewer briefing. The Rule 17.2 deviation is in-pattern (already 6 deviations on file; recursive-descent recursion is a well-precedented one in production safety-critical compilers). |
-| Q6 | `(file_id, source_offset)` pair per AST node. Lex tracks only file+offset (no per-character line counter in the hot path). Line/col recovered on demand from a lazily-built per-file line-start table; first diagnostic on a file builds the table, subsequent diagnostics reuse it. Diagnostics default to gcc-style human-readable (`schema.zs:42:18: error: ...` with carat-pointed source snippet); optional `--diagnostic-format=json` for tooling consumers. **Multi-error reporting capped at 20 errors per compile**, matching gcc/clang behaviour; analyser passes set a per-site "already-recorded" flag to suppress cascading nonsense. | 2026-05-15 | Smallest cost in the lexer hot path (no per-character line-counter); compact node shape (6 bytes, 8 after padding); pay-on-use diagnostic cost; gcc-style format is universally tooled-for in editors/IDEs; multi-error is the production-compiler norm and the right UX for schema refactors. The 20-error cap stops error cascades from drowning the useful signal. |
-| Q7 | Defer the Data/View split. Tracked under "Future considerations" FC-01, not committed to a named follow-on phase. Phase 7 emits the current API shape (parameters as struct members + `_init`-before-`_read` shim). Re-evaluation triggered only by concrete integrator pain or upstream convergence pressure. | 2026-05-15 | Phase 7 scope already large (parser + analyser + emitter + MISRA-on-toolchain + xvalidation pipeline + safety case update). The wire-level byte-equality cutover gate (Q4) doesn't validate API-shape changes; bundling toolchain rewrite + API reshape in one cutover makes attribution harder. Cost-of-deferral is bounded: Q3's per-compound-kind emitter structure means a future retrofit touches the emitter only, not the parser/analyser. Future-considerations list (rather than Phase 8 commitment) avoids speculative roadmap. |
-| Q8 | Mirror upstream cpp v2.18.1 patch `16f1b8c34` mechanism in C: **byte-cap + amortised doubling realloc growth**, configured via (a) compile-time defines `ZSERIO_DEFAULT_MAX_INITIAL_ARRAY_BYTES` (default **512 KB**) and `ZSERIO_DEFAULT_MAX_INITIAL_BLOB_BYTES` (default **16 MB**), overridable at integrator's build via `-D`; (b) per-allocator vtable fields `max_initial_array_bytes` / `max_initial_blob_bytes` (sentinel 0 = use compile-time default, `UINT32_MAX` = no cap). `zserio_allocator_libc()` returns the compile-time defaults; **`zserio_allocator_arena()` returns `UINT32_MAX` / `UINT32_MAX`** — arena's own `cap` is the security bound, no doubling-growth arena waste. Generated reader emits `realloc(min(2×capacity, claim))` on grow. Peak allocation bounded by 2× actually-validated elements (strictly stronger than the single-realloc-at-cap variant first considered, which had claim-dependent amplification). Defence-in-depth on top of Phase 7 item #5; together they close both CVE-2026-33524 attack surfaces. New REQ-FS-009 + fuzz target + safety-case CVE-citation appendix referencing CVE-2026-33524 and upstream patch `16f1b8c34`. Lands as scope item #6; toolchain qualification renumbered to #7. ABI change to `zserio_allocator_t` lands at Phase 7 cutover. | 2026-05-15 | CVE-2026-33524 (CVSS 7.5 HIGH) is concrete documented vulnerability across the upstream zserio family. Upstream cpp v2.18.1 fix shape (byte-cap + doubling) is the correct industry-aligned mechanism: byte-cap is semantically correct (peak memory depends on `sizeof(element)`); doubling growth bounds peak allocation by *validated* elements × 2, not by `claim`. Single-realloc-at-cap variant initially considered had claim-dependent amplification — worse property, rejected. Compile-time defaults preferred over `_libc_strict()` constructor variant because they don't add API surface and are overridable per-build (cleaner than go-zserio's env-var-at-package-init, which doesn't fit a C library without `init()` functions). Arena-allocator defaults to `UINT32_MAX` because the arena's own `cap` is already the security bound — gives us a cleaner ASIL story than upstream cpp's universal-doubling shape, which forces 2× arena waste. Numerical defaults (512 KB / 16 MB) NDS-Live-tuned per workload observations (3–6K-element arrays, 5 MB+ 3D-tile blob outliers); paranoid build overrides toward upstream-cpp-equivalent 128 KB via `-D` flags. |
+| Q5 | MISRA C:2012 strict on parser + analyzer + emitter, same gate as the runtime. One up-front documented deviation: **Rule 17.2 (no recursive functions)** for the recursive-descent parser, bounded by the grammar's static maximum nesting depth and closed by the existing stack-budget gate (REQ-FS-003). All other rule frictions handled by workaround, not deviation: typed `emit_lit`/`emit_ident`/`emit_block_open` helpers instead of `emit_fmt` (Rule 17.1, `<stdarg.h>`); allocator-vtable interning instead of `strdup` (Rule 21.x); open-addressing hash tables; arena-allocated AST. Policy for unanticipated frictions: **prefer adding a bounded, documented deviation over falling back to permissive C or to a Java half-step.** Each new deviation lands as a sibling under `docs/misra-deviations/` with the same evidence shape as D001–D006 (rule, scope, justification, residual-risk argument, sibling cppcheck-suppressions cross-ref). | 2026-05-15 | Captures the safety value of doing the Phase 7 rewrite at all (option B would have left the safety story essentially unchanged from today's Java front-end + qualified-by-validation model — see Q5 discussion 2026-05-15). MISRA + validation stack rather than substitute; option A gives TCL2/3-shaped confidence at TCL1 effort. Effort tax estimated at +20–30% over a permissive C parser; absorbable in Phase 7's overall scope. Removes the "which TU is under which standard" asymmetry. Aligns the source-level standard with the runtime, simplifying independent-reviewer briefing. The Rule 17.2 deviation is in-pattern (already 6 deviations on file; recursive-descent recursion is a well-precedented one in production safety-critical compilers). |
+| Q6 | `(file_id, source_offset)` pair per AST node. Lex tracks only file+offset (no per-character line counter in the hot path). Line/col recovered on demand from a lazily-built per-file line-start table; first diagnostic on a file builds the table, subsequent diagnostics reuse it. Diagnostics default to gcc-style human-readable (`schema.zs:42:18: error: ...` with carat-pointed source snippet); optional `--diagnostic-format=json` for tooling consumers. **Multi-error reporting capped at 20 errors per compile**, matching gcc/clang behavior; analyzer passes set a per-site "already-recorded" flag to suppress cascading nonsense. | 2026-05-15 | Smallest cost in the lexer hot path (no per-character line-counter); compact node shape (6 bytes, 8 after padding); pay-on-use diagnostic cost; gcc-style format is universally tooled-for in editors/IDEs; multi-error is the production-compiler norm and the right UX for schema refactors. The 20-error cap stops error cascades from drowning the useful signal. |
+| Q7 | Defer the Data/View split. Tracked under "Future considerations" FC-01, not committed to a named follow-on phase. Phase 7 emits the current API shape (parameters as struct members + `_init`-before-`_read` shim). Re-evaluation triggered only by concrete integrator pain or upstream convergence pressure. | 2026-05-15 | Phase 7 scope already large (parser + analyzer + emitter + MISRA-on-toolchain + xvalidation pipeline + safety case update). The wire-level byte-equality cutover gate (Q4) doesn't validate API-shape changes; bundling toolchain rewrite + API reshape in one cutover makes attribution harder. Cost-of-deferral is bounded: Q3's per-compound-kind emitter structure means a future retrofit touches the emitter only, not the parser/analyzer. Future-considerations list (rather than Phase 8 commitment) avoids speculative roadmap. |
+| Q8 | Mirror upstream cpp v2.18.1 patch `16f1b8c34` mechanism in C: **byte-cap + amortized doubling realloc growth**, configured via (a) compile-time defines `ZSERIO_DEFAULT_MAX_INITIAL_ARRAY_BYTES` (default **512 KB**) and `ZSERIO_DEFAULT_MAX_INITIAL_BLOB_BYTES` (default **16 MB**), overridable at integrator's build via `-D`; (b) per-allocator vtable fields `max_initial_array_bytes` / `max_initial_blob_bytes` (sentinel 0 = use compile-time default, `UINT32_MAX` = no cap). `zserio_allocator_libc()` returns the compile-time defaults; **`zserio_allocator_arena()` returns `UINT32_MAX` / `UINT32_MAX`** — arena's own `cap` is the security bound, no doubling-growth arena waste. Generated reader emits `realloc(min(2×capacity, claim))` on grow. Peak allocation bounded by 2× actually-validated elements (strictly stronger than the single-realloc-at-cap variant first considered, which had claim-dependent amplification). Defense-in-depth on top of Phase 7 item #5; together they close both CVE-2026-33524 attack surfaces. New REQ-FS-009 + fuzz target + safety-case CVE-citation appendix referencing CVE-2026-33524 and upstream patch `16f1b8c34`. Lands as scope item #6; toolchain qualification renumbered to #7. ABI change to `zserio_allocator_t` lands at Phase 7 cutover. | 2026-05-15 | CVE-2026-33524 (CVSS 7.5 HIGH) is concrete documented vulnerability across the upstream zserio family. Upstream cpp v2.18.1 fix shape (byte-cap + doubling) is the correct industry-aligned mechanism: byte-cap is semantically correct (peak memory depends on `sizeof(element)`); doubling growth bounds peak allocation by *validated* elements × 2, not by `claim`. Single-realloc-at-cap variant initially considered had claim-dependent amplification — worse property, rejected. Compile-time defaults preferred over `_libc_strict()` constructor variant because they don't add API surface and are overridable per-build (cleaner than go-zserio's env-var-at-package-init, which doesn't fit a C library without `init()` functions). Arena-allocator defaults to `UINT32_MAX` because the arena's own `cap` is already the security bound — gives us a cleaner ASIL story than upstream cpp's universal-doubling shape, which forces 2× arena waste. Numerical defaults (512 KB / 16 MB) NDS-Live-tuned per workload observations (3–6K-element arrays, 5 MB+ 3D-tile blob outliers); paranoid build overrides toward upstream-cpp-equivalent 128 KB via `-D` flags. |

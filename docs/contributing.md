@@ -24,7 +24,7 @@ cmake -B build -S . -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ```
 
-Build artefacts you'll care about:
+Build artifacts you'll care about:
 
 - `build/parser/zserio_c_gen` — the C-native generator CLI
 - `build/runtime/libzserio_c_runtime.a` — runtime sources compiled

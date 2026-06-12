@@ -343,7 +343,7 @@ static double parse_decimal_f64(const uint8_t *bytes, size_t len)
             }
             /* Clamp the exponent magnitude. Without this, a literal
              * like `1e9999999999` (a) overflows the `int` accumulator
-             * — undefined behaviour — and (b) drives the scaling loop
+             * — undefined behavior — and (b) drives the scaling loop
              * below up to ~2e9 iterations, a CPU denial of service on
              * a single token. 512 is far past the IEEE-754 double
              * range (~1e308), so the result saturates to +/-inf or 0
@@ -613,7 +613,7 @@ static zserio_status_t lex_integer(zsp_lexer_t *l, zsp_token_t *out,
 }
 
 /* String literal: `"` ... `"`. C-style escape sequences are
- * recognised at lex time but NOT decoded — the token spans the
+ * recognized at lex time but NOT decoded — the token spans the
  * full source range including quotes, and the parser decodes
  * escapes when copying into the AST. Unterminated strings produce
  * a diagnostic and an INVALID token covering up to EOL or EOF. */
@@ -713,7 +713,7 @@ static zserio_status_t lex_punct(zsp_lexer_t *l, zsp_token_t *out,
         break;
 
     default:
-        /* Unrecognised byte. Emit diagnostic, span one byte. */
+        /* Unrecognized byte. Emit diagnostic, span one byte. */
         ZSERIO_TRY(zsp_diag_emit_lit(
                 l->diag, ZSP_SEV_ERROR,
                 l->file_id, (uint32_t)start,

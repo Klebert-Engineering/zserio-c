@@ -11,7 +11,7 @@
 
 /* ValueCalculator has a bit:4 default + bit:4 optional. The function
  * value() returns one or the other. ValueConsumerCreator chains a
- * ValueConsumer parameterised by the function's return value. */
+ * ValueConsumer parameterized by the function's return value. */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -54,7 +54,7 @@ int main(int argc, char *argv[])
     fclose(fi);
 
     /* Setup phase reused from c_driver.c — produces a `pkg` of the
-     * right type and, for parameterised top-level types, the matching
+     * right type and, for parameterized top-level types, the matching
      * `_set_parameters` call from the same seed. */
     functions_structure_optional_value_consumer_creator_t pkg;
     functions_structure_optional_value_consumer_creator_init(&pkg);

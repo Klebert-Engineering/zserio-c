@@ -69,7 +69,7 @@ int main(int argc, char *argv[])
     /* Decode timing. Flat struct never allocates, but the read API
      * takes the allocator for uniformity with variable-size types.
      *
-     * The `sink` accumulator + final print prevent the optimiser from
+     * The `sink` accumulator + final print prevent the optimizer from
      * dead-code-eliminating the read entirely. Under LTO + full
      * inlining gcc can otherwise prove the decoded value is never
      * observed and erase the timed loop, giving meaningless 0-ish

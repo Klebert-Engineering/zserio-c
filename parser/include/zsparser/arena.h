@@ -21,7 +21,7 @@
  * decode-time path but not for the parser, which doesn't know
  * up front how much memory the AST will need.
  *
- * Allocator behaviour:
+ * Allocator behavior:
  *   - Each `zsp_arena_alloc(a, size, align)` bumps `used` in the
  *     current chunk and returns the aligned pointer.
  *   - On chunk exhaustion a new chunk is allocated through the
@@ -63,7 +63,7 @@ void zsp_arena_dispose(zsp_arena_t *a);
  * Allocate `size` bytes aligned to `align` (a power of two).
  * Returns NULL on out-of-memory; the underlying allocator's
  * failure propagates as a NULL return. The returned region is
- * zero-initialised.
+ * zero-initialized.
  */
 void *zsp_arena_alloc(zsp_arena_t *a, size_t size, size_t align);
 

@@ -49,7 +49,7 @@ services:
     # No `cpus:` limit — the Synology DSM kernel is built without CPU
     # CFS quota support, so Docker rejects NanoCPUs ("kernel does not
     # support CPU CFS scheduler"). Memory cgroups *are* supported.
-    # The 2-core host naturally serialises CPU pressure anyway.
+    # The 2-core host naturally serializes CPU pressure anyway.
     deploy:
       resources:
         limits:

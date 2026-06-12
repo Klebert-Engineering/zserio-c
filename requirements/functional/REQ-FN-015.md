@@ -3,7 +3,6 @@ id: REQ-FN-015
 title: Generated-code lifecycle entry points
 type: functional
 status: accepted
-phase_target: 1
 verification: test
 ---
 
@@ -14,7 +13,7 @@ enum, bitmask, subtype, named instantiation), the generator
 SHALL emit the following C entry points in the appropriate
 header/source pair:
 
-1. `void <t>_init(<t>_t *self);` — zero-initialise `self`.
+1. `void <t>_init(<t>_t *self);` — zero-initialize `self`.
 2. `void <t>_set_parameters(<t>_t *self, /* params */);` — set
    schema-declared parameters; emitted only when `T` declares at
    least one parameter.
@@ -51,7 +50,7 @@ site by type shape.
 The "_free always emitted" rule is for caller convenience:
 the user writes `T_free(&x, &alloc)` after every `_read` without
 needing to look up whether `T` has anything to release. The
-compiler optimises away the trivial `_free` if it has no work
+compiler optimizes away the trivial `_free` if it has no work
 to do.
 
 The "_set_parameters only when needed" rule is the opposite

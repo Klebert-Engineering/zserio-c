@@ -1,6 +1,6 @@
 /* Union whose arms are arrays. The active arm's count is filled in;
  * the inactive arm's count is left at zero (matches upstream cpp's
- * Vector-default behaviour). */
+ * Vector-default behavior). */
 
 #include <stdio.h>
 #include <stdlib.h>

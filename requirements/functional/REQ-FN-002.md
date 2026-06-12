@@ -3,7 +3,6 @@ id: REQ-FN-002
 title: Parser accepts the schema language defined in docs/spec/schema-language.md
 type: functional
 status: accepted
-phase_target: 1
 verification: test
 ---
 
@@ -37,7 +36,7 @@ Rejection means:
 The parser is the boundary between user input (`*.zs` files)
 and the rest of the system. Defining acceptance against a single
 normative document — the schema language reference — is what
-makes the parser's behaviour reviewable and what discharges
+makes the parser's behavior reviewable and what discharges
 [REQ-DM-004](../domain/REQ-DM-004.md) at the implementation
 layer.
 

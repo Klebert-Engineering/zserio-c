@@ -3,7 +3,6 @@ id: REQ-FN-001
 title: Interoperability with upstream zserio v2.18.1
 type: functional
 status: accepted
-phase_target: 4
 verification: test
 ---
 

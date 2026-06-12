@@ -28,7 +28,7 @@ host. Cross-package references are emitted as relative
 ## Naming
 
 The generator follows one consistent convention. Once you've
-internalised it every emitted header is predictable.
+internalized it every emitted header is predictable.
 
 | Schema | C identifier |
 |---|---|
@@ -69,7 +69,7 @@ same suffix.
 ## Lifecycle
 
 Every type follows the same five-step contract. Simple structs use
-three of the five; parameterised types add `_set_parameters`;
+three of the five; parameterized types add `_set_parameters`;
 allocator usage only enters once a type owns variable-length data.
 
 ### Decoding
@@ -77,7 +77,7 @@ allocator usage only enters once a type owns variable-length data.
 ```c
 my_type_t pkg;
 my_type_init(&pkg);                       /* zero out */
-/* parameterised types only: */
+/* parameterized types only: */
 my_type_set_parameters(&pkg, /* params… */);
 
 zserio_status_t st = my_type_read(&pkg, &reader, &alloc);
@@ -140,7 +140,7 @@ pkg_item_set_parameters(&item, /* version = */ 3u);
 pkg_item_read(&item, &reader, &alloc);
 ```
 
-When a parameterised type appears as a field of another type, the
+When a parameterized type appears as a field of another type, the
 generator chains the inner `_set_parameters` call automatically.
 You set the parameter once, on the outer type, and the chain
 propagates inward.
@@ -264,7 +264,7 @@ struct V2
 `extend` is the zserio-2.x evolution annotation. At read time, the
 field is decoded only if the bitstream has bytes remaining past
 the current position; otherwise the struct field stays at its
-zero-initialised default. At write time the field is always
+zero-initialized default. At write time the field is always
 emitted, byte-aligned.
 
 This lets a v2 decoder read a v1 buffer (the `v2Field` reads
@@ -302,7 +302,7 @@ work.
 
 ## Ownership rules
 
-- `_init` initialises the struct to zero. Always pair with
+- `_init` initializes the struct to zero. Always pair with
   `_free` if the struct was populated by `_read` or manually
   through an `alloc`.
 - `_read` allocates variable-length data through the supplied

@@ -3,7 +3,6 @@ id: REQ-FS-006
 title: Public-API input validation at the boundary
 type: safety
 status: accepted
-phase_target: 1
 verification: test
 ---
 

@@ -11,7 +11,7 @@
 #      libFuzzer discovers extend the corpus across runs.
 #   4. Fail (exit 1) if libFuzzer reports a crash / leak / UBSan trip.
 #
-# Closes the Phase 5 Open item "Random-input fuzzing of the decode
+# Closes the safety-plan open item "Random-input fuzzing of the decode
 # path" recorded in safety-case-report.md and
 # integration-verification.md.
 #

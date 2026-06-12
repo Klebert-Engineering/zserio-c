@@ -3,7 +3,6 @@ id: REQ-FN-025
 title: extend fields default to zero on short bitstreams
 type: functional
 status: accepted
-phase_target: 1
 verification: test
 ---
 
@@ -53,7 +52,7 @@ directions, the decode succeeds.
 
 The "writer always emits" asymmetry is what makes the
 contract one-sided in the right direction: an old decoder
-benefits from the new encoder's strict behaviour without the
+benefits from the new encoder's strict behavior without the
 new encoder needing to know which decoders exist.
 
 ## Verification
@@ -63,7 +62,7 @@ new encoder needing to know which decoders exist.
   against the upstream reference verifies write semantics.
 - `tests/runtime/test_extend_truncated.c` exercises:
   - Decode a v1 bitstream under a v2 schema (extend field
-    short) — verify default-zero behaviour.
+    short) — verify default-zero behavior.
   - Decode a v2 bitstream under a v2 schema (extend field
     present) — verify decode succeeds with value present.
 - The auto-roundtrip harness verifies the byte-equal property

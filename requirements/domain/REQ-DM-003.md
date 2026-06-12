@@ -3,7 +3,6 @@ id: REQ-DM-003
 title: Canonical encoding
 type: domain
 status: accepted
-phase_target: 1
 verification: test
 ---
 

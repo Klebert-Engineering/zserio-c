@@ -3,7 +3,6 @@ id: REQ-FN-009
 title: Schema-to-C identifier mapping is total, deterministic, and documented
 type: functional
 status: accepted
-phase_target: 1
 verification: test
 ---
 
@@ -83,6 +82,6 @@ This requirement is the *contract* side of the identifier
 mapping; [REQ-FN-010](REQ-FN-010.md) is the *physical-limit*
 side (NAME_MAX truncation).
 
-The mapping rules are summarised at user-guide voice in
+The mapping rules are summarized at user-guide voice in
 `docs/user-guide/generated-code.md` § Naming, and given as a
 normative table in `docs/spec/types-mapping.md`.

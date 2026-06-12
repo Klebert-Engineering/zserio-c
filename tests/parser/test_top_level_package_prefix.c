@@ -180,11 +180,11 @@ static void run_pipeline(const char *root, const char *schema,
     TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_session_load(&s, schema, &top));
     TEST_ASSERT_NOT_NULL(top);
 
-    /* The flag MUST be applied between load and analyse. */
+    /* The flag MUST be applied between load and analyze. */
     TEST_ASSERT_EQUAL(ZSERIO_OK,
                       zsp_session_set_top_level_package(&s, prefix));
 
-    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_session_analyse(&s));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_session_analyze(&s));
     TEST_ASSERT_EQUAL_size_t(0U, zsp_diag_error_count(&s.diag));
 
     for (size_t i = 0U; i < s.n_files; ++i) {

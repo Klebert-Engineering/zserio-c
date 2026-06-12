@@ -5,7 +5,7 @@
 # a single layer, and write a per-primitive-read trace.
 #
 # The trace can be diff'd against an equivalent trace from zserio-c's
-# own reader to localise wire-format divergence to a specific bit
+# own reader to localize wire-format divergence to a specific bit
 # position. See conformance/ndslive/cpp_oracle/README.md for the diff
 # workflow.
 #

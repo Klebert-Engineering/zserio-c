@@ -50,7 +50,7 @@ int main(int argc, char *argv[])
     fclose(fi);
 
     /* Setup phase reused from c_driver.c — produces a `pkg` of the
-     * right type and, for parameterised top-level types, the matching
+     * right type and, for parameterized top-level types, the matching
      * `_set_parameters` call from the same seed. */
     templates_instantiate_type_as_parameter_instantiate_type_as_parameter_t pkg;
     templates_instantiate_type_as_parameter_instantiate_type_as_parameter_init(&pkg);

@@ -21,7 +21,7 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DATA_DIR="${REPO_ROOT}/third_party/zserio-test-data"
 
 if [[ ! -d "${DATA_DIR}/language" ]]; then
-    echo "discover: zserio-test-data submodule is not initialised at ${DATA_DIR}" >&2
+    echo "discover: zserio-test-data submodule is not initialized at ${DATA_DIR}" >&2
     echo "discover: run 'git submodule update --init third_party/zserio-test-data'" >&2
     exit 2
 fi

@@ -14,7 +14,7 @@
 
 /*
  * Recursive-descent parser. One-token lookahead via `cur` + `peek`.
- * Per Q5 (`docs/phase-7/scope.md`), the recursion deviation (Rule
+ * Per Q5 (`docs/design/parser.md`), the recursion deviation (Rule
  * 17.2) is bounded by the grammar's static maximum nesting depth
  * and closed by the stack-budget gate (REQ-FS-003).
  *
@@ -25,7 +25,7 @@
  * keyword).
  *
  * AST construction is allocator-disciplined: nodes via
- * `zsp_ast_new`, lists via `zsp_ast_list_t` which finalises into
+ * `zsp_ast_new`, lists via `zsp_ast_list_t` which finalizes into
  * arena-allocated arrays.
  */
 
@@ -53,7 +53,7 @@ typedef struct parser {
                                        *   nesting (REQ-FS-003 / REQ-FS-005). */
 } parser_t;
 
-/* Upper bound on the two unbounded grammar recursions — parenthesised
+/* Upper bound on the two unbounded grammar recursions — parenthesized
  * / unary / ternary expressions and nested template-argument types.
  * A schema nesting deeper than this is rejected with a diagnostic
  * rather than being allowed to exhaust the C stack. 256 is far beyond
@@ -393,8 +393,8 @@ static const builtin_kw_t BUILTIN_KW_DIRECT[] = {
 };
 
 /* Identifiers like "int8", "uint32", "float32" are NOT keywords
- * in upstream's grammar but ARE recognised as builtin types in
- * the analyser. We promote them at parse time when they appear
+ * in upstream's grammar but ARE recognized as builtin types in
+ * the analyzer. We promote them at parse time when they appear
  * as a type, by comparing the source text. */
 typedef struct {
     const char        *name;
@@ -457,7 +457,7 @@ static zsp_ast_node_t *parse_bitfield(parser_t *p, zsp_builtin_code_t code)
     /* current is 'bit' or 'int' — advance past it then accept one
      * of three width forms:
      *   bit:N            (fixed width literal)
-     *   bit:(expr)       (parenthesised expression, fixed at compile time)
+     *   bit:(expr)       (parenthesized expression, fixed at compile time)
      *   bit<expr>        (angle-bracket form for dynamic-width bitfields)
      */
     const uint32_t start = p->cur.offset;
@@ -521,7 +521,7 @@ static zsp_ast_node_t *parse_bitfield(parser_t *p, zsp_builtin_code_t code)
     }
     else {
         /* Standalone `bit` / `int` (no width) — dynamic-width
-         * bitfield. Width 0 is the sentinel; the analyser /
+         * bitfield. Width 0 is the sentinel; the analyzer /
          * runtime resolves the actual width from the surrounding
          * `int<expr>` style context elsewhere. */
         width = 0U;
@@ -551,7 +551,7 @@ static bool parse_type_args(parser_t *p,
     for (;;) {
         /* Optional `explicit` modifier on a type-argument
          * binding: `Foo(explicit X)`. Consume and ignore for
-         * the parser; the analyser uses the explicit-vs-implicit
+         * the parser; the analyzer uses the explicit-vs-implicit
          * distinction. */
         (void)eat(p, ZSP_TOK_KW_EXPLICIT);
         zsp_ast_node_t *const e = parse_expression(p);
@@ -881,7 +881,7 @@ static zsp_ast_node_t *parse_primary_inner(parser_t *p)
     /* @index pseudo-identifier: appears in array-element type
      * parameter contexts (e.g. `Block(headers[@index])`). The
      * keyword is lexed as ZSP_TOK_KW_INDEX; in an expression
-     * context it acts as an identifier that the analyser
+     * context it acts as an identifier that the analyzer
      * resolves to the surrounding loop's iteration index. */
     if (check(p, ZSP_TOK_KW_INDEX)) {
         zsp_ast_node_t *const n = new_node_from_tok(p, ZSP_AST_EXPR_IDENT, &p->cur);
@@ -1514,7 +1514,7 @@ static zsp_ast_node_t *parse_choice(parser_t *p,
         const uint32_t before = p->cur.offset;
         /* `function` declarations may appear inside a choice
          * body alongside cases. Parse + discard for the MVP
-         * emitter; the analyser tracks them on the AST. */
+         * emitter; the analyzer tracks them on the AST. */
         if (check(p, ZSP_TOK_KW_FUNCTION)) {
             (void)parse_function(p);
             if (p->cur.offset == before) {
@@ -1575,7 +1575,7 @@ static zsp_ast_node_t *parse_enum_decl(parser_t *p)
         const uint32_t before = p->cur.offset;
         /* Optional leading annotations on enum items
          * (@deprecated, @removed, @index). Parse + drop for
-         * now; analyser uses them on fields, not enum items. */
+         * now; analyzer uses them on fields, not enum items. */
         while (check(p, ZSP_TOK_KW_DEPRECATED)
                 || check(p, ZSP_TOK_KW_REMOVED)
                 || check(p, ZSP_TOK_KW_INDEX)) {
@@ -1775,7 +1775,7 @@ static zsp_ast_node_t *parse_sql_field(parser_t *p)
     const uint32_t start = p->cur.offset;
     bool optional_flag = false;
     /* `sql_virtual` modifier on the field; consumed and ignored
-     * for now (analyser/emitter will pick it up later). */
+     * for now (analyzer/emitter will pick it up later). */
     (void)eat(p, ZSP_TOK_KW_SQL_VIRTUAL);
     if (eat(p, ZSP_TOK_KW_OPTIONAL)) {
         optional_flag = true;

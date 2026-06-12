@@ -7,7 +7,7 @@ jar builds that feed the xvalidation oracle.
 
 | Tool | Gate |
 | --- | --- |
-| `check_traceability.py` | Every in-phase accepted requirement is referenced by a `/* Verifies: REQ-... */` marker in at least one test. |
+| `check_traceability.py` | Every accepted requirement is referenced by a `/* Verifies: REQ-... */` marker in at least one test. |
 | `check_version_consistency.py` | `version.h` ↔ `CMakeLists.txt` ↔ spec docs agree on release / wire-format / schema-language versions (REQ-DM-007). |
 | `run_misra.sh` | cppcheck MISRA C:2012 on the runtime + forbidden-symbol scans (REQ-FS-001 no direct heap, REQ-FS-002 no setjmp/longjmp). `--strict` fails on any finding. |
 | `run_misra_generated.sh` | Same MISRA gate on generator output over a representative schema set. |

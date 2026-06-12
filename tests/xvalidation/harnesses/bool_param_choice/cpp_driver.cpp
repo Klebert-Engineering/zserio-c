@@ -1,6 +1,6 @@
 /* See packed_variable_array_uint8/cpp_driver.cpp for the harness pattern.
  *
- * Parameterised choices need the parameter value passed at read time
+ * Parameterized choices need the parameter value passed at read time
  * (the parameter is NOT in the wire). The orchestrator passes the seed
  * as the third argument; we derive the same selector from it that the
  * c_driver used. */

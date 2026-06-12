@@ -2,7 +2,7 @@
  * SPDX-License-Identifier: MIT
  * Copyright (c) 2026 Klebert Engineering
  *
- * Phase 4 conformance entry point: read the user-supplied
+ * NDS Live conformance entry point: read the user-supplied
  * tile.bin (a SmartLayerTile encoded by the upstream zserio
  * Java/C++ generator + zs-yaml at zserio core 2.18.1) through
  * our generated C99 decoder and surface a few salient fields.
@@ -133,11 +133,11 @@ int main(int argc, char **argv)
     /* Dispatch on externDescriptor.target — parse each layer's extern
      * payload into its real typed struct. The extern blob is stored
      * starting at byte 0 / bit 0 of the owned `bytes` buffer
-     * (zserio_extern_t materialises bits there), so a bitstream
+     * (zserio_extern_t materializes bits there), so a bitstream
      * reader over those bytes decodes the layer like any normal
      * compound.
      *
-     * KNOWN LIMITATION (Phase 4 follow-up): NDS Live's RoadList /
+     * KNOWN LIMITATION (open follow-up): NDS Live's RoadList /
      * RoadGeometryLayer / RoadCharacteristicsLayer / RoadRulesLayer
      * are `packed Road[]` (or analogues) whose elements are
      * compounds containing varint-typed fields. Upstream encodes
@@ -149,7 +149,7 @@ int main(int argc, char **argv)
      * earlier round-trip assertion proves this), but semantic
      * decoding here hits ZSERIO_ERR_CONSTRAINT_VIOLATED on the
      * Var4ByteId.id varuint32 because we read it as an unpacked
-     * varuint, materialising the descriptor bits as part of the
+     * varuint, materializing the descriptor bits as part of the
      * value. Listing the dispatch + status here keeps the demo
      * honest about the gap. */
     /* Per-layer trace gating: ZSERIO_TRACE_LAYER=N enables the

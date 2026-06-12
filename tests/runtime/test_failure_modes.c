@@ -215,7 +215,7 @@ static void test_h03_failing_allocator_propagates_out_of_memory(void)
 
 static void test_h06_two_readers_disjoint_state(void)
 {
-    /* Verifies: REQ-FS-007 — two readers initialised on different
+    /* Verifies: REQ-FS-007 — two readers initialized on different
      * buffers advance independently. Reading from one does not
      * affect the other's bit position or return values. HARA H-06
      * mitigation. */

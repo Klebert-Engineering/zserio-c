@@ -137,8 +137,14 @@ mixed targets.
                     └─────────────────────────────┘
 ```
 
-In Phase 7, the Java layer is replaced by a C-native parser. The runtime
-and generated-code surface do not change.
+On the C target, this Java pipeline has been replaced by the
+C-native `zserio_c_gen` (`parser/`): `lexer → parser → arena AST →
+sema → emit`, all C99, no JVM. The Java extension above remains in
+the tree solely to drive the upstream toolchain as the cpp-side
+wire-format oracle for the xvalidation gate. The runtime and
+generated-code surface are identical either way; the design record
+for the C-native parser is at
+[`docs/design/parser.md`](design/parser.md).
 
 ## Threading model
 
@@ -149,25 +155,9 @@ threads do so with their own synchronization, not the runtime's. This
 matches AUTOSAR Classic expectations and avoids any need for atomics
 in the certified subset.
 
-## Phase plan
+## Requirements traceability
 
-| Phase | Scope                                                                  | Status                              |
-|-------|------------------------------------------------------------------------|-------------------------------------|
-| 0     | Bootstrap, upstream analysis.                                          | done                                |
-| 1     | Runtime MVP: bitstream, varints, basic primitives. 100% line+branch.   | done                                |
-| 2     | Java generator extension; hello-world end-to-end.                      | done                                |
-| 3     | Full schema-language coverage (compounds, choices, parameterized…).    | done                                |
-| 4     | Conformance against the upstream zserio test corpus.                   | done — xvalidation gate (182 × 5)   |
-| 5     | Safety case maturation — MISRA-clean pass, ISO 26262 work products.    | substantively complete (all `draft`) |
-| 6     | Performance benchmarks vs. C++ runtime; tune.                          | done — both perf hosts green, advisory gate live |
-| 7     | C-native parser replaces the Java front-end on the C target.           | done — `zserio_c_gen` drives xvalidation; planning record at [`phase-7/scope.md`](phase-7/scope.md) |
-| 8     | Bidirectional cpp ↔ C round-trip under ASan + UBSan; ndslive C-native. | done — 182 / 182 byte-equal both directions, clean under sanitizers |
-
-The current phase is recorded at the repository root in `.phase` and
-read by `tools/check_traceability.py`. Every accepted requirement
-whose `phase_target <= .phase` must have a `Verifies:` marker in
-some test or tool; the traceability gate fails the build otherwise.
-
-Each phase has acceptance criteria recorded against requirements in
-`requirements/`. A phase ends when all its acceptance criteria are
-verified by tests in CI.
+Every accepted requirement under `requirements/` must have a
+`Verifies:` marker in some test or tool; the traceability gate
+(`tools/check_traceability.py`, the `traceability` CI job) fails
+the build otherwise.

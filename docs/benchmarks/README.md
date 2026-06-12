@@ -56,7 +56,7 @@ The measured numbers per host live in
 
 ## Gate semantics
 
-The `perf` CI job is **advisory** in the initial Phase 6 commits.
+The `perf` CI job is **advisory** in its initial form.
 Public ubuntu-latest CI runners have significant per-run noise on
 throughput numbers, and we do not yet have a CI-measured baseline.
 The job posts the full benchmark report as a commit comment so the
@@ -66,7 +66,7 @@ regression.
 The plan is to:
 
 1. Land the harness (this commit).
-2. Observe 2–3 green CI runs to characterise the noise floor on the
+2. Observe 2–3 green CI runs to characterize the noise floor on the
    runner.
 3. Replace `perf.baseline.json` with the median of those runs.
 4. Drop the advisory `|| true` in `.github/workflows/ci.yml` and
@@ -76,6 +76,6 @@ The plan is to:
 
 The cpp ratio (`ratio_cpp_to_c`) is reported for visibility but is
 not itself a gate; closing the ratio toward 1.0 is the substantive
-Phase 6 optimisation work that this measurement framework exists
+optimization work that this measurement framework exists
 to track. The bit-cache + mask-table read pattern documented in
 `runtime/src/bitstream.c:78-80` is the first planned step.

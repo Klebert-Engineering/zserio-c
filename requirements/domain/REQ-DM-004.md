@@ -3,7 +3,6 @@ id: REQ-DM-004
 title: Schema-language reference is owned by zserio-c
 type: domain
 status: accepted
-phase_target: 1
 verification: review
 ---
 

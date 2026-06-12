@@ -13,7 +13,7 @@ Unity is vendored via CMake FetchContent (see `runtime/CMakeLists.txt`).
 
 Test files reference requirements with the marker
 `/* Verifies: REQ-... */`; `tools/check_traceability.py` (the
-`traceability` CI job) fails the build if any in-phase accepted
+`traceability` CI job) fails the build if any accepted
 requirement has no marker.
 
 Run the unit tests:

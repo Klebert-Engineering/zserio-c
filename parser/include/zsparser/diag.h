@@ -82,7 +82,7 @@ typedef struct zsp_diag_collector {
 } zsp_diag_collector_t;
 
 /**
- * Initialise an empty collector. `max` of zero defaults to
+ * Initialize an empty collector. `max` of zero defaults to
  * ZSP_DIAG_DEFAULT_MAX (20). `alloc` MUST outlive the collector.
  */
 zserio_status_t zsp_diag_init(zsp_diag_collector_t *c,

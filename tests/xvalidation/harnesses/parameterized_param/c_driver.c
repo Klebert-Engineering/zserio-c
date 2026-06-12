@@ -1,4 +1,4 @@
-/* Two-level parameterised chain: Param(uint16) and ParameterizedParam(Param). */
+/* Two-level parameterized chain: Param(uint16) and ParameterizedParam(Param). */
 
 #include <stdio.h>
 #include <stdlib.h>

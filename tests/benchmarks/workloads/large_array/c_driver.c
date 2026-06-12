@@ -72,7 +72,7 @@ int main(int argc, char *argv[])
     /* Decode timing. The runtime allocates a fresh data array per
      * decode; that allocation cost shows up in the number but
      * matches what the cpp counterpart does. The sink touches a
-     * fixed-index element so the optimiser can't DCE the read. */
+     * fixed-index element so the optimizer can't DCE the read. */
     const zserio_allocator_t alloc = zserio_allocator_libc();
     uint64_t sink = 0U;
     clock_gettime(CLOCK_MONOTONIC, &t0);

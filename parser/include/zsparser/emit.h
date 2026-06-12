@@ -19,12 +19,12 @@
 
 /**
  * @file
- * C code emitter for the zserio-c parser. Takes an analysed
- * AST UNIT (parsed by `zsp_parse_unit` and analysed by
- * `zsp_sema_analyse_unit`) and emits one `.h` + one `.c` file
+ * C code emitter for the zserio-c parser. Takes an analyzed
+ * AST UNIT (parsed by `zsp_parse_unit` and analyzed by
+ * `zsp_sema_analyze_unit`) and emits one `.h` + one `.c` file
  * per compound declaration plus a package-level header.
  *
- * Per Q3 (`docs/phase-7/scope.md`), this is a hand-written
+ * Per Q3 (`docs/design/parser.md`), this is a hand-written
  * tree-walking emitter — no template engine, no `<stdarg.h>`,
  * typed `emit_lit` / `emit_uint` / etc. helpers. Output is
  * delivered to a caller-supplied directory via a small file-
@@ -49,7 +49,7 @@ typedef bool (*zsp_emit_write_fn)(void       *userdata,
                                   size_t      len);
 
 /**
- * Emit C code for the analysed UNIT. Outputs:
+ * Emit C code for the analyzed UNIT. Outputs:
  *
  *   <package_path>/<TypeName>.h   — declarations
  *   <package_path>/<TypeName>.c   — implementations

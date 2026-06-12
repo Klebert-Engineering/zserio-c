@@ -3,7 +3,6 @@ id: REQ-FN-003
 title: Diagnostic message format
 type: functional
 status: accepted
-phase_target: 1
 verification: test
 ---
 
@@ -40,7 +39,7 @@ parser SHALL NOT emit diagnostics in any other format.
 ## Rationale
 
 The GCC-compatible diagnostic format is the convention every C
-toolchain user already recognises. IDEs, editor plugins, and CI
+toolchain user already recognizes. IDEs, editor plugins, and CI
 log parsers consume it out of the box. Inventing a different
 format would gain nothing and lose interoperability.
 
@@ -48,7 +47,7 @@ Single-line primary messages make every diagnostic addressable by
 grep, by line-based filters, and by simple regex matching in
 build systems. Multi-line continuations are explicitly secondary
 so that the primary-line invariant holds even for richly
-contextualised messages.
+contextualized messages.
 
 `stderr`-only output is the convention for diagnostics across
 Unix tooling. Mixing diagnostics with successful output on

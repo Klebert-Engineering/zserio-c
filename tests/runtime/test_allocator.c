@@ -59,7 +59,7 @@ static void test_allocator_libc_realloc(void)
 
 static void test_allocator_libc_free_null_is_noop(void)
 {
-    /* `free(NULL)` is the libc convention; verify our wrapper honours it. */
+    /* `free(NULL)` is the libc convention; verify our wrapper honors it. */
     const zserio_allocator_t a = zserio_allocator_libc();
     a.vtable->free(a.userdata, NULL, 0U, 1U);
 }

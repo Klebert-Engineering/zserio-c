@@ -11,7 +11,7 @@
 
 /* Struct named `ElementChildrenInitializer_array` — clashes with the
  * generator's internal helper-class naming pattern for arrays of
- * parameterised compounds. */
+ * parameterized compounds. */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -52,7 +52,7 @@ int main(int argc, char *argv[])
     fclose(fi);
 
     /* Setup phase reused from c_driver.c — produces a `pkg` of the
-     * right type and, for parameterised top-level types, the matching
+     * right type and, for parameterized top-level types, the matching
      * `_set_parameters` call from the same seed. */
     parameterized_types_parameterized_inner_classes_clashing_element_children_initializer_array_t pkg;
     parameterized_types_parameterized_inner_classes_clashing_element_children_initializer_array_init(&pkg);

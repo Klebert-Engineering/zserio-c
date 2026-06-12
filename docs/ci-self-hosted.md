@@ -49,7 +49,7 @@ The constraints that actually matter:
   transient. 8 GB is the floor, more is comfortable. 32 GB is
   generous; the 128 GB on the reference Linux x86_64 server has
   abundant headroom.
-- **Cores** — 2 is enough; jobs just serialise more. Three runner
+- **Cores** — 2 is enough; jobs just serialize more. Three runner
   instances (the compose default) let GitHub dispatch the lighter
   jobs in parallel, roughly halving a full run's wall-clock. On a
   16-core box, duplicate the `runner-2` block in
@@ -200,7 +200,7 @@ file.
 The earlier reference host was a Synology DS3018xs; the deployment
 flow there was the Container Manager → Project UI rather than
 direct `docker compose` CLI. Documented for the record — the
-Synology is retired in favour of a dedicated Linux x86_64 host
+Synology is retired in favor of a dedicated Linux x86_64 host
 (better noise floor for perf measurements). If you need the GUI
 flow, the steps are: File Station upload of `ci/`, create `ci/.env`
 next to `docker-compose.yml` (paste the PAT and any
