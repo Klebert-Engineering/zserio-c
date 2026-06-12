@@ -19,10 +19,12 @@ gates enforce:
 - **Wire-format compatibility** with upstream `ndsev/zserio
   v2.18.1` for every encode/decode pair (REQ-FN-001, `xvalidation`
   gate over 182 schemas × 5 seeds per commit).
-- **Bounded, deterministic execution.** No recursion (REQ-FS-003,
-  MISRA Rule 17.2), bounded loops (REQ-FS-005), bounded per-
-  function stack frames and bounded transitive call-chain stack
-  (`stack` gate, see `docs/safety-case/stack-budget.md`).
+- **Bounded, deterministic execution.** Recursion-free runtime
+  (MISRA Rule 17.2) with depth-gated generated readers — decode
+  fails with `ZSERIO_ERR_MAX_DEPTH_EXCEEDED` past the tunable
+  ceiling (REQ-FS-003) — bounded loops (REQ-FS-005), bounded
+  per-function stack frames and bounded transitive call-chain
+  stack (`stack` gate, see `docs/safety-case/stack-budget.md`).
 - **Explicit error reporting.** Every public function returns a
   `zserio_status_t` or void — no exceptions, no `errno`, no
   hidden state — see REQ-FS-002.

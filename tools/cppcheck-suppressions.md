@@ -51,7 +51,7 @@ CI job and are deliberately kept out of the shared
 | `constParameterPointer`     | cppcheck style, not MISRA. Generated `_free` may or may not write to `self` depending on whether the type has nested allocations; the template emits the same signature either way. Marking `_write` / `_observe` as const is an API-quality follow-up. |
 | `misra-c2012-2.5`           | Unused macro. Triggered by the public `*_TAG_CASE*_FIELD` discriminator constants the generator emits per union arm — consumed by user code that cppcheck can't see. Same justification as `unusedFunction`. |
 | `misra-c2012-11.5` / `-11.8` | Same accepted pattern as D004 (allocator `void *` cast). D004 explicitly covers the overlapping 11.8 finding. Applied via CLI rather than a file-scoped entry because generated file names are schema-dependent. |
-| `misra-c2012-19.2`          | Tagged C union for zserio `choice` / `union` types — see D007. |
+| `misra-c2012-19.2`          | Same deviation as the [D007](../docs/misra-deviations/D007-rule-19.2-tagged-union.md) row in "Documented deviations" above — repeated here only because it is applied as a CLI flag, not via the shared suppressions file. |
 
 ### Style / arithmetic categorical accepts
 

@@ -84,7 +84,8 @@ and are not negotiable without an explicit waiver process:
 
 - Allocation only via the allocator vtable (REQ-FS-001).
 - No `setjmp`/`longjmp` (REQ-FS-002).
-- No recursion (REQ-FS-003).
+- Bounded decode depth — recursion-free runtime, depth-gated
+  generated readers (REQ-FS-003).
 - No floating-point in control flow (REQ-FS-004).
 - All loops have a statically determinable upper bound (REQ-FS-005).
 - Public-API input validation at the boundary (REQ-FS-006).

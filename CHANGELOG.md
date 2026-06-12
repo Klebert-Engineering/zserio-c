@@ -7,6 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security hardening — untrusted-decode path (2026-06-10)
+
+Audit of the decode path (generated decoders run on
+attacker-controlled bitstreams; ASIL-B / REQ-FS-*). No wire-format
+change — xvalidation stays 182/182 byte-equal in both directions.
+
+#### Added — runtime API
+
+- **Decode depth gate.** Generated compound / choice readers
+  bracket their body with `zserio_bitstream_reader_enter` /
+  `_leave`; the reader tracks nesting depth and fails with the new
+  `ZSERIO_ERR_MAX_DEPTH_EXCEEDED` past its ceiling (default 1024,
+  tunable per reader via the new
+  `zserio_bitstream_reader_set_max_depth`). Recursive schemas
+  (lists, trees, mutually-recursive structs) can no longer exhaust
+  the C stack on crafted input (REQ-FS-003).
+- New status codes: `ZSERIO_ERR_MAX_DEPTH_EXCEEDED` (safety-limit
+  band), `ZSERIO_ERR_ARRAY_TOO_LARGE`, `ZSERIO_ERR_INVALID_TAG`.
+
+#### Changed — generated decode path
+
+- Array allocation guards the `size_t` count × element-size
+  multiply against overflow and bounds the count by the bits
+  remaining in the stream (`ZSERIO_ERR_ARRAY_TOO_LARGE`); packed
+  arrays skip the remaining-bits bound (delta encoding packs many
+  elements into few bits) but keep the overflow guard.
+- Union read rejects an unknown wire tag with
+  `ZSERIO_ERR_INVALID_TAG` instead of returning OK with an
+  untouched union.
+
+#### Changed — parser robustness (build-time tool)
+
+- Expression / type parsing gains a depth gate
+  (`ZSP_MAX_PARSE_DEPTH=256`); template instantiation a depth cap
+  (`ZSP_MAX_TEMPLATE_DEPTH=64`); `rule_group` body loop gains the
+  stall guard its sibling loops already had; float-exponent lexing
+  clamps the exponent (previously signed-overflow UB on inputs
+  like `1e9999999999`).
+
+#### Fixed — tooling
+
+- `tools/run_misra.sh` REQ-FS-002 scan: `find` precedence bug
+  meant the runtime `.c` files were never scanned; now fixed and
+  fails closed if the scan matches zero files.
+
 ## [0.1.0] - 2026-05-21
 
 First tagged release. Wire format 1.0 and schema language 1.0 are

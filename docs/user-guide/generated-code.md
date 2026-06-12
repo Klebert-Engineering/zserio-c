@@ -197,6 +197,14 @@ pkg.things = calloc(3, sizeof *pkg.things);
 You're responsible for `free`ing arrays you allocated yourself.
 `_free` only releases storage that `_read` allocated.
 
+Array allocation on the read path is guarded against hostile
+input: the element-count × element-size multiplication is checked
+for `size_t` overflow, and the decoded count is sanity-checked
+against the bits remaining in the stream (packed arrays are exempt
+from the remaining-bits check — their delta encoding legitimately
+packs many elements into few bits). A violation fails the read
+with `ZSERIO_ERR_ARRAY_TOO_LARGE` before any allocation happens.
+
 ### Choices and unions
 
 ```zserio
@@ -232,6 +240,16 @@ typedef struct {
 #define pkg_my_union_TAG_ARR     0u
 #define pkg_my_union_TAG_SCALAR  1u
 ```
+
+On read, the decoded tag is validated: a wire value that matches no
+declared arm fails with `ZSERIO_ERR_INVALID_TAG` rather than
+returning `ZSERIO_OK` with an untouched union (REQ-FS-006).
+
+Nested compounds — including recursive shapes like linked lists and
+trees — decode under the reader's depth ceiling; see
+[Error handling § Safety-limit errors](error-handling.md#safety-limit-errors)
+for `ZSERIO_ERR_MAX_DEPTH_EXCEEDED` and how to tune the limit for
+small-stack targets.
 
 ### Extend (forward-compatible fields)
 

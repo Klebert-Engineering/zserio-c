@@ -65,3 +65,6 @@ conformance/ndslive/tile.yaml
 tests/fuzz/corpus/
 
 __pycache__/
+
+# Local AI-tooling settings — per-developer, never committed.
+.claude/

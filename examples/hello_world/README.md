@@ -1,9 +1,15 @@
-# `examples/hello_world` — minimal end-to-end demo
+# `examples/hello_world` — the Getting-started schema
 
-**Phase 0 status: empty.** Phase 2 will populate this with:
+`hello.zs` is the schema used by the
+[Getting started](../../docs/getting-started.md) walkthrough — a
+single struct with a primitive field and a string, enough to see
+the full schema → generated C → encode → decode loop.
 
-- `hello.zs` — a tiny zserio schema (a struct with a few primitive fields).
-- Generated `hello.c` / `hello.h` (committed for inspection; regenerated
-  from the schema by the build).
-- `main.c` — uses the generated code with the malloc-backed default
-  allocator to encode and decode a value, asserting round-trip equality.
+There is intentionally no committed code here: the walkthrough has
+you run the generator and write the `main.c` yourself, end to end,
+in about 10 minutes. Follow it from step 1.
+
+For a complete, buildable example with committed generated code —
+including the arena-allocator deployment pattern recommended for
+embedded targets — see
+[`examples/embedded_decode/`](../embedded_decode/).

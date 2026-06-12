@@ -42,11 +42,17 @@ bash tests/benchmarks/run_benchmark.sh > docs/benchmarks/perf.baseline.json
 
 ## Current workloads
 
-| Workload     | Schema                                              | Encoded bytes | Status      |
-| ------------ | --------------------------------------------------- | ------------- | ----------- |
-| `small_flat` | 10 fixed-width fields covering the full int set + bool + bit:4 | ~31 B  | landed      |
-| `medium_nested` | (planned) ~100 fields across two levels of nesting | ~ TBD          | open        |
-| `large_array`   | (planned) array-heavy schema                       | ~1 MB encoded  | open        |
+| Workload | Schema | Status |
+| --- | --- | --- |
+| `small_flat` | 10 fixed-width fields covering the full int set + bool + bit:4 (~31 B encoded) | landed |
+| `medium_nested` | nested structs across two levels | landed |
+| `large_array` | array-heavy bulk-throughput schema | landed |
+| `apollo`, `addressbook` (+`_align`, `_packed`, `_align_arena`), `carsales` (+`_align`, `_packed`), `simpletrace` (+`_packed`, `_packed_arena`) | corpus-derived workloads bootstrapped from the upstream benchmark datasets (`third_party/zserio-benchmarks-datasets`) | landed |
+| `ndslive_tile` | 50 KiB NDS Live SmartLayerTile | landed |
+
+The measured numbers per host live in
+[`RESULTS.md`](RESULTS.md); the per-host gate baselines in
+`perf.baseline.<host>.json`.
 
 ## Gate semantics
 

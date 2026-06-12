@@ -27,15 +27,22 @@ of their own.
 ## Build + run
 
 ```bash
-# One-time prerequisites: the upstream + extension jars have to exist.
-# From the repository root:
-tools/build_zserio_core_jar.sh       # produces build-jars/zserio_core.jar
-tools/build_generator_jar.sh         # produces generator/build/jar/zserio_c.jar
+# No prerequisites — the generated code under gen/ is committed, so
+# the build is hermetic (no generator run, no JVM).
 
 # In this directory:
 cmake -B build -S .
 cmake --build build
 ./build/embedded_decode
+```
+
+To regenerate `gen/` after editing `telemetry.zs`, build the
+C-native generator once and run it (from this directory):
+
+```bash
+cmake --preset gcc-release --fresh   # repo root
+cmake --build --preset gcc-release --target zserio_c_gen
+./../../build/gcc-release/parser/zserio_c_gen telemetry.zs -c gen
 ```
 
 Expected output:

@@ -11,6 +11,13 @@ The current phase is read from the ``.phase`` file at the repository root
 (a single digit). A requirement that has not yet reached its phase target
 is reported as informational and does not fail the gate.
 
+With ``--write-csv``, additionally regenerates
+``requirements/traceability.csv`` (one row per requirement × referencing
+file, deterministic ordering). CI runs this and fails on drift, so the
+committed CSV always matches the test suite. The ``last_verified``
+column is intentionally left empty — the file's git history is the
+verification timestamp.
+
 Exit codes:
     0 — gate passes
     1 — gate fails (missing test references for in-phase requirements)
@@ -113,10 +120,27 @@ def current_phase() -> int:
     return int(text)
 
 
+def write_csv(reqs: list[Requirement], refs: dict[str, list[Path]]) -> None:
+    csv_path = REQUIREMENTS_DIR / "traceability.csv"
+    lines = ["requirement_id,test_id,status,last_verified"]
+    for req in reqs:
+        paths = sorted({str(p.relative_to(REPO)) for p in refs.get(req.id, [])})
+        if not paths:
+            lines.append(f"{req.id},,{req.status},")
+            continue
+        for rel in paths:
+            lines.append(f"{req.id},{rel},{req.status},")
+    csv_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"wrote {csv_path.relative_to(REPO)} ({len(lines) - 1} rows)")
+
+
 def main() -> int:
     phase = current_phase()
     reqs = load_requirements()
     refs = load_test_references()
+
+    if "--write-csv" in sys.argv[1:]:
+        write_csv(reqs, refs)
 
     print(f"current phase: {phase}")
     print(f"requirements:  {len(reqs)}")

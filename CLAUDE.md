@@ -80,9 +80,13 @@ D001..D007 — six runtime + one generator-output-scoped).
 2. **No exceptions, no `setjmp`.** Every fallible function returns
    `zserio_status_t`; output goes through pointer params. Callers may not read
    outputs unless status is `ZSERIO_OK`.
-3. **No recursion.** Tree-shaped schemas decompose to explicit worklists drawn
-   from the caller's allocator. Stack usage is gated (`tools/measure_stack_usage.py
-   --strict`): ≤256B per frame, ≤1024B worst transitive chain.
+3. **Bounded stack depth.** The runtime contains no recursion (loops statically
+   bounded, REQ-FS-005). Generated compound readers descend nested types by
+   direct calls under a runtime depth gate: `zserio_bitstream_reader_enter/leave`
+   tracks nesting on the reader and fails with `ZSERIO_ERR_MAX_DEPTH_EXCEEDED`
+   past the ceiling (default 1024, `zserio_bitstream_reader_set_max_depth`).
+   Per-frame stack is gated (`tools/measure_stack_usage.py --strict`): ≤256B per
+   frame, ≤1024B worst non-recursive chain.
 4. **No floating-point in control flow.** FP appears only on the encode/decode
    path of `float16`/`float32`/`float64` fields — never in branches, loop
    bounds, or sizing.

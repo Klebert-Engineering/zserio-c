@@ -23,6 +23,10 @@
  */
 
 #define _POSIX_C_SOURCE 200809L
+#if defined(__APPLE__)
+/* _POSIX_C_SOURCE alone hides mkdtemp on Darwin; opt back in. */
+#define _DARWIN_C_SOURCE 1
+#endif
 
 #include <stdbool.h>
 #include <stdint.h>

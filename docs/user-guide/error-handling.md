@@ -7,7 +7,7 @@ covers the status taxonomy and the propagation pattern.
 ## The status type
 
 `zserio_status_t` is an enum from `<zserio/status.h>`. `ZSERIO_OK`
-is zero; all error codes are non-zero, organised into four bands:
+is zero; all error codes are non-zero, organised into five bands:
 
 ```c
 typedef enum zserio_status {
@@ -35,7 +35,10 @@ typedef enum zserio_status {
     ZSERIO_ERR_ARRAY_TOO_LARGE,
 
     /* Resource */
-    ZSERIO_ERR_OUT_OF_MEMORY
+    ZSERIO_ERR_OUT_OF_MEMORY,
+
+    /* Safety limits (zserio-c specific) */
+    ZSERIO_ERR_MAX_DEPTH_EXCEEDED
 } zserio_status_t;
 ```
 
@@ -51,6 +54,7 @@ contract. Switch on enumerator names, not on integers.
 | Stream / buffer | The bitstream ran past its bounds. | Decoder hit EOS; encoder's output buffer too small. |
 | Encoding semantics | The bytes don't represent a valid value of the schema's type. | Malformed varint; unknown enum value; constraint expression false. |
 | Resource | The allocator returned NULL. | Bounded arena exhausted; libc OOM. |
+| Safety limits | A decode-side hardening limit fired on untrusted input. | Adversarially nested message exceeded the reader's depth ceiling. |
 
 ### Argument-validation errors
 
@@ -89,6 +93,14 @@ but don't form a valid instance of the schema's type:
 - `ZSERIO_ERR_OFFSET_MISMATCH` — a `@offset` declaration says the
   next field starts at bit-position N, but the actual decoder
   position differs. Indicates a wire-format / schema mismatch.
+- `ZSERIO_ERR_ARRAY_TOO_LARGE` — the decoded array length is
+  implausible for the bits remaining in the stream, or the
+  element-count × element-size multiplication would overflow
+  `size_t`. Protects against crafted input that claims a huge
+  array to drive the decoder out of memory. Packed arrays are
+  exempt from the remaining-bits plausibility check (their delta
+  encoding legitimately packs many elements into few bits) but
+  still get the overflow guard.
 
 ### Resource errors
 
@@ -100,6 +112,31 @@ hooks and propagates this status up to the original `_read` call.
 The `_read` short-circuits — subsequent fields are not decoded —
 but the partially-populated struct is safe to `_free` against the
 same allocator.
+
+### Safety-limit errors
+
+- `ZSERIO_ERR_MAX_DEPTH_EXCEEDED` — the decode descended through
+  more nested compound levels than the reader's depth ceiling
+  allows. Generated compound readers track nesting depth on the
+  reader; a recursive schema (linked lists, trees,
+  mutually-referential structs) fed an adversarially deep
+  bitstream fails with this status instead of exhausting the C
+  stack (REQ-FS-003).
+
+  The default ceiling is **1024**. Embedded targets with small
+  stacks should lower it before decoding:
+
+  ```c
+  zserio_bitstream_reader_t r;
+  zserio_bitstream_reader_init(&r, buf, buf_bits);
+  zserio_bitstream_reader_set_max_depth(&r, 64);  /* per-message budget */
+  ```
+
+  Pick the ceiling from your schema's real nesting depth plus
+  margin — for non-recursive schemas the static maximum is known,
+  and anything deeper is an attack or corruption, never valid
+  data. A failed decode leaves the struct safe to `_free`, same
+  as every other read error.
 
 ## Propagating with `ZSERIO_TRY`
 

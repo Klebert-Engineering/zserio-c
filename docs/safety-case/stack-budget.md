@@ -12,7 +12,9 @@ Close hazard **H-09 — Stack overflow on deeply nested compounds**
 from `hazard-analysis.md`. The hazard concerns the possibility that
 a maliciously or accidentally deep encoded message could drive the
 decode path's stack usage past the integrator's available stack
-budget, even though the runtime forbids recursion (REQ-FS-003).
+budget. REQ-FS-003 bounds this at runtime — the reader's depth gate
+rejects input past `max_depth` — and this analysis bounds the
+per-level cost that multiplies against that ceiling.
 
 Establishing a **statically bounded** worst-case stack usage for
 the runtime — and gating it in CI — turns the hazard into a fixed,
@@ -47,8 +49,9 @@ properties:
 3. The longest path through the (unioned, cross-TU) call graph,
    weighted by per-function frame, does not exceed the transitive
    ceiling `MAX_PATH_BYTES = 1024`. The traversal is preceded by a
-   cycle check — a cycle would violate REQ-FS-003 (no recursion);
-   the analyzer fails with the cycle path if it ever finds one.
+   cycle check — the runtime call graph is recursion-free per
+   REQ-FS-003, so the analyzer fails with the cycle path if it
+   ever finds one.
 
 Tooling: `tools/measure_stack_usage.py` does the build, parses both
 file kinds, runs both gates, and either prints a report or fails
@@ -140,5 +143,5 @@ the commit message — same pattern as the size-baseline gate.
 - Tool: `tools/measure_stack_usage.py`
 - Gate: `.github/workflows/ci.yml` → `stack:` job
 - Hazard row: `hazard-analysis.md` → H-09
-- Requirement: `requirements/safety/REQ-FS-003.md` (no recursion)
+- Requirement: `requirements/safety/REQ-FS-003.md` (bounded decode depth)
 - Safety plan entry: `safety-plan.md` → work-product table → "Stack-budget analysis"

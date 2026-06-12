@@ -52,8 +52,11 @@ tests/
   xvalidation/    bidirectional cpp ↔ C wire-format harness
     harnesses/    one directory per schema (182 total)
     run_xvalidation.sh
-  conformance/    runtime + parser unit tests
-  perf/           per-commit performance gate
+  runtime/        runtime unit tests (Unity)
+  parser/         parser unit tests (Unity)
+  benchmarks/     per-commit performance gate (REQ-PF-001)
+  fuzz/           libFuzzer decode-path targets (REQ-FS-006)
+  conformance/    upstream error-code mapping table
 
 conformance/
   ndslive/        50 KiB NDS Live tile round-trip test
@@ -113,13 +116,14 @@ varsize-large path, packed compound arrays at scale.
 
 ### 4. Performance
 
-Per-commit perf gate runs the seven harness workloads under
-`tests/perf/` against an oracle baseline. Regressions ≥ 10% fail
-the gate.
+Per-commit perf gate runs the benchmark workloads under
+`tests/benchmarks/workloads/` against a per-host baseline
+(`docs/benchmarks/perf.baseline.<host>.json`). A zserio-c
+regression ≥ 15% fails the gate.
 
 ```sh
-cmake --build build-benchmarks --target benchmarks
-./tests/perf/run_perf.sh
+RUNS=5 INNER_ITERS=200000 bash tests/benchmarks/run_benchmark.sh > perf.json
+python3 tools/check_perf_regression.py perf.json
 ```
 
 Current numbers in [`docs/benchmarks/RESULTS.md`](benchmarks/RESULTS.md).
@@ -127,9 +131,14 @@ Current numbers in [`docs/benchmarks/RESULTS.md`](benchmarks/RESULTS.md).
 ### 5. Coverage
 
 ```sh
-cmake -B build-cov -S . -DCMAKE_BUILD_TYPE=Debug -DENABLE_COVERAGE=ON
-cmake --build build-cov
-./tools/run_coverage.sh
+cmake --preset coverage
+cmake --build --preset coverage
+ctest --preset coverage
+lcov --capture --directory build/coverage --output-file coverage.info \
+     --rc lcov_branch_coverage=1 --ignore-errors mismatch,unused,gcov
+lcov --extract coverage.info '*/runtime/*' \
+     --output-file coverage-runtime.info --rc lcov_branch_coverage=1
+python3 tools/check_coverage.py coverage-runtime.info
 ```
 
 Thresholds: line ≥ 99%, branch ≥ 85%, function 100%. Current

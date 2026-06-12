@@ -76,13 +76,33 @@ Every fallible function returns `zserio_status_t`. Output values are written
 through pointer parameters. Callers are expected to check status and may not
 read output values when the call did not return `ZSERIO_OK`.
 
-### 3. No recursion
+### 3. Bounded stack depth
 
-Schema languages naturally describe trees, but recursive code is hostile
-to bounded-stack analysis. The runtime and generated code use explicit,
-heap-allocated worklists (drawn from the caller's allocator) instead of
-function recursion. Maximum nesting depth is part of the per-schema
-generated metadata so callers can size their workspace.
+Schema languages naturally describe trees, and zserio permits
+self-referential types — so a decoder's nesting depth is governed by
+the *input*, which on the untrusted-decode path means by an attacker.
+zserio-c bounds this with two cooperating mechanisms:
+
+- **A runtime depth gate on the reader.** Every generated compound /
+  choice reader brackets its body with
+  `zserio_bitstream_reader_enter` / `_leave`; the reader tracks the
+  current nesting depth and fails the decode with
+  `ZSERIO_ERR_MAX_DEPTH_EXCEEDED` past its ceiling (default 1024,
+  tunable per reader via `zserio_bitstream_reader_set_max_depth`).
+  Crafted deeply-nested input is rejected long before the C stack is
+  at risk (REQ-FS-003).
+- **A static per-frame budget.** The stack gate
+  (`tools/measure_stack_usage.py --strict`) holds every function to
+  ≤256 B of frame; worst-case decode stack is then bounded by
+  `max_depth × per-level frame cost` and can be sized for a target
+  by lowering `max_depth`.
+
+The runtime library itself contains no recursion — its loops are
+statically bounded (REQ-FS-005). Generated readers descend through
+nested compounds by direct calls under the depth gate above; the
+parser front-end (`zserio_c_gen`, a build-time tool, not ECU code)
+applies the same pattern with its own gates
+(`ZSP_MAX_PARSE_DEPTH=256`, `ZSP_MAX_TEMPLATE_DEPTH=64`).
 
 ### 4. No floating-point in control flow
 

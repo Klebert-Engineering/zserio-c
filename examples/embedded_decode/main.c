@@ -17,7 +17,7 @@
  * Build with the bundled CMakeLists.txt, or directly:
  *
  *   gcc -std=c99 -O2 -I../../runtime/include -I gen \
- *       main.c gen/telemetry/*.c ../../runtime/src/*.c -o demo
+ *       main.c gen/telemetry/[a-z]*.c ../../runtime/src/[a-z]*.c -o demo
  *
  * Then `./demo` to decode a hand-crafted blob and print the result.
  */

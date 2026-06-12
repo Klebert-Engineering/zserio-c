@@ -54,7 +54,7 @@ Variable-length data — strings, dynamic arrays, owned
 `bytes`/`extern` blobs — are the only allocations the decoder
 makes. Fixed-size fields live in caller-provided struct
 storage; no decoder-internal scratch buffer is needed
-([REQ-FS-003](../safety/REQ-FS-003.md): no recursion, all
+([REQ-FS-003](../safety/REQ-FS-003.md): depth-bounded descent, all
 context is on the caller's stack).
 
 Returning NULL on `alloc` failure (rather than aborting) is what

@@ -170,8 +170,8 @@ fails on either:
 - a function with a `dynamic` / `bounded` qualifier (i.e. variable-
   size frame: alloca, VLA).
 
-Combined with REQ-FS-003 (no recursion), this bounds the worst-case
-total stack. The same gate also runs an exact longest-weighted-path
+Combined with REQ-FS-003 (recursion-free runtime; depth-gated
+generated readers), this bounds the worst-case total stack. The same gate also runs an exact longest-weighted-path
 traversal over the unioned per-TU call graph (gcc
 `-fcallgraph-info=su,da`) and rejects any chain whose summed frames
 exceed `MAX_PATH_BYTES = 1024`. Current observed max per-function
@@ -206,7 +206,8 @@ single audit-friendly table:
 | Bounded loops                            | `runtime/src/varint.c`, `delta.c`        | `test_varint.c`, `test_failure_modes.c` H-02    | `build-and-test (gcc/clang)`                    |
 | Allocator NULL propagation               | `runtime/src/{bytes,string,extern}.c`    | `test_{bytes,string,extern}.c`, `test_failure_modes.c` H-03 | `build-and-test (gcc/clang)`                    |
 | No static mutable state                  | `runtime/src/*.c`                        | `test_failure_modes.c` H-06, `test_bitstream.c::test_two_readers_independent` | `build-and-test (gcc/clang)`                    |
-| No recursion                             | All runtime + generated code             | cppcheck MISRA Rule 17.2 strict                | `misra`                                         |
+| No recursion (runtime)                   | All runtime code                         | cppcheck MISRA Rule 17.2 strict                | `misra`                                         |
+| Decode depth gate (generated readers)    | `runtime/src/bitstream.c` (`enter`/`leave`), emitted by `parser/src/emit.c` | `test_bitstream.c`, `test_decode_hardening.c` | `build-and-test (gcc/clang)`                    |
 | No setjmp/longjmp                        | All runtime + generated code             | `tools/run_misra.sh` forbidden-symbol grep     | `misra`                                         |
 | No runtime reflection                    | Generator templates                      | `tools/run_misra.sh` REQ-FS-008 smoke check    | `misra`                                         |
 | Wire-format byte-equality                | Whole runtime + generated code           | `tests/xvalidation/`                           | `xvalidation`                                   |
