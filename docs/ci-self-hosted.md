@@ -32,10 +32,7 @@ kept as fast no-ops.
 ## Hardware
 
 Reference target: a Linux x86_64 server with 16 cores / 128 GB
-RAM, always-on, dedicated. (Earlier history: a Synology DS3018xs
-with Pentium D1508 / 2 cores / 32 GB. Retired — the noise floor
-was too high for stable perf measurements; see
-`docs/benchmarks/methodology.md` § Thresholds.)
+RAM, always-on, dedicated.
 
 The constraints that actually matter:
 
@@ -55,11 +52,6 @@ The constraints that actually matter:
   16-core box, duplicate the `runner-2` block in
   `ci/docker-compose.yml` up to `runner-6` for more parallelism;
   the image is shared, the resource overhead is small.
-  *Historical note:* on the retired Synology, the DSM kernel
-  shipped without CPU CFS quota support, so the compose file sets
-  no `cpus:` limit (Docker would reject it). Memory cgroups work,
-  so the `memory:` cap is kept. Both are no-ops on a Linux x86_64
-  server with a normal kernel.
 - **Disk** — the xvalidation and perf jobs generate large trees
   (`build-xvalidation/`, `build-benchmarks/`, 1500+ files for the
   ndslive schema). Budget ~20 GB of working space.
@@ -195,18 +187,6 @@ six × `memory: 8g` budget on the host. On the 128 GB primary that's
 trivial; on a smaller box, drop a runner or two from each compose
 file.
 
-### Historical: Synology Container Manager GUI
-
-The earlier reference host was a Synology DS3018xs; the deployment
-flow there was the Container Manager → Project UI rather than
-direct `docker compose` CLI. Documented for the record — the
-Synology is retired in favor of a dedicated Linux x86_64 host
-(better noise floor for perf measurements). If you need the GUI
-flow, the steps are: File Station upload of `ci/`, create `ci/.env`
-next to `docker-compose.yml` (paste the PAT and any
-`RUNNER_LABELS`), then Container Manager → Project → Create with
-the folder containing `docker-compose.yml` and click through
-build + start.
 ## Updating after a `ci/` change
 
 When `ci/Dockerfile`, `ci/docker-compose.yml`, or `ci/entrypoint.sh`

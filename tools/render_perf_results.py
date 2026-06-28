@@ -30,10 +30,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 BASELINE_DIR = REPO_ROOT / "docs" / "benchmarks"
 OUTPUT_PATH = BASELINE_DIR / "RESULTS.md"
 
-# Hosts the perf CI matrix actually runs. Historical baselines
-# (e.g. `perf.baseline.synology-d1508.json`) stay in-tree for
-# traceability per `docs/benchmarks/methodology.md` but don't appear
-# in the rendered results table; they're explicitly retired hardware.
+# Hosts the perf CI matrix actually runs.
 ACTIVE_HOSTS = ("primary", "pi4")
 
 

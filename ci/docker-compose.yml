@@ -45,11 +45,9 @@ services:
     env_file: .env
     environment:
       RUNNER_NAME: ${RUNNER_NAME_PREFIX:-zserio-ci}-1
-    # Cap each runner's memory so a heavy LTO build can't starve DSM.
-    # No `cpus:` limit — the Synology DSM kernel is built without CPU
-    # CFS quota support, so Docker rejects NanoCPUs ("kernel does not
-    # support CPU CFS scheduler"). Memory cgroups *are* supported.
-    # The 2-core host naturally serializes CPU pressure anyway.
+    # Cap each runner's memory so a heavy LTO build can't starve the
+    # host. No `cpus:` limit — jobs serialize naturally on a small core
+    # count, so the memory cgroup is the only hard cap we need.
     deploy:
       resources:
         limits:
