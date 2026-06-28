@@ -4,18 +4,16 @@
 # repositories. On a *private* repo it requires GitHub Advanced Security
 # (bundled with GitHub Enterprise, or the standalone "GitHub Code Security"
 # add-on, both per-committer paid). Without it the upload step fails with
-# "Advanced Security must be enabled for this repository".
-#
-# To avoid putting a red check on every pull request while that is being
-# sorted out, this workflow intentionally does NOT run on `pull_request`:
-# it runs on pushes to main, on a weekly schedule, and on manual dispatch.
-# Once Advanced Security is confirmed enabled, add `pull_request:` to the
-# triggers below to gate PRs on the results.
+# "Advanced Security must be enabled for this repository". GHAS is enabled
+# for this repo, so the workflow gates pull requests as well as pushes to
+# main, plus a weekly scheduled scan and manual dispatch.
 
 name: CodeQL
 
 on:
   push:
+    branches: [main]
+  pull_request:
     branches: [main]
   schedule:
     # Weekly, Monday 05:17 UTC (off-peak, arbitrary minute to avoid the
