@@ -31,6 +31,7 @@ jobs:
     permissions:
       security-events: write   # upload SARIF results to the Security tab
       contents: read
+      actions: read            # private repos: analyze reads the workflow run
     steps:
       - uses: actions/checkout@v4
         with:
