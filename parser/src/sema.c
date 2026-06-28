@@ -1333,7 +1333,9 @@ static const zsp_sema_const_t *eval_unop(zsp_sema_t *s, zsp_op_code_t op,
         if (o->kind == ZSP_CONST_FLOAT) {
             return eval_float(s, -o->v.f);
         }
-        return eval_uint(s, (uint64_t)(-(int64_t)to_u64(o)));
+        /* Negate in unsigned arithmetic: -(int64_t)x is UB when x is
+         * INT64_MIN, and the two's-complement result is identical. */
+        return eval_uint(s, (uint64_t)0U - to_u64(o));
     case ZSP_OP_BIT_NOT:
         return eval_uint(s, ~to_u64(o));
     case ZSP_OP_LOGICAL_NOT:
