@@ -52,7 +52,15 @@ jobs:
         # Manual build mode: configure + build the C targets so CodeQL
         # traces real compilations. Tests are disabled so the build does
         # not depend on fetching the Unity test dependency.
+        #
+        # The build dir is removed first: these are persistent self-hosted
+        # runners, so a leftover build-codeql/ from a previous run would
+        # make `cmake --build` a no-op, CodeQL would trace zero
+        # compilations, and the run would fail with an empty database
+        # ("No source code was seen"). A from-scratch build guarantees
+        # every translation unit is compiled and traced.
         run: |
+          rm -rf build-codeql
           cmake -B build-codeql -S . -G Ninja \
             -DCMAKE_BUILD_TYPE=Debug \
             -DZSERIO_C_BUILD_TESTS=OFF \
