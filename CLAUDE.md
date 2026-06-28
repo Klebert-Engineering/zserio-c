@@ -50,6 +50,7 @@ python3 tools/check_traceability.py             # REQ → test reference graph
 python3 tools/check_version_consistency.py      # version.h ↔ CMakeLists ↔ docs
 tools/run_misra.sh --strict                     # cppcheck MISRA C:2012 on runtime
 tools/run_misra_generated.sh --strict           # MISRA on generated output
+tools/run_clang_tidy.sh --strict                # clang-tidy bugprone/cert/clang-analyzer on runtime
 python3 tools/measure_stack_usage.py --strict   # ≤256B/frame, ≤1024B chain
 python3 tools/check_coverage.py coverage.info   # line ≥99% branch ≥85% fn 100%
 ./tests/xvalidation/run_xvalidation.sh          # cpp↔C wire-format gate
