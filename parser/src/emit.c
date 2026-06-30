@@ -1095,6 +1095,8 @@ static bool emit_type_id(buf_t *b, const zsp_ast_node_t *decl,
     case ZSP_AST_INSTANTIATE:  name_node = decl->u.instantiate.name;    break;
     case ZSP_AST_SQL_TABLE:    name_node = decl->u.sql_table.name;      break;
     case ZSP_AST_SQL_DATABASE: name_node = decl->u.sql_database.name;   break;
+    case ZSP_AST_SERVICE:      name_node = decl->u.service.name;        break;
+    case ZSP_AST_PUBSUB:       name_node = decl->u.pubsub.name;         break;
     default:                   return false;
     }
     const uint8_t *bytes = NULL;
