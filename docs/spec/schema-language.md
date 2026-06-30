@@ -138,12 +138,14 @@ isset
 The boolean literals `true` and `false` are keywords syntactically;
 see [Literals](#literals).
 
-Reserved keywords for out-of-scope features (`service`, `pubsub`,
-`publish`, `subscribe`, `topic`, `sql`, `sql_table`, `sql_database`,
-`sql_virtual`, `sql_without_rowid`, `using`, `explicit`) are
-recognized by the lexer so that schemas using them produce
-informative diagnostics rather than identifier-parse errors. See
-[Out-of-scope upstream features](#out-of-scope-upstream-features).
+The `service` / `pubsub` keyword family (`service`, `pubsub`,
+`publish`, `subscribe`, `topic`) is supported — see
+[Services and Pub/Sub](#services-and-pubsub). Reserved keywords for
+the remaining out-of-scope features (`sql`, `sql_table`,
+`sql_database`, `sql_virtual`, `sql_without_rowid`, `using`,
+`explicit`) are recognized by the lexer so that schemas using them
+produce informative diagnostics rather than identifier-parse errors.
+See [Out-of-scope upstream features](#out-of-scope-upstream-features).
 
 ### Literals
 
@@ -1822,6 +1824,26 @@ Available since upstream `2.5.0`.
 
 ---
 
+## Services and Pub/Sub
+
+`service` and `pubsub` declarations are supported. For each `service`
+the generator emits a typed client wrapper per method and a server
+dispatch; for each `pubsub` it emits typed `publish`/`subscribe`
+wrappers. The generated code carries the (de)serialization and the
+method/topic dispatch but no transport — the integrator binds a
+transport through the `zserio_service_t` / `zserio_pubsub_t` vtables
+(`zserio/service.h`, `zserio/pubsub.h`). The service dispatch key is the
+verbatim short method name and payloads are the plain zserio wire bytes
+of the request/response/message types, so a zserio-c peer interoperates
+with an upstream zserio peer over a common transport.
+
+See [REQ-FN-027](../../requirements/functional/REQ-FN-027.md) and the
+design notes in
+[`docs/design/service-pubsub.md`](../design/service-pubsub.md). (SQL-backed
+storage and JSON encoding remain out of scope — below.)
+
+---
+
 ## Out-of-scope upstream features
 
 The following upstream zserio features are intentionally not
@@ -1832,13 +1854,12 @@ scope rationale.
 | Feature | Upstream keywords | Why excluded |
 |---|---|---|
 | SQL extension | `sql_table`, `sql_database`, `sql_virtual`, `sql_without_rowid`, `sql`, `using`, `explicit` (in the SQL-explicit-parameter sense) | Relational metadata layer for SQLite-backed schemas. Outside the C99 embedded-target scope. |
-| Service / RPC | `service` | RPC stubs would bind to a specific transport. That choice belongs to the integrator. |
-| Pubsub | `pubsub`, `publish`, `subscribe`, `topic` | Same reasoning as service. |
 | JSON encoding | (no schema syntax) | Upstream generators support JSON dump/load on generated types. Not in scope for the C target. |
 
-The parser recognizes the reserved keywords and produces an
-informative diagnostic when an out-of-scope feature is used. The
-C generator never emits anything for them.
+The parser recognizes these reserved keywords and produces an
+informative diagnostic when one of these out-of-scope features is
+used; the C generator never emits anything for them. (`service` and
+`pubsub` are supported — see [Services and Pub/Sub](#services-and-pubsub).)
 
 These omissions do not affect the wire format. A schema that
 restricts itself to the in-scope features parses and generates

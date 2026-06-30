@@ -6,8 +6,7 @@
 **Origin:** This document is adapted from upstream zserio's
 `ZserioCompatibilityGuide.md` (BSD-3-Clause, © Navigation Data
 Standard e.v.) at pinned version v2.18.1, restructured for the
-zserio-c project's narrower scope (no JSON, no SQL, no
-service/RPC).
+zserio-c project's narrower scope (no JSON, no SQL).
 
 **Audience:** integrators planning an upgrade; downstream
 consumers writing support contracts.
@@ -46,7 +45,7 @@ imply potential breaks on the three tool axes.
 |---|---|---|
 | Release | `0.1.0` | pre-1.0; runtime / codegen / CLI APIs may change between minor releases |
 | Wire format | `1.0` | compatible with upstream Zserio BIN 1.0; byte-equal with upstream zserio v2.18.1 |
-| Schema language | `1.0` | subset of upstream Zserio language v2.18.1 (no `service`, `pubsub`, `sql_table`, `sql_database`) |
+| Schema language | `1.0` | subset of upstream Zserio language v2.18.1 (no `sql_table`, `sql_database`, no JSON) |
 
 Programmatic access:
 
@@ -241,7 +240,10 @@ unless a deliberate wire-format major bump occurred.
   not about evolving the language or the format. See
   [`schema-evolution.md`](schema-evolution.md).
 - JSON encoding — out of scope for zserio-c.
-- Service/RPC and SQL extensions — out of scope for zserio-c.
+- SQL extensions — out of scope for zserio-c.
+- Service/RPC and Pub/Sub — supported (transport-agnostic interface
+  generation); see [REQ-FN-027](../../requirements/functional/REQ-FN-027.md)
+  and [`docs/design/service-pubsub.md`](../design/service-pubsub.md).
 
 ## Reading compatibility info
 
