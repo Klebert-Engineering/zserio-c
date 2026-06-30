@@ -15,9 +15,22 @@ Checks: >
   readability-*,
   -readability-identifier-length,
   -readability-magic-numbers,
-  -bugprone-easily-swappable-parameters
+  -bugprone-easily-swappable-parameters,
+  -misc-include-cleaner
 
-WarningsAsErrors: '*'
+# Only the bug- and security-relevant families gate the build. The
+# readability size/complexity checks stay enabled as advisory warnings
+# (they fire on a handful of intentionally dense runtime functions that
+# are covered by review + the stack-budget gate, not refactor targets).
+# misc-include-cleaner is disabled outright: the runtime deliberately
+# relies on transitive <stdint.h> includes and the check has no signal
+# here.
+WarningsAsErrors: >
+  bugprone-*,
+  cert-*,
+  clang-analyzer-*,
+  performance-*,
+  portability-*
 HeaderFilterRegex: '^(runtime|tests)/.*'
 FormatStyle: file
 

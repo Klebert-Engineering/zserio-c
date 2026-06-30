@@ -429,6 +429,13 @@ zserio_status_t zserio_bitstream_write_bits(zserio_bitstream_writer_t *bs,
      * positions of buffer[byte_idx]; preserve the low bits. */
     if (rest_bits > 0U) {
         const uint8_t shift_num = (uint8_t)(bits_free - rest_bits);
+        /* rest_bits is provably <= 8 on every feasible path here: it either
+         * fell through the `rest_bits >= 8U` loop above, or the
+         * `rest_bits > bits_free` branch was skipped, which requires
+         * rest_bits <= bits_free <= 8. So `1U << rest_bits` cannot overflow.
+         * The analyzer misses the rest_bits <= bits_free relation and explores
+         * an infeasible path. */
+        /* NOLINTNEXTLINE(clang-analyzer-core.BitwiseShift) */
         const uint8_t mask = (uint8_t)((1U << rest_bits) - 1U);
         const uint8_t preserve_mask = (uint8_t)~(uint8_t)(mask << shift_num);
         const uint8_t new_bits = (uint8_t)(((uint8_t)value & mask) << shift_num);

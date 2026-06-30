@@ -26,6 +26,8 @@ lcov.info
 # Static analysis output
 .scan-build/
 *.plist
+cppcheck.log
+clang-tidy.log
 
 # Editor / IDE
 .vscode/

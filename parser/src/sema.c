@@ -1333,7 +1333,9 @@ static const zsp_sema_const_t *eval_unop(zsp_sema_t *s, zsp_op_code_t op,
         if (o->kind == ZSP_CONST_FLOAT) {
             return eval_float(s, -o->v.f);
         }
-        return eval_uint(s, (uint64_t)(-(int64_t)to_u64(o)));
+        /* Negate in unsigned arithmetic: -(int64_t)x is UB when x is
+         * INT64_MIN, and the two's-complement result is identical. */
+        return eval_uint(s, (uint64_t)0U - to_u64(o));
     case ZSP_OP_BIT_NOT:
         return eval_uint(s, ~to_u64(o));
     case ZSP_OP_LOGICAL_NOT:
@@ -2127,11 +2129,15 @@ static zsp_ast_node_t *get_or_instantiate(inst_ctx_t *ctx,
      * a common-prefix to keep same-package arg mangles compact). */
     const zsp_ast_node_t * const *tpl_pkg_parts = NULL;
     size_t tpl_pkg_n = 0U;
+    /* `p` is hoisted to function scope: the single-part branch below takes
+     * its address (`&p`) into tpl_pkg_parts, which is read later by
+     * mangle_name. Declaring p inside the if-block would leave tpl_pkg_parts
+     * dangling once the block exits (stack-use-after-scope). */
+    const zsp_ast_node_t *p = NULL;
     if ((template_decl->resolved != NULL)
             && (template_decl->resolved->kind == ZSP_AST_UNIT)
             && (template_decl->resolved->u.unit.package != NULL)) {
-        const zsp_ast_node_t *p =
-                template_decl->resolved->u.unit.package->u.package.name;
+        p = template_decl->resolved->u.unit.package->u.package.name;
         if (p != NULL) {
             if (p->kind == ZSP_AST_DOTTED_NAME) {
                 tpl_pkg_parts = (const zsp_ast_node_t * const *)p->u.dotted.parts;

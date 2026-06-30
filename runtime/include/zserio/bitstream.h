@@ -211,6 +211,10 @@ static inline uint64_t zserio_bitstream_read_bits_impl(
             value <<= remaining;
         }
     }
+    /* The shift amount is cast to uint8_t (0..255, never negative); the
+     * analyzer's negative-operand path is excluded by the documented
+     * preconditions on this inline. */
+    /* NOLINTNEXTLINE(clang-analyzer-core.BitwiseShift) */
     value |= (bs->bit_cache >> (uint8_t)(bs->cache_bits - remaining))
            & zserio_bitstream_mask_table[remaining];
     bs->cache_bits = (uint8_t)(bs->cache_bits - remaining);

@@ -10,16 +10,16 @@ adding hardware.
 Cross-host comparisons of decode/encode `ns/op` are nonsense:
 
 - **ISA differs.** Earlier perf work measured apollo decode at
-  ratio `0.71` on a local aarch64 dev box and `0.90` on the
-  Synology x86-64 runner — same code, same workload, different
+  ratio `0.71` on a local aarch64 dev box and `0.90` on an
+  x86-64 runner — same code, same workload, different
   ISAs and microarchitectures.
 - **Microarchitecture differs.** Cache sizes, prefetchers,
   out-of-order width, branch predictor — all swing the relative
   cost of our decode vs. the C++ runtime's decode by tens of
   percent in either direction.
 - **Noise floor differs.** A 16-core x86 desktop with 128 GB and
-  isolated workload sits at well under 2 % run-to-run; a shared 2-
-  core Synology Pentium D1508 sat at ≈ 14 % on the same code.
+  isolated workload sits at well under 2 % run-to-run; a shared
+  low-power 2-core box can sit above 10 % on the same code.
 
 The `perf` job therefore compares each run **only against the same
 host's previous baseline**. The set of `docs/benchmarks/perf.baseline.<host>.json`
@@ -51,12 +51,8 @@ forever), so add hardware first.
 `docs/benchmarks/perf.baseline.<host>.json` — one file per host.
 
 Host identifiers must match `[a-z0-9][a-z0-9._-]{0,63}` so they're
-stable filesystem keys. `primary`, `pi5`, `macmini`, `jetson`,
-`synology-d1508` all qualify.
-
-Historical baselines from retired hardware (e.g.
-`perf.baseline.synology-d1508.json`) are kept in-tree for
-traceability. They are not referenced by any active matrix entry.
+stable filesystem keys. `primary`, `pi5`, `macmini`, and `jetson`
+all qualify.
 
 ## Thresholds
 
@@ -80,11 +76,6 @@ is to **widen the threshold globally with a justification recorded
 in the commit message**, not to silently rebaseline. Per-host
 threshold overrides would let a noisy host hide real regressions
 on quieter hosts.
-
-The Synology Pentium D1508 ran above this threshold (≈ 14 % noise,
-spurious 20–40 % regression marks on no-op commits — documented
-in `commit b8c4109` / `cf8bc3d`). It is retired; the `primary` x86
-desktop replaces it as the canonical x86_64 baseline.
 
 ## Adding a new host
 
