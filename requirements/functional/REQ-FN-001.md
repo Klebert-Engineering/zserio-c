@@ -67,8 +67,12 @@ versioning gate.
 - "Schema constructs supported by `zserio-c`" is the in-scope
   set of the schema language as defined by
   [REQ-DM-004](../domain/REQ-DM-004.md)
-  (`docs/spec/schema-language.md`). Service / RPC and SQL
-  extensions are out of scope.
+  (`docs/spec/schema-language.md`). SQL extensions are out of
+  scope. `service` / `pubsub` declarations generate transport
+  glue with no wire representation of their own
+  ([REQ-FN-027](REQ-FN-027.md)); their request/response/message
+  payloads are ordinary in-scope constructs and covered by this
+  requirement.
 - Endianness, alignment, varint encoding, packed-array delta
   contexts, and offset encoding are part of the wire format
   defined by [REQ-DM-005](../domain/REQ-DM-005.md), and

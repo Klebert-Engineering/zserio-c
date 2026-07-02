@@ -184,6 +184,7 @@ Pointers if you need to address them:
 | Multi-threaded use of one reader/writer  | Not supported. Use one `bitstream_reader_t` / `_writer_t` per thread (REQ-FS-007). |
 | Streaming / chunked decode               | Out of scope; the runtime decodes against a fully-buffered message.            |
 | Schema evolution / forward compatibility | Out of scope; pin one schema version per channel (H-05).                       |
+| RPC / pub-sub transport                  | Generated `service` / `pubsub` glue is transport-agnostic; you bind a transport via the `zserio_service_t` / `zserio_pubsub_t` vtables (`zserio/service.h`, `zserio/pubsub.h`; see `docs/design/service-pubsub.md`). |
 
 ## Cross-references
 

@@ -52,8 +52,12 @@ This is the parent requirement for every functional requirement
 in `requirements/functional/`. The functional layer is the
 *how*; this layer is the *what*.
 
-Specifically not part of the system purpose: providing a
-service-RPC layer, a SQL persistence layer, or a JSON
-serialization layer. These exist in upstream zserio but are
-deliberately out of scope for `zserio-c`
-([H-09](../../docs/safety-case/hazard-analysis.md)).
+Specifically not part of the system purpose: providing an RPC
+transport or messaging broker, a SQL persistence layer, or a JSON
+serialization layer. The SQL and JSON layers exist in upstream
+zserio but are deliberately out of scope for `zserio-c`
+([H-09](../../docs/safety-case/hazard-analysis.md)). `service` /
+`pubsub` declarations are supported as **transport-agnostic
+interface generation** only
+([REQ-FN-027](../functional/REQ-FN-027.md)) — the transport itself
+remains the integrator's.

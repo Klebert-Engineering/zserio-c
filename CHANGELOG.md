@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added — service and pub/sub interface generation (REQ-FN-027)
+
+- `service` declarations now generate transport-agnostic C
+  interfaces: typed per-method client wrappers over a new
+  `zserio_service_t` transport vtable, and a server dispatch
+  (`<pkg>_<svc>_service_init`) that routes the verbatim short
+  method name to application handlers. Wire-interoperable with
+  upstream zserio v2.18.1 peers over a common transport.
+- `pubsub` declarations generate typed `publish_*` / `subscribe_*`
+  wrappers over a new `zserio_pubsub_t` vtable, with caller-owned
+  subscription state (no hidden heap).
+- New runtime headers `zserio/service.h` and `zserio/pubsub.h`
+  (transport seams + the grow-and-retry
+  `zserio_service_serialize` helper). Design notes:
+  `docs/design/service-pubsub.md`.
+- Non-literal `topic(...)` expressions are rejected with a
+  source-located error diagnostic (generation fails closed).
+- Previously these constructs parsed but emitted placeholder
+  stubs only; SQL and JSON extensions remain out of scope.
+
 ## [0.1.0] - 2026-06-12
 
 First release. Wire format 1.0 and schema language 1.0 are stable;

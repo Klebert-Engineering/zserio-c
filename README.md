@@ -64,6 +64,10 @@ patterns you'll meet when schemas grow.
 - **Generated code** — one `.h` / `.c` pair per top-level type in
   your schema, plus matching headers for the imports it pulls in.
   Wire-compatible byte-for-byte with upstream `ndsev/zserio v2.18.1`.
+  `service` / `pubsub` declarations generate transport-agnostic
+  interface glue (typed client wrappers + server dispatch, typed
+  publish/subscribe wrappers) you bind to your own transport
+  ([design notes](docs/design/service-pubsub.md)).
 
 ## What it is not
 
@@ -73,6 +77,9 @@ patterns you'll meet when schemas grow.
 - Not multi-threaded — one reader / writer per thread (REQ-FS-007).
 - Not a schema-evolution layer — pin one schema version per channel
   ([H-05](docs/safety-case/hazard-analysis.md)).
+- Not an RPC transport or message broker — generated `service` /
+  `pubsub` glue calls whatever transport you plug into the
+  `zserio_service_t` / `zserio_pubsub_t` vtables.
 
 ## Design pillars
 
