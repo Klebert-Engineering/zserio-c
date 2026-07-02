@@ -151,3 +151,9 @@ typed message, then `_free`s it. `unsubscribe` forwards by id.
 - **`bytes` request/response/message** (upstream's `isBytes` shortcut) is
   not specially handled in this first version; such payloads round-trip
   as ordinary serialized types. Tracked as a follow-up.
+- **Topics must be plain string literals.** The generated glue bakes the
+  topic into the code, so a non-literal `topic(...)` expression
+  (concatenation, const reference) is rejected with an error diagnostic
+  at generation time — failing loudly beats silently publishing on a
+  wrong topic. Constant folding of topic expressions is a possible
+  extension.

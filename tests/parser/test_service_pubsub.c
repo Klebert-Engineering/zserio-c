@@ -192,9 +192,60 @@ static void test_service_pubsub_roundtrip(void)
     (void)system(rm_cmd);
 }
 
+/* Discard sink: accepts every emitted file without storing it. */
+static bool null_write(void *ud, const char *path, const char *bytes, size_t len)
+{
+    (void)ud;
+    (void)path;
+    (void)bytes;
+    (void)len;
+    return true;
+}
+
+/* A pubsub topic that is not a plain string literal must be rejected
+ * with an error diagnostic instead of baking a wrong topic into the
+ * generated glue. */
+static void test_non_literal_topic_rejected(void)
+{
+    static const uint8_t INPUT[] =
+            "package t;\n"
+            "const string PREFIX = \"sensors/x\";\n"
+            "struct M { uint32 v; };\n"
+            "pubsub P {\n"
+            "    publish topic(PREFIX) M m;\n"
+            "};\n";
+
+    zsp_source_t         src;
+    zsp_arena_t          arena;
+    zsp_diag_collector_t diag;
+    zsp_file_id_t        fid;
+    zsp_ast_node_t      *unit = NULL;
+    zsp_sema_t           sema;
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_source_init(&src, &libc_alloc));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_arena_init(&arena, &libc_alloc));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_diag_init(&diag, &libc_alloc, 0U));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_source_add_borrowed(
+            &src, "test.zs", 7U, INPUT, sizeof(INPUT) - 1U, &fid));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_parse_unit(&src, fid, &arena, &diag, &unit));
+    TEST_ASSERT_EQUAL_size_t(0U, zsp_diag_error_count(&diag));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_sema_init(&sema, &src, &arena, &diag));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_sema_analyze_unit(&sema, unit));
+    TEST_ASSERT_EQUAL_size_t(0U, zsp_diag_error_count(&diag));
+
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_emit_unit(unit, &arena, &diag, &src,
+                                              null_write, NULL));
+    TEST_ASSERT_TRUE_MESSAGE(zsp_diag_error_count(&diag) >= 1U,
+                             "non-literal pubsub topic must produce an error diagnostic");
+
+    zsp_diag_dispose(&diag);
+    zsp_arena_dispose(&arena);
+    zsp_source_dispose(&src);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_service_pubsub_roundtrip);
+    RUN_TEST(test_non_literal_topic_rejected);
     return UNITY_END();
 }

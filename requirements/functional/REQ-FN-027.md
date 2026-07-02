@@ -83,5 +83,8 @@ ownership/lifetime model are recorded in
 
 `bytes`-typed request/response/message payloads (upstream's `isBytes`
 shortcut) are not specially handled in this first version; such payloads
-round-trip as ordinary serialized types. Non-string-literal `topic(...)`
-expressions are a documented follow-up.
+round-trip as ordinary serialized types. A `topic(...)` expression that
+is not a plain string literal (concatenation, const reference) is
+rejected with an error diagnostic — generation fails rather than baking
+a wrong topic into the glue. Support for constant-foldable topic
+expressions is a possible extension.
