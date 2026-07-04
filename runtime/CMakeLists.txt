@@ -11,6 +11,7 @@ add_library(zserio_c_runtime STATIC
     src/extern.c
     src/float.c
     src/primitives.c
+    src/service.c
     src/string.c
     src/varint.c
 )

@@ -300,6 +300,44 @@ You don't call these directly. They exist so the enclosing
 context across all elements — that's what makes the delta encoding
 work.
 
+## Services and pub/sub
+
+A `service Svc` in package `pkg` generates `pkg/svc.{h,c}` with:
+
+```c
+/* you implement the handlers (server side) */
+typedef struct {
+    void *context;
+    zserio_status_t (*method)(void *context, const pkg_request_t *request,
+            pkg_response_t *response, const zserio_allocator_t *alloc);
+    /* ... one per method ... */
+} pkg_svc_handlers_t;
+
+void            pkg_svc_service_init(zserio_service_t *self,
+                                     const pkg_svc_handlers_t *handlers);
+const char     *pkg_svc_service_full_name(void);   /* "pkg.Svc" */
+
+/* typed client wrapper over your transport */
+zserio_status_t pkg_svc_method(const zserio_service_t *transport,
+        const pkg_request_t *request, pkg_response_t *response_out,
+        const zserio_allocator_t *alloc);
+```
+
+A `pubsub Ps` generates `pkg_ps_publish_<msg>(...)` per published
+message and, per subscribed message, a caller-owned
+`pkg_ps_<msg>_subscription_t` (typed callback + allocator) with
+`subscribe_<msg>` / `unsubscribe_<msg>` wrappers.
+
+The transport (`zserio_service_t`, `zserio_pubsub_t` — see
+`zserio/service.h`, `zserio/pubsub.h`) is yours to implement, exactly
+like the allocator vtable. Payloads on the wire are the plain zserio
+bytes of the request/response/message types, and the dispatch key is
+the verbatim method name, so either end can be an upstream zserio
+peer. A decoded response is owned by the caller (release with the
+type's `_free`); a subscription struct must outlive its subscription.
+Full design + ownership rules:
+[`docs/design/service-pubsub.md`](../design/service-pubsub.md).
+
 ## Ownership rules
 
 - `_init` initializes the struct to zero. Always pair with

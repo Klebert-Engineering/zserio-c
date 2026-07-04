@@ -34,6 +34,13 @@ target_compile_definitions(test_emit_compile PRIVATE
     "ZSP_REPO_ROOT=\"${CMAKE_SOURCE_DIR}\""
 )
 
+# Service / pub-sub generation: emit, then compile + link + run a
+# round-trip driver against the generated code and the runtime.
+zserio_c_add_parser_test(test_service_pubsub)
+target_compile_definitions(test_service_pubsub PRIVATE
+    "ZSP_REPO_ROOT=\"${CMAKE_SOURCE_DIR}\""
+)
+
 # Acceptance test: parses real upstream schemas from
 # third_party/zserio-test-data. Tests gracefully skip when the
 # submodule is uninitialized.

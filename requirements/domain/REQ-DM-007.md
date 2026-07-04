@@ -56,8 +56,7 @@ Wire format `1.0` is compatible with upstream Zserio BIN 1.0
 and byte-equal with upstream zserio v2.18.1
 ([REQ-FN-001](../functional/REQ-FN-001.md)). Schema language
 `1.0` is the subset of upstream Zserio language v2.18.1 that
-the parser accepts (no `service`, `pubsub`, `sql_table`,
-`sql_database`).
+the parser accepts (no `sql_table`, `sql_database`).
 
 The release version `0.1.0` is pre-1.0: the three tool axes
 are **not** under stability guarantees until `zserio-c 1.0.0`.

@@ -141,6 +141,11 @@ CPPCHECK_ARGS_BASE=(
     #   map to a tagged C union by design; see deviation D007.
     --suppress=unmatchedSuppression
     --suppress=constParameterPointer
+    # constParameterCallback: the generated service dispatch must match
+    # the zserio_service_t.call_method signature (a `void *impl`), so its
+    # first parameter cannot be made const even though this run only
+    # reads through it.
+    --suppress=constParameterCallback
     --suppress=misra-c2012-2.5
     --suppress=misra-c2012-11.5
     --suppress=misra-c2012-11.8

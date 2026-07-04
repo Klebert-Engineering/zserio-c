@@ -1095,6 +1095,8 @@ static bool emit_type_id(buf_t *b, const zsp_ast_node_t *decl,
     case ZSP_AST_INSTANTIATE:  name_node = decl->u.instantiate.name;    break;
     case ZSP_AST_SQL_TABLE:    name_node = decl->u.sql_table.name;      break;
     case ZSP_AST_SQL_DATABASE: name_node = decl->u.sql_database.name;   break;
+    case ZSP_AST_SERVICE:      name_node = decl->u.service.name;        break;
+    case ZSP_AST_PUBSUB:       name_node = decl->u.pubsub.name;         break;
     default:                   return false;
     }
     const uint8_t *bytes = NULL;
@@ -5552,6 +5554,748 @@ static void package_span(const emit_ctx_t *ctx, char *out, size_t out_cap)
     }
 }
 
+/* ----- Service / Pub-Sub emission ---------------------------- */
+
+/* Resolve a TYPE_REF (or alias) node down to the concrete decl
+ * that owns the `_t` / `_init` / `_read` / `_write` / `_free`
+ * symbols. Returns NULL if it can't be resolved. */
+static const zsp_ast_node_t *resolve_concrete(const zsp_ast_node_t *type_ref)
+{
+    if (type_ref == NULL) {
+        return NULL;
+    }
+    const zsp_ast_node_t *d = type_ref->resolved;
+    if (d == NULL) {
+        return NULL;
+    }
+    return peel_alias(d);
+}
+
+/* Compute how many `../` levels a file in `self_decl`'s package
+ * directory must climb to reach the generation root. */
+static size_t levels_up_for(const zsp_ast_node_t *self_decl,
+                            const zsp_source_t *src)
+{
+    char self_pkg[1024];
+    const size_t self_len = decl_package_path(self_decl, src, self_pkg, sizeof(self_pkg));
+    if (self_len == 0U) {
+        return 0U;
+    }
+    size_t levels = 1U;
+    for (size_t k = 0U; k < self_len; ++k) {
+        if (self_pkg[k] == '/') {
+            levels += 1U;
+        }
+    }
+    return levels;
+}
+
+/* Emit a single `#include "..."` for `dep_decl`, path-qualified
+ * relative to `self_decl`'s own package directory. */
+static void emit_dep_include(buf_t *b, const zsp_ast_node_t *self_decl,
+                             const zsp_ast_node_t *dep_decl,
+                             const zsp_source_t *src)
+{
+    if (dep_decl == NULL) {
+        return;
+    }
+    const uint8_t *nb = NULL;
+    size_t         nl = 0U;
+    if (!ident_span(src, dep_decl->u.compound.name, &nb, &nl)) {
+        return;
+    }
+    char self_pkg[1024];
+    char dep_pkg[1024];
+    const size_t self_len = decl_package_path(self_decl, src, self_pkg, sizeof(self_pkg));
+    const size_t dep_len  = decl_package_path(dep_decl, src, dep_pkg, sizeof(dep_pkg));
+    const bool same_pkg = ((self_len == dep_len)
+                           && (memcmp(self_pkg, dep_pkg, dep_len) == 0));
+    emit_lit(b, "#include \"");
+    if (!same_pkg) {
+        const size_t levels = levels_up_for(self_decl, src);
+        for (size_t k = 0U; k < levels; ++k) {
+            emit_lit(b, "../");
+        }
+        if (dep_len > 0U) {
+            emit_bytes(b, dep_pkg, dep_len);
+            emit_lit(b, "/");
+        }
+    }
+    emit_snake(b, nb, nl);
+    emit_lit(b, ".h\"\n");
+}
+
+/* Emit a dependency include for each distinct concrete decl in
+ * `deps[0..n_deps)`, deduplicated by pointer identity. */
+static void emit_dep_includes(buf_t *b, const zsp_ast_node_t *self_decl,
+                              const zsp_ast_node_t **deps, size_t n_deps,
+                              const zsp_source_t *src)
+{
+    for (size_t i = 0U; i < n_deps; ++i) {
+        if (deps[i] == NULL) {
+            continue;
+        }
+        bool seen = false;
+        for (size_t k = 0U; k < i; ++k) {
+            if (deps[k] == deps[i]) {
+                seen = true;
+                break;
+            }
+        }
+        if (!seen) {
+            emit_dep_include(b, self_decl, deps[i], src);
+        }
+    }
+}
+
+/* Emit a string-literal payload with its surrounding quotes
+ * stripped. `node` is a ZSP_AST_EXPR_STRING_LIT whose span covers
+ * the source bytes including the quotes. Returns false if the
+ * node is not a usable string literal. */
+static bool emit_string_lit_body(buf_t *b, const zsp_ast_node_t *node,
+                                 const zsp_source_t *src)
+{
+    if ((node == NULL) || (node->kind != ZSP_AST_EXPR_STRING_LIT)) {
+        return false;
+    }
+    const zsp_file_t *f = NULL;
+    if (!zsp_source_get(src, node->file_id, &f)) {
+        return false;
+    }
+    const uint8_t *bytes = &f->bytes[node->u.string_lit.span_off];
+    size_t         len   = (size_t)node->u.string_lit.span_len;
+    if ((len >= 2U) && (bytes[0] == (uint8_t)'"') && (bytes[len - 1U] == (uint8_t)'"')) {
+        bytes += 1U;
+        len   -= 2U;
+    }
+    emit_span(b, bytes, len);
+    return true;
+}
+
+/* Emit the topic string literal for a pubsub message. Callers
+ * guarantee the topic expression is a string literal — zsp_emit_unit
+ * rejects any pubsub whose topics aren't (pubsub_topics_ok below), so
+ * the non-literal branch here is a defensive dead path that emits an
+ * empty topic. */
+static void emit_topic_literal(buf_t *b, const zsp_ast_node_t *msg,
+                               const zsp_source_t *src)
+{
+    emit_lit(b, "\"");
+    const zsp_ast_node_t *topic = msg->u.pubsub_message.topic_expr;
+    if ((topic != NULL) && (topic->kind == ZSP_AST_EXPR_STRING_LIT)) {
+        (void)emit_string_lit_body(b, topic, src);
+    }
+    emit_lit(b, "\"");
+}
+
+/* A pubsub is emittable only when every message's topic is a plain
+ * string literal: the generated publish/subscribe glue bakes the topic
+ * into the code. Anything else (concatenation, const references) is
+ * rejected with an error diagnostic — failing loudly beats silently
+ * publishing on a wrong topic. The CLI's exit code gates on collected
+ * error diagnostics, so generation fails without aborting the emit of
+ * unrelated declarations. */
+static bool pubsub_topics_ok(const zsp_ast_node_t *d,
+                             zsp_diag_collector_t *diag)
+{
+    bool ok = true;
+    for (size_t k = 0U; k < d->u.pubsub.n_messages; ++k) {
+        const zsp_ast_node_t *m = d->u.pubsub.messages[k];
+        const zsp_ast_node_t *t = m->u.pubsub_message.topic_expr;
+        if ((t == NULL) || (t->kind != ZSP_AST_EXPR_STRING_LIT)) {
+            (void)zsp_diag_emit_lit(diag, ZSP_SEV_ERROR,
+                                    m->file_id, m->offset,
+                                    "pubsub topic must be a string literal");
+            ok = false;
+        }
+    }
+    return ok;
+}
+
+/* Generated service header: includes, the handlers struct, the server
+ * seam init + full-name accessor prototypes, and the client wrapper
+ * prototypes. */
+static void emit_service_header(buf_t *hbuf, const zsp_ast_node_t *d,
+                                const zsp_source_t *src)
+{
+    const size_t n_methods = d->u.service.n_methods;
+
+    emit_lit(hbuf, "/* Auto-generated by zserio-c parser (service). Do not edit. */\n");
+    emit_lit(hbuf, "#ifndef ZSP_GENERATED_");
+    (void)emit_type_id(hbuf, d, src);
+    emit_lit(hbuf, "_H_\n");
+    emit_lit(hbuf, "#define ZSP_GENERATED_");
+    (void)emit_type_id(hbuf, d, src);
+    emit_lit(hbuf, "_H_\n\n");
+    emit_lit(hbuf, "#include <stddef.h>\n");
+    emit_lit(hbuf, "#include <stdint.h>\n\n");
+    emit_lit(hbuf, "#include \"zserio/allocator.h\"\n");
+    emit_lit(hbuf, "#include \"zserio/service.h\"\n");
+    emit_lit(hbuf, "#include \"zserio/status.h\"\n");
+
+    /* Includes for every request/response type. */
+    const zsp_ast_node_t *deps[256];
+    size_t n_deps = 0U;
+    for (size_t k = 0U; (k < n_methods) && (n_deps + 2U <= 256U); ++k) {
+        const zsp_ast_node_t *m = d->u.service.methods[k];
+        deps[n_deps++] = resolve_concrete(m->u.service_method.request_type);
+        deps[n_deps++] = resolve_concrete(m->u.service_method.return_type);
+    }
+    emit_dep_includes(hbuf, d, deps, n_deps, src);
+    emit_lit(hbuf, "\n");
+
+    /* Handlers struct. */
+    emit_lit(hbuf, "typedef struct {\n");
+    emit_lit(hbuf, "    void *context;\n");
+    for (size_t k = 0U; k < n_methods; ++k) {
+        const zsp_ast_node_t *m = d->u.service.methods[k];
+        const zsp_ast_node_t *req = resolve_concrete(m->u.service_method.request_type);
+        const zsp_ast_node_t *rsp = resolve_concrete(m->u.service_method.return_type);
+        const uint8_t *mn = NULL;
+        size_t         ml = 0U;
+        (void)ident_span(src, m->u.service_method.name, &mn, &ml);
+        emit_lit(hbuf, "    zserio_status_t (*");
+        emit_snake(hbuf, mn, ml);
+        emit_lit(hbuf, ")(void *context, const ");
+        (void)emit_type_id(hbuf, req, src);
+        emit_lit(hbuf, "_t *request, ");
+        (void)emit_type_id(hbuf, rsp, src);
+        emit_lit(hbuf, "_t *response, const zserio_allocator_t *alloc);\n");
+    }
+    emit_lit(hbuf, "} ");
+    (void)emit_type_id(hbuf, d, src);
+    emit_lit(hbuf, "_handlers_t;\n\n");
+
+    /* Server seam init + full-name accessor. */
+    emit_lit(hbuf, "void ");
+    (void)emit_type_id(hbuf, d, src);
+    emit_lit(hbuf, "_service_init(zserio_service_t *self, const ");
+    (void)emit_type_id(hbuf, d, src);
+    emit_lit(hbuf, "_handlers_t *handlers);\n\n");
+    emit_lit(hbuf, "const char *");
+    (void)emit_type_id(hbuf, d, src);
+    emit_lit(hbuf, "_service_full_name(void);\n\n");
+
+    /* Client wrappers. */
+    for (size_t k = 0U; k < n_methods; ++k) {
+        const zsp_ast_node_t *m = d->u.service.methods[k];
+        const zsp_ast_node_t *req = resolve_concrete(m->u.service_method.request_type);
+        const zsp_ast_node_t *rsp = resolve_concrete(m->u.service_method.return_type);
+        const uint8_t *mn = NULL;
+        size_t         ml = 0U;
+        (void)ident_span(src, m->u.service_method.name, &mn, &ml);
+        emit_lit(hbuf, "zserio_status_t ");
+        (void)emit_type_id(hbuf, d, src);
+        emit_lit(hbuf, "_");
+        emit_snake(hbuf, mn, ml);
+        emit_lit(hbuf, "(const zserio_service_t *transport, const ");
+        (void)emit_type_id(hbuf, req, src);
+        emit_lit(hbuf, "_t *request, ");
+        (void)emit_type_id(hbuf, rsp, src);
+        emit_lit(hbuf, "_t *response_out, const zserio_allocator_t *alloc);\n");
+    }
+    emit_lit(hbuf, "\n#endif\n");
+}
+
+/* Generated service source, part 1: preamble + per-method write thunks
+ * + the length-bounded name compare + the dispatch entry point. */
+static void emit_service_dispatch(buf_t *cbuf, const zsp_ast_node_t *d,
+                                  const zsp_source_t *src)
+{
+    const size_t n_methods = d->u.service.n_methods;
+
+    emit_lit(cbuf, "/* Auto-generated by zserio-c parser (service). Do not edit. */\n");
+    emit_lit(cbuf, "#include <stddef.h>\n");
+    emit_lit(cbuf, "#include <string.h>\n\n");
+    emit_lit(cbuf, "#include \"zserio/bitstream.h\"\n\n");
+    emit_lit(cbuf, "#include \"");
+    {
+        const uint8_t *sn = NULL;
+        size_t         sl = 0U;
+        (void)ident_span(src, d->u.service.name, &sn, &sl);
+        emit_snake(cbuf, sn, sl);
+    }
+    emit_lit(cbuf, ".h\"\n\n");
+
+    /* Per-method request/response write thunks. */
+    for (size_t k = 0U; k < n_methods; ++k) {
+        const zsp_ast_node_t *m = d->u.service.methods[k];
+        const zsp_ast_node_t *req = resolve_concrete(m->u.service_method.request_type);
+        const zsp_ast_node_t *rsp = resolve_concrete(m->u.service_method.return_type);
+        const uint8_t *mn = NULL;
+        size_t         ml = 0U;
+        (void)ident_span(src, m->u.service_method.name, &mn, &ml);
+
+        emit_lit(cbuf, "static zserio_status_t ");
+        emit_snake(cbuf, mn, ml);
+        emit_lit(cbuf, "_request_write_thunk(const void *obj, zserio_bitstream_writer_t *bs)\n{\n");
+        emit_lit(cbuf, "    return ");
+        (void)emit_type_id(cbuf, req, src);
+        emit_lit(cbuf, "_write((const ");
+        (void)emit_type_id(cbuf, req, src);
+        emit_lit(cbuf, "_t *)obj, bs);\n}\n\n");
+
+        emit_lit(cbuf, "static zserio_status_t ");
+        emit_snake(cbuf, mn, ml);
+        emit_lit(cbuf, "_response_write_thunk(const void *obj, zserio_bitstream_writer_t *bs)\n{\n");
+        emit_lit(cbuf, "    return ");
+        (void)emit_type_id(cbuf, rsp, src);
+        emit_lit(cbuf, "_write((const ");
+        (void)emit_type_id(cbuf, rsp, src);
+        emit_lit(cbuf, "_t *)obj, bs);\n}\n\n");
+    }
+
+    /* Length-bounded method-name compare. Avoids memcmp/strcmp on the
+     * incoming span (the name is not NUL-terminated), keeping the
+     * generated dispatch clear of MISRA Rule 21.14 / 21.16. */
+    emit_lit(cbuf, "static int ");
+    (void)emit_type_id(cbuf, d, src);
+    emit_lit(cbuf, "_name_eq(const char *a, size_t a_len, const char *b, size_t b_len)\n{\n");
+    emit_lit(cbuf, "    if (a_len != b_len) {\n        return 0;\n    }\n");
+    emit_lit(cbuf, "    for (size_t i = 0U; i < a_len; ++i) {\n");
+    emit_lit(cbuf, "        if (a[i] != b[i]) {\n            return 0;\n        }\n");
+    emit_lit(cbuf, "    }\n    return 1;\n}\n\n");
+
+    /* Dispatch call_method. */
+    emit_lit(cbuf, "static zserio_status_t ");
+    (void)emit_type_id(cbuf, d, src);
+    emit_lit(cbuf, "_dispatch(void *impl, const char *method_name, size_t method_name_len,\n");
+    emit_lit(cbuf, "        const uint8_t *request, size_t request_size,\n");
+    emit_lit(cbuf, "        const zserio_allocator_t *alloc, uint8_t **response, size_t *response_size)\n{\n");
+    emit_lit(cbuf, "    const ");
+    (void)emit_type_id(cbuf, d, src);
+    emit_lit(cbuf, "_handlers_t *handlers = (const ");
+    (void)emit_type_id(cbuf, d, src);
+    emit_lit(cbuf, "_handlers_t *)impl;\n");
+    emit_lit(cbuf, "    *response = NULL;\n");
+    emit_lit(cbuf, "    *response_size = 0U;\n");
+    for (size_t k = 0U; k < n_methods; ++k) {
+        const zsp_ast_node_t *m = d->u.service.methods[k];
+        const zsp_ast_node_t *req = resolve_concrete(m->u.service_method.request_type);
+        const zsp_ast_node_t *rsp = resolve_concrete(m->u.service_method.return_type);
+        const uint8_t *mn = NULL;
+        size_t         ml = 0U;
+        (void)ident_span(src, m->u.service_method.name, &mn, &ml);
+
+        emit_lit(cbuf, "    if (");
+        (void)emit_type_id(cbuf, d, src);
+        emit_lit(cbuf, "_name_eq(method_name, method_name_len, \"");
+        emit_span(cbuf, mn, ml);
+        emit_lit(cbuf, "\", ");
+        emit_uint(cbuf, (uint64_t)ml);
+        emit_lit(cbuf, "U) != 0) {\n");
+        emit_lit(cbuf, "        ");
+        (void)emit_type_id(cbuf, req, src);
+        emit_lit(cbuf, "_t req_obj;\n");
+        emit_lit(cbuf, "        ");
+        (void)emit_type_id(cbuf, rsp, src);
+        emit_lit(cbuf, "_t rsp_obj;\n");
+        emit_lit(cbuf, "        zserio_bitstream_reader_t reader;\n");
+        emit_lit(cbuf, "        zserio_status_t status;\n");
+        emit_lit(cbuf, "        ");
+        (void)emit_type_id(cbuf, req, src);
+        emit_lit(cbuf, "_init(&req_obj);\n");
+        emit_lit(cbuf, "        ");
+        (void)emit_type_id(cbuf, rsp, src);
+        emit_lit(cbuf, "_init(&rsp_obj);\n");
+        emit_lit(cbuf, "        status = zserio_bitstream_reader_init(&reader, request, request_size * 8U);\n");
+        emit_lit(cbuf, "        if (status != ZSERIO_OK) {\n");
+        emit_lit(cbuf, "            ");
+        (void)emit_type_id(cbuf, req, src);
+        emit_lit(cbuf, "_free(&req_obj, alloc);\n");
+        emit_lit(cbuf, "            return status;\n");
+        emit_lit(cbuf, "        }\n");
+        emit_lit(cbuf, "        status = ");
+        (void)emit_type_id(cbuf, req, src);
+        emit_lit(cbuf, "_read(&req_obj, &reader, alloc);\n");
+        emit_lit(cbuf, "        if (status != ZSERIO_OK) {\n");
+        emit_lit(cbuf, "            ");
+        (void)emit_type_id(cbuf, req, src);
+        emit_lit(cbuf, "_free(&req_obj, alloc);\n");
+        emit_lit(cbuf, "            return status;\n");
+        emit_lit(cbuf, "        }\n");
+        emit_lit(cbuf, "        if (handlers->");
+        emit_snake(cbuf, mn, ml);
+        emit_lit(cbuf, " == NULL) {\n");
+        emit_lit(cbuf, "            ");
+        (void)emit_type_id(cbuf, req, src);
+        emit_lit(cbuf, "_free(&req_obj, alloc);\n");
+        emit_lit(cbuf, "            return ZSERIO_ERR_INVALID_ARGUMENT;\n");
+        emit_lit(cbuf, "        }\n");
+        emit_lit(cbuf, "        status = handlers->");
+        emit_snake(cbuf, mn, ml);
+        emit_lit(cbuf, "(handlers->context, &req_obj, &rsp_obj, alloc);\n");
+        emit_lit(cbuf, "        ");
+        (void)emit_type_id(cbuf, req, src);
+        emit_lit(cbuf, "_free(&req_obj, alloc);\n");
+        emit_lit(cbuf, "        if (status != ZSERIO_OK) {\n");
+        emit_lit(cbuf, "            ");
+        (void)emit_type_id(cbuf, rsp, src);
+        emit_lit(cbuf, "_free(&rsp_obj, alloc);\n");
+        emit_lit(cbuf, "            return status;\n");
+        emit_lit(cbuf, "        }\n");
+        emit_lit(cbuf, "        status = zserio_service_serialize(alloc, &");
+        emit_snake(cbuf, mn, ml);
+        emit_lit(cbuf, "_response_write_thunk, &rsp_obj, response, response_size);\n");
+        emit_lit(cbuf, "        ");
+        (void)emit_type_id(cbuf, rsp, src);
+        emit_lit(cbuf, "_free(&rsp_obj, alloc);\n");
+        emit_lit(cbuf, "        return status;\n");
+        emit_lit(cbuf, "    }\n");
+    }
+    emit_lit(cbuf, "    return ZSERIO_ERR_INVALID_ARGUMENT;\n");
+    emit_lit(cbuf, "}\n\n");
+}
+
+/* Generated service source, part 2: full-name accessor, server seam
+ * init, and the typed per-method client wrappers. */
+static void emit_service_clients(buf_t *cbuf, const zsp_ast_node_t *d,
+                                 const zsp_source_t *src,
+                                 const char *full_name)
+{
+    const size_t n_methods = d->u.service.n_methods;
+
+    emit_lit(cbuf, "const char *");
+    (void)emit_type_id(cbuf, d, src);
+    emit_lit(cbuf, "_service_full_name(void)\n{\n    return \"");
+    emit_lit(cbuf, full_name);
+    emit_lit(cbuf, "\";\n}\n\n");
+
+    emit_lit(cbuf, "void ");
+    (void)emit_type_id(cbuf, d, src);
+    emit_lit(cbuf, "_service_init(zserio_service_t *self, const ");
+    (void)emit_type_id(cbuf, d, src);
+    emit_lit(cbuf, "_handlers_t *handlers)\n{\n");
+    emit_lit(cbuf, "    self->call_method = &");
+    (void)emit_type_id(cbuf, d, src);
+    emit_lit(cbuf, "_dispatch;\n");
+    /* The dispatch reads handlers through impl; the const is cast
+     * away only to store the borrowed pointer (D004). */
+    emit_lit(cbuf, "    self->impl = (void *)(const void *)handlers;\n}\n\n");
+
+    /* Client wrappers. */
+    for (size_t k = 0U; k < n_methods; ++k) {
+        const zsp_ast_node_t *m = d->u.service.methods[k];
+        const zsp_ast_node_t *req = resolve_concrete(m->u.service_method.request_type);
+        const zsp_ast_node_t *rsp = resolve_concrete(m->u.service_method.return_type);
+        const uint8_t *mn = NULL;
+        size_t         ml = 0U;
+        (void)ident_span(src, m->u.service_method.name, &mn, &ml);
+
+        emit_lit(cbuf, "zserio_status_t ");
+        (void)emit_type_id(cbuf, d, src);
+        emit_lit(cbuf, "_");
+        emit_snake(cbuf, mn, ml);
+        emit_lit(cbuf, "(const zserio_service_t *transport, const ");
+        (void)emit_type_id(cbuf, req, src);
+        emit_lit(cbuf, "_t *request, ");
+        (void)emit_type_id(cbuf, rsp, src);
+        emit_lit(cbuf, "_t *response_out, const zserio_allocator_t *alloc)\n{\n");
+        emit_lit(cbuf, "    uint8_t *request_data = NULL;\n");
+        emit_lit(cbuf, "    size_t request_size = 0U;\n");
+        emit_lit(cbuf, "    uint8_t *response_data = NULL;\n");
+        emit_lit(cbuf, "    size_t response_size = 0U;\n");
+        emit_lit(cbuf, "    zserio_bitstream_reader_t reader;\n");
+        emit_lit(cbuf, "    zserio_status_t status;\n");
+        emit_lit(cbuf, "    status = zserio_service_serialize(alloc, &");
+        emit_snake(cbuf, mn, ml);
+        emit_lit(cbuf, "_request_write_thunk, request, &request_data, &request_size);\n");
+        emit_lit(cbuf, "    if (status != ZSERIO_OK) {\n        return status;\n    }\n");
+        emit_lit(cbuf, "    status = transport->call_method(transport->impl, \"");
+        emit_span(cbuf, mn, ml);
+        emit_lit(cbuf, "\", ");
+        emit_uint(cbuf, (uint64_t)ml);
+        emit_lit(cbuf, "U, request_data, request_size, alloc, &response_data, &response_size);\n");
+        emit_lit(cbuf, "    alloc->vtable->free(alloc->userdata, request_data, request_size, 1U);\n");
+        emit_lit(cbuf, "    if (status != ZSERIO_OK) {\n        return status;\n    }\n");
+        emit_lit(cbuf, "    ");
+        (void)emit_type_id(cbuf, rsp, src);
+        emit_lit(cbuf, "_init(response_out);\n");
+        emit_lit(cbuf, "    status = zserio_bitstream_reader_init(&reader, response_data, response_size * 8U);\n");
+        emit_lit(cbuf, "    if (status != ZSERIO_OK) {\n");
+        emit_lit(cbuf, "        if (response_data != NULL) {\n");
+        emit_lit(cbuf, "            alloc->vtable->free(alloc->userdata, response_data, response_size, 1U);\n");
+        emit_lit(cbuf, "        }\n");
+        emit_lit(cbuf, "        ");
+        (void)emit_type_id(cbuf, rsp, src);
+        emit_lit(cbuf, "_free(response_out, alloc);\n");
+        emit_lit(cbuf, "        return status;\n");
+        emit_lit(cbuf, "    }\n");
+        emit_lit(cbuf, "    status = ");
+        (void)emit_type_id(cbuf, rsp, src);
+        emit_lit(cbuf, "_read(response_out, &reader, alloc);\n");
+        emit_lit(cbuf, "    if (response_data != NULL) {\n");
+        emit_lit(cbuf, "        alloc->vtable->free(alloc->userdata, response_data, response_size, 1U);\n");
+        emit_lit(cbuf, "    }\n");
+        emit_lit(cbuf, "    if (status != ZSERIO_OK) {\n        ");
+        (void)emit_type_id(cbuf, rsp, src);
+        emit_lit(cbuf, "_free(response_out, alloc);\n    }\n");
+        emit_lit(cbuf, "    return status;\n}\n\n");
+    }
+}
+
+/* Emit the generated header + source for a `service` decl.
+ * `full_name` is the verbatim "pkg.Service" wire name (just the
+ * Service name in the default package). */
+static void emit_service_files(buf_t *hbuf, buf_t *cbuf,
+                               const zsp_ast_node_t *d,
+                               const zsp_source_t *src,
+                               const char *full_name)
+{
+    emit_service_header(hbuf, d, src);
+    emit_service_dispatch(cbuf, d, src);
+    emit_service_clients(cbuf, d, src, full_name);
+}
+
+/* Generated pubsub header: includes, publish wrapper prototypes, and
+ * the per-subscription struct + subscribe/unsubscribe prototypes. */
+static void emit_pubsub_header(buf_t *hbuf, const zsp_ast_node_t *d,
+                               const zsp_source_t *src)
+{
+    const size_t n_messages = d->u.pubsub.n_messages;
+
+    emit_lit(hbuf, "/* Auto-generated by zserio-c parser (pubsub). Do not edit. */\n");
+    emit_lit(hbuf, "#ifndef ZSP_GENERATED_");
+    (void)emit_type_id(hbuf, d, src);
+    emit_lit(hbuf, "_H_\n");
+    emit_lit(hbuf, "#define ZSP_GENERATED_");
+    (void)emit_type_id(hbuf, d, src);
+    emit_lit(hbuf, "_H_\n\n");
+    emit_lit(hbuf, "#include <stddef.h>\n");
+    emit_lit(hbuf, "#include <stdint.h>\n\n");
+    emit_lit(hbuf, "#include \"zserio/allocator.h\"\n");
+    emit_lit(hbuf, "#include \"zserio/pubsub.h\"\n");
+    emit_lit(hbuf, "#include \"zserio/status.h\"\n");
+
+    const zsp_ast_node_t *deps[256];
+    size_t n_deps = 0U;
+    for (size_t k = 0U; (k < n_messages) && (n_deps < 256U); ++k) {
+        const zsp_ast_node_t *m = d->u.pubsub.messages[k];
+        deps[n_deps++] = resolve_concrete(m->u.pubsub_message.type);
+    }
+    emit_dep_includes(hbuf, d, deps, n_deps, src);
+    emit_lit(hbuf, "\n");
+
+    /* Publish wrappers. */
+    for (size_t k = 0U; k < n_messages; ++k) {
+        const zsp_ast_node_t *m = d->u.pubsub.messages[k];
+        if (!m->u.pubsub_message.publish) {
+            continue;
+        }
+        const zsp_ast_node_t *mt = resolve_concrete(m->u.pubsub_message.type);
+        const uint8_t *mn = NULL;
+        size_t         ml = 0U;
+        (void)ident_span(src, m->u.pubsub_message.name, &mn, &ml);
+        emit_lit(hbuf, "zserio_status_t ");
+        (void)emit_type_id(hbuf, d, src);
+        emit_lit(hbuf, "_publish_");
+        emit_snake(hbuf, mn, ml);
+        emit_lit(hbuf, "(const zserio_pubsub_t *pubsub, const ");
+        (void)emit_type_id(hbuf, mt, src);
+        emit_lit(hbuf, "_t *message, const zserio_allocator_t *alloc, void *context);\n");
+    }
+
+    /* Subscription struct + subscribe/unsubscribe per subscribed message. */
+    for (size_t k = 0U; k < n_messages; ++k) {
+        const zsp_ast_node_t *m = d->u.pubsub.messages[k];
+        if (!m->u.pubsub_message.subscribe) {
+            continue;
+        }
+        const zsp_ast_node_t *mt = resolve_concrete(m->u.pubsub_message.type);
+        const uint8_t *mn = NULL;
+        size_t         ml = 0U;
+        (void)ident_span(src, m->u.pubsub_message.name, &mn, &ml);
+
+        emit_lit(hbuf, "\ntypedef struct {\n");
+        emit_lit(hbuf, "    void *context;\n");
+        emit_lit(hbuf, "    const zserio_allocator_t *alloc;\n");
+        emit_lit(hbuf, "    void (*on_message)(void *context, const ");
+        (void)emit_type_id(hbuf, mt, src);
+        emit_lit(hbuf, "_t *message);\n");
+        emit_lit(hbuf, "} ");
+        (void)emit_type_id(hbuf, d, src);
+        emit_lit(hbuf, "_");
+        emit_snake(hbuf, mn, ml);
+        emit_lit(hbuf, "_subscription_t;\n\n");
+
+        emit_lit(hbuf, "zserio_status_t ");
+        (void)emit_type_id(hbuf, d, src);
+        emit_lit(hbuf, "_subscribe_");
+        emit_snake(hbuf, mn, ml);
+        emit_lit(hbuf, "(const zserio_pubsub_t *pubsub, ");
+        (void)emit_type_id(hbuf, d, src);
+        emit_lit(hbuf, "_");
+        emit_snake(hbuf, mn, ml);
+        emit_lit(hbuf, "_subscription_t *subscription, void *context,\n");
+        emit_lit(hbuf, "        zserio_pubsub_subscription_id_t *subscription_id);\n");
+
+        emit_lit(hbuf, "zserio_status_t ");
+        (void)emit_type_id(hbuf, d, src);
+        emit_lit(hbuf, "_unsubscribe_");
+        emit_snake(hbuf, mn, ml);
+        emit_lit(hbuf, "(const zserio_pubsub_t *pubsub, zserio_pubsub_subscription_id_t subscription_id);\n");
+    }
+    emit_lit(hbuf, "\n#endif\n");
+}
+
+/* Generated pubsub source: publish wrappers (+ write thunks) and the
+ * subscribe trampolines + subscribe/unsubscribe wrappers. */
+static void emit_pubsub_source(buf_t *cbuf, const zsp_ast_node_t *d,
+                               const zsp_source_t *src)
+{
+    const size_t n_messages = d->u.pubsub.n_messages;
+
+    emit_lit(cbuf, "/* Auto-generated by zserio-c parser (pubsub). Do not edit. */\n");
+    emit_lit(cbuf, "#include <stddef.h>\n\n");
+    emit_lit(cbuf, "#include \"zserio/bitstream.h\"\n");
+    emit_lit(cbuf, "#include \"zserio/service.h\"\n\n");
+    emit_lit(cbuf, "#include \"");
+    {
+        const uint8_t *pn = NULL;
+        size_t         pl = 0U;
+        (void)ident_span(src, d->u.pubsub.name, &pn, &pl);
+        emit_snake(cbuf, pn, pl);
+    }
+    emit_lit(cbuf, ".h\"\n\n");
+
+    /* Publish wrappers + their write thunks. */
+    for (size_t k = 0U; k < n_messages; ++k) {
+        const zsp_ast_node_t *m = d->u.pubsub.messages[k];
+        if (!m->u.pubsub_message.publish) {
+            continue;
+        }
+        const zsp_ast_node_t *mt = resolve_concrete(m->u.pubsub_message.type);
+        const uint8_t *mn = NULL;
+        size_t         ml = 0U;
+        (void)ident_span(src, m->u.pubsub_message.name, &mn, &ml);
+
+        emit_lit(cbuf, "static zserio_status_t ");
+        (void)emit_type_id(cbuf, d, src);
+        emit_lit(cbuf, "_publish_");
+        emit_snake(cbuf, mn, ml);
+        emit_lit(cbuf, "_write_thunk(const void *obj, zserio_bitstream_writer_t *bs)\n{\n");
+        emit_lit(cbuf, "    return ");
+        (void)emit_type_id(cbuf, mt, src);
+        emit_lit(cbuf, "_write((const ");
+        (void)emit_type_id(cbuf, mt, src);
+        emit_lit(cbuf, "_t *)obj, bs);\n}\n\n");
+
+        emit_lit(cbuf, "zserio_status_t ");
+        (void)emit_type_id(cbuf, d, src);
+        emit_lit(cbuf, "_publish_");
+        emit_snake(cbuf, mn, ml);
+        emit_lit(cbuf, "(const zserio_pubsub_t *pubsub, const ");
+        (void)emit_type_id(cbuf, mt, src);
+        emit_lit(cbuf, "_t *message, const zserio_allocator_t *alloc, void *context)\n{\n");
+        emit_lit(cbuf, "    uint8_t *data = NULL;\n");
+        emit_lit(cbuf, "    size_t data_size = 0U;\n");
+        emit_lit(cbuf, "    zserio_status_t status;\n");
+        emit_lit(cbuf, "    status = zserio_service_serialize(alloc, &");
+        (void)emit_type_id(cbuf, d, src);
+        emit_lit(cbuf, "_publish_");
+        emit_snake(cbuf, mn, ml);
+        emit_lit(cbuf, "_write_thunk, message, &data, &data_size);\n");
+        emit_lit(cbuf, "    if (status != ZSERIO_OK) {\n        return status;\n    }\n");
+        emit_lit(cbuf, "    status = pubsub->publish(pubsub->impl, ");
+        emit_topic_literal(cbuf, m, src);
+        emit_lit(cbuf, ", ");
+        /* topic length: emit strlen via sizeof of the literal minus 1. */
+        emit_lit(cbuf, "(size_t)(sizeof(");
+        emit_topic_literal(cbuf, m, src);
+        emit_lit(cbuf, ") - 1U), data, data_size, context);\n");
+        emit_lit(cbuf, "    alloc->vtable->free(alloc->userdata, data, data_size, 1U);\n");
+        emit_lit(cbuf, "    return status;\n}\n\n");
+    }
+
+    /* Subscribe trampolines + subscribe/unsubscribe wrappers. */
+    for (size_t k = 0U; k < n_messages; ++k) {
+        const zsp_ast_node_t *m = d->u.pubsub.messages[k];
+        if (!m->u.pubsub_message.subscribe) {
+            continue;
+        }
+        const zsp_ast_node_t *mt = resolve_concrete(m->u.pubsub_message.type);
+        const uint8_t *mn = NULL;
+        size_t         ml = 0U;
+        (void)ident_span(src, m->u.pubsub_message.name, &mn, &ml);
+
+        /* Raw trampoline. */
+        emit_lit(cbuf, "static void ");
+        (void)emit_type_id(cbuf, d, src);
+        emit_lit(cbuf, "_");
+        emit_snake(cbuf, mn, ml);
+        emit_lit(cbuf, "_trampoline(void *callback_context, const char *topic, size_t topic_len,\n");
+        emit_lit(cbuf, "        const uint8_t *data, size_t data_size)\n{\n");
+        emit_lit(cbuf, "    ");
+        (void)emit_type_id(cbuf, d, src);
+        emit_lit(cbuf, "_");
+        emit_snake(cbuf, mn, ml);
+        emit_lit(cbuf, "_subscription_t *sub = (");
+        (void)emit_type_id(cbuf, d, src);
+        emit_lit(cbuf, "_");
+        emit_snake(cbuf, mn, ml);
+        emit_lit(cbuf, "_subscription_t *)callback_context;\n");
+        emit_lit(cbuf, "    ");
+        (void)emit_type_id(cbuf, mt, src);
+        emit_lit(cbuf, "_t message;\n");
+        emit_lit(cbuf, "    zserio_bitstream_reader_t reader;\n");
+        emit_lit(cbuf, "    (void)topic;\n");
+        emit_lit(cbuf, "    (void)topic_len;\n");
+        emit_lit(cbuf, "    ");
+        (void)emit_type_id(cbuf, mt, src);
+        emit_lit(cbuf, "_init(&message);\n");
+        emit_lit(cbuf, "    if (zserio_bitstream_reader_init(&reader, data, data_size * 8U) == ZSERIO_OK) {\n");
+        emit_lit(cbuf, "        if (");
+        (void)emit_type_id(cbuf, mt, src);
+        emit_lit(cbuf, "_read(&message, &reader, sub->alloc) == ZSERIO_OK) {\n");
+        emit_lit(cbuf, "            if (sub->on_message != NULL) {\n");
+        emit_lit(cbuf, "                sub->on_message(sub->context, &message);\n");
+        emit_lit(cbuf, "            }\n");
+        emit_lit(cbuf, "        }\n");
+        emit_lit(cbuf, "    }\n");
+        emit_lit(cbuf, "    ");
+        (void)emit_type_id(cbuf, mt, src);
+        emit_lit(cbuf, "_free(&message, sub->alloc);\n}\n\n");
+
+        /* subscribe wrapper. */
+        emit_lit(cbuf, "zserio_status_t ");
+        (void)emit_type_id(cbuf, d, src);
+        emit_lit(cbuf, "_subscribe_");
+        emit_snake(cbuf, mn, ml);
+        emit_lit(cbuf, "(const zserio_pubsub_t *pubsub, ");
+        (void)emit_type_id(cbuf, d, src);
+        emit_lit(cbuf, "_");
+        emit_snake(cbuf, mn, ml);
+        emit_lit(cbuf, "_subscription_t *subscription, void *context,\n");
+        emit_lit(cbuf, "        zserio_pubsub_subscription_id_t *subscription_id)\n{\n");
+        emit_lit(cbuf, "    return pubsub->subscribe(pubsub->impl, ");
+        emit_topic_literal(cbuf, m, src);
+        emit_lit(cbuf, ", (size_t)(sizeof(");
+        emit_topic_literal(cbuf, m, src);
+        emit_lit(cbuf, ") - 1U), &");
+        (void)emit_type_id(cbuf, d, src);
+        emit_lit(cbuf, "_");
+        emit_snake(cbuf, mn, ml);
+        emit_lit(cbuf, "_trampoline, subscription, context, subscription_id);\n}\n\n");
+
+        /* unsubscribe wrapper. */
+        emit_lit(cbuf, "zserio_status_t ");
+        (void)emit_type_id(cbuf, d, src);
+        emit_lit(cbuf, "_unsubscribe_");
+        emit_snake(cbuf, mn, ml);
+        emit_lit(cbuf, "(const zserio_pubsub_t *pubsub, zserio_pubsub_subscription_id_t subscription_id)\n{\n");
+        emit_lit(cbuf, "    return pubsub->unsubscribe(pubsub->impl, subscription_id);\n}\n\n");
+    }
+}
+
+/* Emit the generated header + source for a `pubsub` decl. */
+static void emit_pubsub_files(buf_t *hbuf, buf_t *cbuf,
+                              const zsp_ast_node_t *d,
+                              const zsp_source_t *src)
+{
+    emit_pubsub_header(hbuf, d, src);
+    emit_pubsub_source(cbuf, d, src);
+}
+
 /* ----- Main emit entry --------------------------------------- */
 
 zserio_status_t zsp_emit_unit(const zsp_ast_node_t *unit,
@@ -5899,66 +6643,45 @@ zserio_status_t zsp_emit_unit(const zsp_ast_node_t *unit,
             continue;
         }
         else if (d->kind == ZSP_AST_SERVICE) {
-            /* Service: emit method prototypes. Runtime hooks are
-             * the integrator's; the generated header is a
-             * type-and-prototype declaration only. */
-            emit_lit(&hbuf, "/* Auto-generated by zserio-c parser (service). */\n");
-            emit_lit(&hbuf, "#ifndef ZSP_GENERATED_");
-            (void)emit_type_id(&hbuf, d, source);
-            emit_lit(&hbuf, "_H_\n");
-            emit_lit(&hbuf, "#define ZSP_GENERATED_");
-            (void)emit_type_id(&hbuf, d, source);
-            emit_lit(&hbuf, "_H_\n\n");
-            emit_lit(&hbuf, "#include \"zserio/status.h\"\n\n");
-            for (size_t k = 0U; k < d->u.service.n_methods; ++k) {
-                const zsp_ast_node_t *m = d->u.service.methods[k];
-                emit_lit(&hbuf, "/* ");
-                const uint8_t *mn = NULL;
-                size_t         ml = 0U;
-                if (ident_span(source, m->u.service_method.name, &mn, &ml)) {
-                    emit_span(&hbuf, mn, ml);
-                }
-                emit_lit(&hbuf, ": service method declaration */\n");
+            /* Build the verbatim "pkg.Service" wire name (just the
+             * Service name in the default package). */
+            char full_name[640];
+            size_t fpos = 0U;
+            for (size_t pi = 0U; (pi < pkg_len) && ((fpos + 1U) < sizeof(full_name)); ++pi) {
+                full_name[fpos++] = pkg[pi];
             }
-            emit_lit(&hbuf, "\n#endif\n");
-            if (hbuf.oom) return ZSERIO_ERR_OUT_OF_MEMORY;
+            if ((pkg_len > 0U) && ((fpos + 1U) < sizeof(full_name))) {
+                full_name[fpos++] = '.';
+            }
+            for (size_t ni = 0U; (ni < nlen) && ((fpos + 1U) < sizeof(full_name)); ++ni) {
+                full_name[fpos++] = (char)name[ni];
+            }
+            full_name[fpos] = '\0';
+
+            emit_service_files(&hbuf, &cbuf, d, source, full_name);
+            if (hbuf.oom || cbuf.oom) {
+                return ZSERIO_ERR_OUT_OF_MEMORY;
+            }
             if (!write(userdata, path_h, hbuf.bytes, hbuf.len)) {
+                return ZSERIO_ERR_OUT_OF_MEMORY;
+            }
+            if (!write(userdata, path_c, cbuf.bytes, cbuf.len)) {
                 return ZSERIO_ERR_OUT_OF_MEMORY;
             }
             continue;
         }
         else if (d->kind == ZSP_AST_PUBSUB) {
-            /* Pubsub: emit topic message-shape declarations as a
-             * comment summary plus a placeholder typedef so
-             * downstream code has something to refer to. */
-            emit_lit(&hbuf, "/* Auto-generated by zserio-c parser (pubsub). */\n");
-            emit_lit(&hbuf, "#ifndef ZSP_GENERATED_");
-            (void)emit_type_id(&hbuf, d, source);
-            emit_lit(&hbuf, "_H_\n");
-            emit_lit(&hbuf, "#define ZSP_GENERATED_");
-            (void)emit_type_id(&hbuf, d, source);
-            emit_lit(&hbuf, "_H_\n\n");
-            emit_lit(&hbuf, "/* topic messages:\n");
-            for (size_t k = 0U; k < d->u.pubsub.n_messages; ++k) {
-                const zsp_ast_node_t *m = d->u.pubsub.messages[k];
-                emit_lit(&hbuf, " *   ");
-                if (m->u.pubsub_message.publish)   emit_lit(&hbuf, "publish ");
-                if (m->u.pubsub_message.subscribe) emit_lit(&hbuf, "subscribe ");
-                const uint8_t *mn = NULL;
-                size_t         ml = 0U;
-                if (ident_span(source, m->u.pubsub_message.name, &mn, &ml)) {
-                    emit_span(&hbuf, mn, ml);
-                }
-                emit_lit(&hbuf, "\n");
+            if (!pubsub_topics_ok(d, diag)) {
+                continue;
             }
-            emit_lit(&hbuf, " */\n");
-            emit_lit(&hbuf, "typedef struct ");
-            (void)emit_type_id(&hbuf, d, source);
-            emit_lit(&hbuf, "_pubsub { int placeholder; } ");
-            (void)emit_type_id(&hbuf, d, source);
-            emit_lit(&hbuf, "_t;\n\n#endif\n");
-            if (hbuf.oom) return ZSERIO_ERR_OUT_OF_MEMORY;
+            emit_pubsub_files(&hbuf, &cbuf, d, source);
+            if (hbuf.oom || cbuf.oom) {
+                return ZSERIO_ERR_OUT_OF_MEMORY;
+            }
             if (!write(userdata, path_h, hbuf.bytes, hbuf.len)) {
+                return ZSERIO_ERR_OUT_OF_MEMORY;
+            }
+            if (!write(userdata, path_c, cbuf.bytes, cbuf.len)) {
                 return ZSERIO_ERR_OUT_OF_MEMORY;
             }
             continue;

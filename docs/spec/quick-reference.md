@@ -7,8 +7,7 @@ accepted by `zserio-c`. The normative source is
 **Origin:** Adapted from upstream zserio's
 `ZserioQuickReference.md` (BSD-3-Clause, © Navigation Data
 Standard e.v.) at pinned version v2.18.1, restricted to the
-subset zserio-c accepts (no `service`, no `pubsub`, no
-`sql_table`/`sql_database`).
+subset zserio-c accepts (no `sql_table`/`sql_database`).
 
 **Audience:** schema authors who need a cheat sheet.
 
@@ -336,12 +335,20 @@ struct StructTemplatedTemplateArgument
 
 ---
 
+## Services and pub/sub
+
+`service` and `pubsub` declarations generate transport-agnostic
+interface glue (typed client wrappers + server dispatch; typed
+publish/subscribe wrappers). The integrator binds a transport via
+the `zserio_service_t` / `zserio_pubsub_t` vtables. Topics must be
+plain string literals. See
+[`schema-language.md`](schema-language.md) § Services and Pub/Sub.
+
 ## Out of scope
 
 `zserio-c` does **not** accept the following upstream
 constructs:
 
-- `service` and `pubsub` declarations (RPC / messaging).
 - `sql_table`, `sql_database` (SQLite extension).
 - `import_zs` from the JSON extension.
 

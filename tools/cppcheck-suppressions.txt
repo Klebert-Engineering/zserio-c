@@ -8,9 +8,11 @@ misra-c2012-11.5:*string.c
 misra-c2012-11.5:*bytes.c
 misra-c2012-11.5:*extern.c
 misra-c2012-11.5:*allocator.c
+misra-c2012-11.5:*service.c
 misra-c2012-11.8:*string.c
 misra-c2012-11.8:*bytes.c
 misra-c2012-11.8:*extern.c
+misra-c2012-11.8:*service.c
 misra-c2012-18.4:*string.c
 misra-c2012-18.4:*bytes.c
 misra-c2012-18.4:*extern.c

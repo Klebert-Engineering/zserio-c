@@ -316,6 +316,19 @@ Data items[];
 The runtime patches indexed offsets during write — you don't
 populate them yourself.
 
+## Services and pub/sub
+
+`service` and `pubsub` declarations are supported. For each service
+the generator emits typed per-method client wrappers and a server
+dispatch; for each pubsub, typed `publish_*` / `subscribe_*`
+wrappers. The generated code carries the (de)serialization and the
+method/topic dispatch but **no transport** — you bind one via the
+`zserio_service_t` / `zserio_pubsub_t` vtables (`zserio/service.h`,
+`zserio/pubsub.h`), the same pattern as the allocator. Topics must
+be plain string literals. See
+[`docs/design/service-pubsub.md`](../design/service-pubsub.md) for
+the generated API shape and the interop contract with upstream.
+
 ## What's not supported
 
 The following upstream features are intentionally not on the C
@@ -324,9 +337,6 @@ roadmap:
 - **SQL extension** — relational metadata layer on top of zserio
   for managing schema-tagged sqlite tables. Out of scope for a
   C99 embedded target.
-- **Service / pubsub** — RPC-style service/topic declarations.
-  Generated stubs would imply a transport choice that should be
-  the integrator's, not ours.
 
 Anything else from the upstream v2.18.1 language is supported.
 If you find a gap, open an issue with the schema that hits it.
