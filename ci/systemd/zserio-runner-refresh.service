@@ -1,0 +1,27 @@
+# Refresh the self-hosted runner image to the latest agent version.
+#
+# Triggered by zserio-runner-refresh.timer. Install both under
+# /etc/systemd/system/ on the runner host:
+#
+#   sudo cp ci/systemd/zserio-runner-refresh.* /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now zserio-runner-refresh.timer
+#
+# Adjust WorkingDirectory + ExecStart to the deployment you want kept
+# current. On a host with more than one deployment (org + shadow),
+# install renamed copies (e.g. zserio-runner-refresh-org.{service,timer})
+# with the right WorkingDirectory and COMPOSE_PROJECT for each.
+
+[Unit]
+Description=Refresh the self-hosted GitHub Actions runner image to the latest agent version
+Documentation=https://github.com/Klebert-Engineering/zserio-c/blob/main/docs/ci-self-hosted.md
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/zserio-ci-org/ci
+# Set when this host runs more than one compose deployment, so the right
+# one is targeted (matches the `-p` used at deploy time):
+# Environment=COMPOSE_PROJECT=zserio-ci-org
+ExecStart=/opt/zserio-ci-org/ci/refresh-runner.sh

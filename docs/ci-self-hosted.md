@@ -9,9 +9,11 @@ Everything needed lives in [`ci/`](../ci/):
 | File | Purpose |
 | --- | --- |
 | `ci/Dockerfile` | Builder image — Ubuntu 24.04 (the same OS GitHub-hosted `ubuntu-latest` runs, so the committed size/perf/coverage baselines and MISRA suppressions stay valid) + the full CI toolchain + `gh` + the GitHub Actions runner agent |
-| `ci/entrypoint.sh` | Runner lifecycle — exchanges a PAT for a registration token at start, de-registers on stop |
+| `ci/entrypoint.sh` | Runner lifecycle — exchanges a PAT for a registration token at start, de-registers on stop, runs the agent with `--disableupdate` (see [Keeping the runner agent current](#keeping-the-runner-agent-current)) |
 | `ci/docker-compose.yml` | Three runner instances on one host, sharing the image |
 | `ci/.env.example` | Template for the one secret the operator manages (a GitHub PAT) |
+| `ci/refresh-runner.sh` | Zero-touch agent upgrade — rebuilds the image when a newer runner release exists (replaces the fragile in-container self-update) |
+| `ci/systemd/zserio-runner-refresh.{service,timer}` | Weekly trigger for `refresh-runner.sh` so the agent stays current unattended |
 
 Most CI jobs target `runs-on: [self-hosted, linux, x64]` — any
 runner with those base labels picks them up. The `perf` job is
@@ -203,6 +205,57 @@ docker compose logs -f                # confirm re-registration
 `entrypoint.sh` re-registers each runner on start (`--replace` keeps
 the same names), so within ~30 s they're back to **Idle**.
 
+## Keeping the runner agent current
+
+The runner agent's built-in **self-update is disabled** — the entrypoint
+runs it with `--disableupdate`. In-container self-update is fatal: the
+agent downloads a new release, then deletes and replaces `bin/` +
+`externals/` via a *detached* process that must outlive the listener
+restart to finish the swap. In a container that process dies when the
+entrypoint exits on the update, so `bin/Runner.Listener` is left deleted
+and the container crash-loops with **exit 127**. It is reliably fatal on
+a slow disk (a Raspberry Pi SD card takes ~60 s to copy the new agent
+into place — a wide window for the teardown to interrupt it) and only
+*intermittently* survivable on a fast SSD. This is the documented reason
+GitHub's own actions-runner-controller and the major community images
+disable auto-update too.
+
+So the agent version is **pinned in the image** (`RUNNER_VERSION` in
+`ci/Dockerfile`) and upgraded by rebuilding — at build time, where a slow
+or flaky link just means a slower build, never a half-applied swap. That
+means the image must be refreshed periodically, because GitHub eventually
+refuses jobs from a runner more than a few releases behind the minimum.
+
+`ci/refresh-runner.sh` automates that to zero-touch. It queries the
+latest `actions/runner` release, and **only when the pinned version is
+behind** it bumps `RUNNER_VERSION`, rebuilds, and recreates the runners:
+
+```bash
+cd /opt/zserio-ci-org/ci
+COMPOSE_PROJECT=zserio-ci-org ./refresh-runner.sh   # -p target; omit if only one deployment
+```
+
+Install the systemd timer to run it weekly, unattended:
+
+```bash
+sudo cp ci/systemd/zserio-runner-refresh.* /etc/systemd/system/
+sudo $EDITOR /etc/systemd/system/zserio-runner-refresh.service   # set WorkingDirectory +
+                                                                 # ExecStart (+ COMPOSE_PROJECT)
+sudo systemctl daemon-reload
+sudo systemctl enable --now zserio-runner-refresh.timer
+systemctl list-timers zserio-runner-refresh.timer                # confirm next run
+```
+
+Recreating aborts a job that is mid-flight, so the timer fires at a quiet
+hour (Sunday 04:00). On a host with two deployments (org + shadow),
+install renamed copies of the unit pair, one per deployment, each with
+its own `WorkingDirectory` and `COMPOSE_PROJECT`.
+
+`refresh-runner.sh` edits the `RUNNER_VERSION` line in the host's
+`Dockerfile`; on a git checkout that is a local modification, so pull
+`ci/` updates with `git pull --autostash` (the timer keeps the local pin
+at or ahead of upstream, so there is normally nothing to reconcile).
+
 ## Operations
 
 - **Logs**: `docker logs -f zserio-ci-runner-1` shows registration +
@@ -213,9 +266,10 @@ the same names), so within ~30 s they're back to **Idle**.
 - **Stop / remove**: `docker compose -f ci/docker-compose.yml down`.
   `entrypoint.sh` traps the stop signal and de-registers each runner
   so it doesn't linger as an offline entry in the repo's runner list.
-- **Bump the runner agent**: GitHub deprecates old runner releases
-  periodically. Edit `RUNNER_VERSION` in `ci/Dockerfile`, then
-  rebuild (see "Updating" above).
+- **Bump the runner agent**: automated — `ci/refresh-runner.sh` (weekly
+  via the systemd timer) tracks the latest release, since the agent's own
+  self-update is disabled. See [Keeping the runner agent current](#keeping-the-runner-agent-current).
+  To force it now: `./refresh-runner.sh`.
 - **Disk / `_work`**: the runner's `_work` directory lives in each
   container's writable layer (no named volume — see the compose
   file's header comment for why). It's reset whenever a container is

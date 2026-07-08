@@ -122,4 +122,13 @@ fi
 # --- Run -------------------------------------------------------------------
 # `& wait` so the SIGTERM trap fires promptly instead of being held
 # until run.sh returns on its own.
-./run.sh & wait $!
+#
+# --disableupdate: the runner's self-update deletes and replaces bin/ +
+# externals/ via a detached process that must outlive the listener
+# restart. In a container that process dies when the entrypoint exits on
+# the update, leaving bin/Runner.Listener deleted and the container
+# crash-looping with exit 127. Containers can't auto-update; we pin the
+# version in the image (Dockerfile RUNNER_VERSION) and upgrade by
+# rebuilding instead. This also keeps the runner version reproducible,
+# matching the pinned-toolchain policy in the Dockerfile.
+./run.sh --disableupdate & wait $!
