@@ -124,9 +124,10 @@ for workload_dir in "${WORKLOADS_DIR}"/*/; do
     bootstrap_json=""
     if [[ -f "${workload_dir}/schema.config" ]]; then
         # Multi-file schema: the workload points at an existing schema
-        # tree (e.g. conformance/ndslive/zs) and names the entry-point
-        # file relative to that tree. May also set extra_codegen_args
-        # (e.g. -setTopLevelPackage for schemas with name collisions).
+        # tree (e.g. one staged by the private NDS.Live conformance
+        # overlay) and names the entry-point file relative to that
+        # tree. May also set extra_codegen_args (e.g.
+        # -setTopLevelPackage for schemas with name collisions).
         schema_dir=""; entry=""
         # shellcheck disable=SC1090
         source "${workload_dir}/schema.config"
@@ -135,9 +136,11 @@ for workload_dir in "${WORKLOADS_DIR}"/*/; do
             exit 1
         fi
         # Skip cleanly when the schema tree isn't materialized on this
-        # host (e.g. conformance/ndslive/zs is user-asset-extracted and
-        # not present in CI). Workloads that need a schema-tree we
-        # don't have are silently dropped rather than failing the gate.
+        # host (e.g. the private NDS.Live conformance overlay's schema
+        # tree is member-asset-extracted and not present in public
+        # CI). Workloads that need a schema-tree we don't have are
+        # silently dropped rather than failing the gate. The private
+        # overlay's workloads depend on this skip behavior.
         if [[ ! -d "${REPO_ROOT}/${schema_dir}" ]]; then
             echo "perf: ${name}: schema_dir ${schema_dir} not present; skipping" >&2
             continue
@@ -246,7 +249,7 @@ for workload_dir in "${WORKLOADS_DIR}"/*/; do
     #   1. `extra_arg_override` set above by the bootstrap step (an
     #      absolute path to a JSON-derived blob in the work dir).
     #   2. `extra_input.txt` naming a REPO_ROOT-relative file (e.g.
-    #      conformance/ndslive/tile.bin).
+    #      a payload staged by the private conformance overlay).
     #   3. None — driver runs without an extra argument.
     # Skip when (2) is set but the file isn't present, same as the
     # schema_dir guard above.

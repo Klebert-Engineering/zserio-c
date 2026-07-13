@@ -17,14 +17,15 @@
  *   ZSERIO_TRACE=<path>
  * Each call to zserio_bitstream_read_bits / read_signed emits one line:
  *   <pos_after> <op> <nbits> <value>
- * Same format as the cpp oracle (conformance/ndslive/cpp). The two
- * traces are intended to be diffed to localize wire-format divergence
- * field-by-field rather than guessing from end-state error codes.
+ * Same format as an external conformance-oracle decoder emits. The
+ * two traces are intended to be diffed to localize wire-format
+ * divergence field-by-field rather than guessing from end-state
+ * error codes.
  *
  * Build with -DZSERIO_TRACE_ENABLED, set ZSERIO_TRACE to a writable
  * path, then call zsc_trace_set_enabled(true) at the point where you
- * want tracing to start (typically: after the SmartLayerTile is
- * decoded and we're about to decode a specific layer payload).
+ * want tracing to start (typically: right before the region of the
+ * decode under investigation).
  */
 #ifdef ZSERIO_TRACE_ENABLED
 /* cppcheck-suppress misra-c2012-21.6 ; production builds do not

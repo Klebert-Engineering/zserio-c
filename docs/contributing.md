@@ -58,10 +58,6 @@ tests/
   fuzz/           libFuzzer decode-path targets (REQ-FS-006)
   conformance/    upstream error-code mapping table
 
-conformance/
-  ndslive/        50 KiB NDS Live tile round-trip test
-                  (1823 generated files, 86 .zs schemas)
-
 docs/
   benchmarks/     RESULTS.md from the per-commit perf job
   safety-case/    hazard analysis, FMEA, requirements traceability
@@ -100,19 +96,19 @@ XVAL_SAN=1 ./tests/xvalidation/run_xvalidation.sh           # under ASan + UBSan
 The harness needs the upstream zserio Java tool to produce the
 cpp reference. The CI runner caches that step.
 
-### 3. NDS Live conformance
+### 3. NDS.Live conformance (optional, member-only)
 
-A real 50 KiB NDS Live tile is decoded and re-encoded byte-equal.
-The schema corpus is 86 `.zs` files producing 1823 generated
-`.c` / `.h` files.
-
-```sh
-./conformance/ndslive/run_c_native.sh
-```
+Supplementary conformance against a production NDS.Live payload
+is maintained in a private companion repository (NDS Association
+membership required). The overlay checks out on top of this tree
+and decodes / re-encodes a real 50 KiB payload byte-equal;
+evidence from that harness: 86 `.zs` schemas producing 1823
+generated `.c` / `.h` files.
 
 This gate catches: cross-package emit paths, template
 instantiation depth, identifier-length truncation, the
-varsize-large path, packed compound arrays at scale.
+varsize-large path, packed compound arrays at scale. It is
+optional — every public CI gate runs without it.
 
 ### 4. Performance
 

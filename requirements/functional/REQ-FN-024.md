@@ -51,9 +51,9 @@ generator has the AST to evaluate them in the right order at
 the right point in the read/write path.
 
 The transitive case is what makes deeply-nested parameterized
-schemas work. NDS Live's attribute hierarchy in particular
-relies on parameters that flow through multiple
-template-instantiated layers.
+schemas work. Production NDS.Live schemas in particular rely
+on parameters that flow through multiple template-instantiated
+layers.
 
 The per-element propagation for arrays is the consequence of
 the parameter possibly being array-index-dependent: the schema

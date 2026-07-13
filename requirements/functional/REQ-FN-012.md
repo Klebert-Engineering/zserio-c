@@ -59,9 +59,11 @@ to repositories that share generated code across platforms.
   - Adjacent-package reference (same package depth, sibling).
   - Deeper-package reference (referring file is shallower).
   - Shallower-package reference (referring file is deeper).
-- The NDS Live conformance corpus exercises 1823 generated
-  files with extensive cross-package and cross-template
-  references; all compile under `-Werror`.
+- Supplementary evidence from the private companion conformance
+  harness (production NDS.Live schemas; NDS Association
+  membership required): 1823 generated files with extensive
+  cross-package and cross-template references, all compiling
+  under `-Werror`.
 
 ## Notes
 

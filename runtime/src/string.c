@@ -116,8 +116,9 @@ zserio_status_t zserio_read_string(zserio_bitstream_reader_t *bs,
         /* Fast path: byte-aligned stream + whole-byte cache. Same
          * shape as zserio_read_extern's fast path. Drain whole-byte
          * chunks out of the cache, then memcpy the rest from the
-         * source buffer. The profile showed 16 strings per NDS Live
-         * tile at ~110 ns each — 47% of the per-tile decode time —
+         * source buffer. Profiling a production payload in the
+         * external conformance harness showed string reads at
+         * ~110 ns each — 47% of that payload's decode time —
          * before this shortcut. */
         size_t i = 0U;
         while ((bs->cache_bits >= 8U) && (i < (size_t)length)) {

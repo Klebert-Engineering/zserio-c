@@ -261,9 +261,11 @@ multi-level template chains (template-of-template-of-…), with
 identifier-length truncation via FNV-1a hashing past 160
 characters (see [Generated code](generated-code.md#symbol-length-cap)).
 
-NDS Live ships ~600 templated types across ~140 schemas; all
-instantiate correctly under our generator. Test corpus:
-`conformance/ndslive/` decodes a real 50 KiB NDS Live tile.
+As evidence of scale: a production NDS.Live schema set (~600
+templated types across ~140 schemas) instantiates correctly
+under our generator, verified by a supplementary conformance
+harness maintained in a private companion repository (NDS
+Association membership required).
 
 ## Functions, constraints, offsets
 

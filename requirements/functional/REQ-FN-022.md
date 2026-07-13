@@ -52,10 +52,11 @@ round-trip byte equality is the operational definition of
   that does exactly the operation sequence above and `cmp`s
   the result against the input. It runs against all 182
   cross-validation harnesses on every commit.
-- The NDS Live conformance corpus (`conformance/ndslive/`)
-  exercises the same property on a 50 KiB production NDS Live
-  tile: `read_tile` decodes the tile via `_read` and re-encodes
-  via `_write`, and verifies byte-equality.
+- Supplementary conformance against a production NDS.Live
+  payload is maintained in a private companion repository
+  (NDS Association membership required): that harness decodes
+  a 50 KiB production payload via `_read`, re-encodes it via
+  `_write`, and verifies byte equality.
 
 ## Notes
 

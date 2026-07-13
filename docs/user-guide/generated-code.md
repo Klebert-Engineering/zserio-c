@@ -51,16 +51,16 @@ So `UInt8` → `u_int8` and `XMLDocument` → `xml_document`.
 
 ### Symbol-length cap
 
-Deep template instantiation chains (e.g. NDS Live's
-`AttributeMap<…>` instantiated through five levels of map-of-set-
-of-map) can produce identifier names that exceed the filesystem
-NAME_MAX (255 bytes per path component). When a mangled name
-crosses 160 chars the generator truncates and appends a 16-hex
-FNV-1a hash:
+Deep template instantiation chains (e.g. map-of-set-of-map
+templates instantiated through five levels, as large production
+schemas do) can produce identifier names that exceed the
+filesystem NAME_MAX (255 bytes per path component). When a
+mangled name crosses 160 chars the generator truncates and
+appends a 16-hex FNV-1a hash:
 
 ```
-attribute_map_list_road_..._property_value          → too long
-attribute_map_list_road_..._property_…_6ab4420f076d3635   → mapped
+outer_map_inner_set_..._property_value          → too long
+outer_map_inner_set_..._prop_6ab4420f076d3635   → mapped
 ```
 
 The hash is deterministic across runs — re-generation produces the
@@ -368,5 +368,6 @@ each populate one schema's top-level type for a deterministic seed,
 write the bytes, and dump the count. They're a corpus of small
 focused examples per language feature.
 
-For a production-scale read: `conformance/ndslive/read_tile.c`
-decodes a real NDS Live 50 KiB tile and round-trips it byte-equal.
+For a production-scale read: the private companion conformance
+harness (NDS Association membership required) decodes a real
+50 KiB NDS.Live payload and round-trips it byte-equal.

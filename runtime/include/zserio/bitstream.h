@@ -467,17 +467,18 @@ zserio_status_t zserio_bitstream_writer_seek(zserio_bitstream_writer_t *bs,
                                              size_t bit_position);
 
 /* -------- diagnostic: per-primitive-read trace --------
- * Hook for the cpp-oracle wire-format diff (see
- * conformance/ndslive/cpp/read_tile_cpp.cpp). Enabled at runtime when
- * `ZSERIO_TRACE=<path>` is set in the environment AND
- * `zsc_trace_set_enabled(true)` has been called. Each call to
- * `zserio_bitstream_read_bits` (which all primitive reads ultimately
- * funnel through) emits one line to <path> in the form
+ * Hook for external conformance-oracle wire-format diffing.
+ * Enabled at runtime when `ZSERIO_TRACE=<path>` is set in the
+ * environment AND `zsc_trace_set_enabled(true)` has been called.
+ * Each call to `zserio_bitstream_read_bits` (which all primitive
+ * reads ultimately funnel through) emits one line to <path> in the
+ * form
  *   <pos_after> <op> <nbits> <value>
- * with the same format the cpp oracle emits. The two traces can be
- * diff'd to localize wire-format divergence to a specific bit
- * position. NOT part of the public ABI — the symbol is exposed so
- * a test driver can scope the trace to a single layer's decode. */
+ * so an external reference decoder emitting the same format can be
+ * diff'd against it to localize wire-format divergence to a
+ * specific bit position. NOT part of the public ABI — the symbol is
+ * exposed so a test driver can scope the trace to a subset of the
+ * decode. */
 void zsc_trace_set_enabled(bool enabled);
 
 #endif /* ZSERIO_BITSTREAM_H_ */
