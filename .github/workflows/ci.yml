@@ -5,12 +5,21 @@ on:
     branches: [main]
   pull_request:
 
-# Runner policy: every job runs on GitHub-hosted runners except the
-# `perf` job, which needs the dedicated bare-metal measurement hosts
-# and is restricted to push events on this repository (never fork
-# PRs). Self-hosted runners must not be reachable from
-# `pull_request` triggers — a fork PR would execute arbitrary code
-# on them (see docs/ci-self-hosted.md).
+# Runner policy: same-repo runs — pushes and pull requests whose
+# head branch lives in this repository (only people with push
+# access can create those) — use the fast self-hosted org runners.
+# Fork PRs must NEVER reach the self-hosted machines (a fork PR
+# executes arbitrary code, including edited workflow files); every
+# job therefore computes its runner dynamically:
+#
+#   runs-on: fork PR  -> ubuntu-latest (GitHub-hosted, free for
+#                        public repos)
+#             otherwise -> [self-hosted, linux, x64]
+#
+# The `perf` job is the exception: it needs the dedicated
+# bare-metal measurement hosts, has no hosted fallback, and simply
+# skips for fork PRs. See docs/ci-self-hosted.md for the runner
+# deployment and the defense-in-depth settings backing this up.
 #
 # Least privilege by default: the build/test/lint jobs only read the
 # checkout. Jobs that post log comments raise their own scope locally
@@ -30,14 +39,14 @@ concurrency:
 jobs:
   traceability:
     name: Requirements traceability
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && '"ubuntu-latest"' || '["self-hosted", "linux", "x64"]') }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5   # v4.3.1
         with:
           submodules: false
-      # python3 is preinstalled on ubuntu-latest — no
-      # actions/setup-python needed.
+      # python3 is provided by both the runner image and
+      # ubuntu-latest — no actions/setup-python needed.
       - name: Run traceability check + regenerate CSV
         run: python3 tools/check_traceability.py --write-csv
       - name: Fail if committed traceability.csv is stale
@@ -45,7 +54,7 @@ jobs:
 
   version-consistency:
     name: Version consistency (REQ-DM-007)
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && '"ubuntu-latest"' || '["self-hosted", "linux", "x64"]') }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5   # v4.3.1
@@ -56,7 +65,7 @@ jobs:
 
   build-and-test:
     name: Build and test (${{ matrix.compiler }})
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && '"ubuntu-latest"' || '["self-hosted", "linux", "x64"]') }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -86,7 +95,7 @@ jobs:
 
   asan:
     name: Sanitizers (ASan + UBSan)
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && '"ubuntu-latest"' || '["self-hosted", "linux", "x64"]') }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5   # v4.3.1
@@ -115,7 +124,7 @@ jobs:
 
   clang-tidy:
     name: clang-tidy (bugprone / cert / clang-analyzer)
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && '"ubuntu-latest"' || '["self-hosted", "linux", "x64"]') }}
     timeout-minutes: 30
     permissions:
       contents: write   # for posting the clang-tidy log as a commit comment
@@ -167,7 +176,7 @@ jobs:
 
   misra:
     name: MISRA C:2012 (cppcheck) + forbidden-symbols
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && '"ubuntu-latest"' || '["self-hosted", "linux", "x64"]') }}
     timeout-minutes: 30
     permissions:
       contents: write   # for posting cppcheck output as a commit comment
@@ -222,7 +231,7 @@ jobs:
 
   misra-generator:
     name: MISRA C:2012 (generator output)
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && '"ubuntu-latest"' || '["self-hosted", "linux", "x64"]') }}
     timeout-minutes: 60
     permissions:
       contents: write   # for posting cppcheck output as a commit comment
@@ -298,7 +307,7 @@ jobs:
 
   fuzz:
     name: Decode-path fuzzing (REQ-FS-006)
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && '"ubuntu-latest"' || '["self-hosted", "linux", "x64"]') }}
     timeout-minutes: 60
     permissions:
       contents: write   # for posting the fuzz log as a commit comment
@@ -390,7 +399,7 @@ jobs:
 
   stack:
     name: Stack-budget analysis (REQ-FS-003, hazard H-09)
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && '"ubuntu-latest"' || '["self-hosted", "linux", "x64"]') }}
     timeout-minutes: 30
     permissions:
       contents: write   # for posting the stack-usage report as a commit comment
@@ -428,7 +437,7 @@ jobs:
 
   size:
     name: Size regression (REQ-PF-002)
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && '"ubuntu-latest"' || '["self-hosted", "linux", "x64"]') }}
     timeout-minutes: 30
     permissions:
       contents: write   # for posting the size diff as a commit comment
@@ -468,12 +477,16 @@ jobs:
 
   perf:
     name: Performance benchmark (REQ-PF-001, host=${{ matrix.host }})
-    # SECURITY: the only job on self-hosted runners. Never runs for
-    # pull_request events — a fork PR could otherwise execute
-    # arbitrary code on the measurement hosts. The repository guard
-    # keeps forks of this workflow from queueing jobs that would
-    # hang waiting for runners they don't have.
-    if: github.event_name == 'push' && github.repository == 'Klebert-Engineering/zserio-c'
+    # SECURITY: runs only for pushes and same-repo PRs — a fork PR
+    # could otherwise execute arbitrary code on the measurement
+    # hosts. No hosted fallback (perf numbers off the dedicated
+    # hosts are meaningless), so fork PRs skip this job. The
+    # repository guard keeps forks of this workflow from queueing
+    # jobs that would hang waiting for runners they don't have.
+    if: >-
+      github.repository == 'Klebert-Engineering/zserio-c' &&
+      (github.event_name == 'push' ||
+       github.event.pull_request.head.repo.full_name == github.repository)
     # Routed to runners labelled `[self-hosted, perf, <host>]`. The
     # matrix's single entry today (`primary`) is the canonical per-
     # commit perf box; new hosts (pi5, macmini, jetson, ...) join the
@@ -569,7 +582,7 @@ jobs:
 
   generator:
     name: Legacy Java generator (build JAR + smoke load)
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && '"ubuntu-latest"' || '["self-hosted", "linux", "x64"]') }}
     timeout-minutes: 30
     permissions:
       contents: write   # for posting build logs as a commit comment
@@ -630,7 +643,7 @@ jobs:
 
   discover:
     name: Test-data discovery (advisory)
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && '"ubuntu-latest"' || '["self-hosted", "linux", "x64"]') }}
     timeout-minutes: 60
     permissions:
       contents: write   # for posting the discovery summary as a commit comment
@@ -696,7 +709,7 @@ jobs:
 
   coverage:
     name: Coverage (line / branch / function thresholds)
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && '"ubuntu-latest"' || '["self-hosted", "linux", "x64"]') }}
     timeout-minutes: 30
     permissions:
       contents: write   # for posting the coverage report as a commit comment
@@ -751,7 +764,7 @@ jobs:
 
   xvalidation:
     name: Wire-format cross-validation (REQ-FN-001)
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && '"ubuntu-latest"' || '["self-hosted", "linux", "x64"]') }}
     timeout-minutes: 120
     permissions:
       contents: write   # for posting the harness summary as a commit comment

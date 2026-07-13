@@ -52,10 +52,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed — CI and repository hardening for open source
 
-- All CI jobs moved to GitHub-hosted runners except the `perf`
-  benchmark, which stays on the dedicated measurement hosts and
-  is restricted to push events on this repository — self-hosted
-  runners are no longer reachable from pull requests.
+- Self-hosted runners are no longer reachable from fork pull
+  requests: every job computes its runner dynamically — same-repo
+  runs (pushes and maintainer PR branches) use the org runners,
+  fork PRs fall back to GitHub-hosted `ubuntu-latest`. The `perf`
+  benchmark stays on the dedicated measurement hosts with a
+  same-repo guard and no hosted fallback.
 - GitHub Actions are pinned to commit SHAs; dependabot keeps the
   pins and submodules current; per-job timeouts added.
 - NDS.Live conformance and benchmark harnesses relocated to a

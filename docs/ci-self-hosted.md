@@ -1,21 +1,32 @@
-# Self-hosted CI runners (perf hosts)
+# Self-hosted CI runners
 
-Almost all CI runs on GitHub-hosted `ubuntu-latest` runners — see
-`.github/workflows/ci.yml`. Self-hosted runners exist for exactly
-one job: `perf`, the performance benchmark (REQ-PF-001), which
-needs dedicated, always-on, otherwise-idle hardware so that
-measurements are reproducible. Virtualized GitHub-hosted runners
-have noisy neighbors and varying hardware generations; a perf gate
-on them would be a coin flip.
+CI runs on the project's self-hosted org runners for every
+**same-repo** run — pushes, and pull requests whose head branch
+lives in this repository (only people with push access can create
+those). The dedicated hardware is substantially faster than
+GitHub-hosted runners for the heavy gates (xvalidation, fuzz, the
+jar builds). The `perf` job additionally needs dedicated,
+always-on, otherwise-idle measurement hosts so that benchmark
+numbers are reproducible; virtualized GitHub-hosted runners have
+noisy neighbors and varying hardware generations.
 
 **Security policy (enforced in the workflows, not just settings):**
-no job that triggers on `pull_request` may target a self-hosted
-runner. A fork PR would otherwise execute arbitrary code on the
-runner host. The `perf` job is restricted to
-`github.event_name == 'push'` on `Klebert-Engineering/zserio-c`,
-so it runs only for commits that a maintainer has already merged
-or pushed. See [Security](#security) for the defense-in-depth
-settings that back this up.
+fork PRs must never reach the self-hosted machines — a fork PR
+executes arbitrary code, including edited workflow files. Every
+job in `.github/workflows/ci.yml` computes its runner dynamically:
+
+```yaml
+runs-on: ${{ fromJSON(github.event_name == 'pull_request'
+  && github.event.pull_request.head.repo.full_name != github.repository
+  && '"ubuntu-latest"' || '["self-hosted", "linux", "x64"]') }}
+```
+
+so fork PRs fall back to GitHub-hosted `ubuntu-latest` (free for
+public repos — external contributors still get full CI feedback),
+while same-repo runs use the org runners. The `perf` job has no
+hosted fallback and simply skips for fork PRs. See
+[Security](#security) for the defense-in-depth settings that back
+this up.
 
 Everything needed lives in [`ci/`](../ci/):
 
@@ -36,19 +47,18 @@ canonical x86_64 perf box gets `RUNNER_LABELS=perf,primary`, and
 additional hosts (Pi, Mac mini, Jetson, ...) come in as
 `perf,pi4` / `perf,macmini` / `perf,jetson`.
 
-The image bakes in python3 and JDK 17 (with `JAVA_HOME` set), so
-the `perf` job uses no `actions/setup-python` or
-`actions/setup-java` steps — those download toolchains at runtime
-and are redundant against a purpose-built image. (The
-GitHub-hosted jobs that build the upstream jars do use
-`actions/setup-java`.) The `apt-get install` steps are kept as
-fast no-ops.
+The image bakes in python3 and JDK 17 (with `JAVA_HOME` set). The
+jar-building jobs still carry `actions/setup-java` so the
+GitHub-hosted fallback path works for fork PRs; on the image it
+just resolves from the tool cache. The `apt-get install` steps
+are kept as fast no-ops.
 
 ## Hardware
 
-Perf hosts are also the published measurement environments — their
-specs are part of the benchmark methodology
-(`docs/benchmarks/methodology.md`), not an implementation detail.
+General CI runners just need capacity; perf hosts are additionally
+the published measurement environments — their specs are part of
+the benchmark methodology (`docs/benchmarks/methodology.md`), not
+an implementation detail.
 
 The constraints that matter:
 
@@ -64,8 +74,9 @@ The constraints that matter:
   in parallel; on a many-core box, duplicate the `runner-2` block
   in `ci/docker-compose.yml` for more parallelism — the image is
   shared, the resource overhead is small.
-- **Disk** — the benchmark harness generates large trees
-  (`build-benchmarks/`). Budget ~20 GB of working space.
+- **Disk** — the xvalidation and benchmark harnesses generate
+  large trees (`build-xvalidation/`, `build-benchmarks/`). Budget
+  ~20 GB of working space.
 - **Idle** — a perf host must not run other workloads while a
   measurement is in flight. The workflow serializes perf runs per
   host via a concurrency group, but it cannot see load from
@@ -78,15 +89,18 @@ time. `entrypoint.sh` supports two scopes; pick one per deployment:
 
 | Scope | When to use | `ci/.env` |
 |---|---|---|
-| **Repo** | Binds the runner to a single repository. Preferred for public repos — the runner cannot be reached by any other repo. | `GITHUB_REPO=owner/name` |
-| **Org**  | One runner pool serves every repo the runner group is enabled for. Only appropriate when every repo in the group is trusted and the group is explicitly restricted. | `GITHUB_ORG=org-name` |
+| **Repo** | Binds the runner to a single repository; the runner cannot be reached by any other repo. | `GITHUB_REPO=owner/name` |
+| **Org**  | One runner pool serves every repo the runner group is enabled for. The canonical `Klebert-Engineering` deployment uses this scope. | `GITHUB_ORG=org-name` |
 
 Set **exactly one** of `GITHUB_REPO` or `GITHUB_ORG` per `.env` —
 the entrypoint refuses both-set and neither-set configurations.
-For the public `zserio-c` deployment, prefer repo scope, or an
-org-level runner group restricted to `zserio-c` only (Org →
-Settings → Actions → Runner groups) — never the org-default group
-that serves all repositories.
+For the org-scoped deployment, put the runners in a runner group
+**restricted to `zserio-c`** (Org → Settings → Actions → Runner
+groups) — never the org-default group that serves all
+repositories. Once the repo is public, the group additionally
+needs **"Allow public repositories"** enabled — GitHub disables it
+by default, and without it the org runners silently stop picking
+up this repo's jobs (they queue forever).
 
 ## One-time: create the PAT
 
@@ -110,7 +124,7 @@ The PAT is exchanged for a short-lived *registration* token at
 container start (`entrypoint.sh`); it is never baked into the image
 or the compose file. It lives only in `ci/.env`, which is gitignored.
 
-## Deploying a perf runner
+## Deploying a runner
 
 The canonical path is `docker compose` from a checkout of the repo
 on the host. No GUI required.
@@ -121,9 +135,10 @@ cd /opt/zserio-ci/ci
 
 cp .env.example .env
 $EDITOR .env       # GITHUB_PAT=<your PAT>
-                   # GITHUB_REPO=Klebert-Engineering/zserio-c
-                   # (or GITHUB_ORG with a restricted runner group)
+                   # GITHUB_ORG=Klebert-Engineering (the default; put
+                   # the runners in a group restricted to zserio-c)
                    #
+                   # On a plain CI box, leave RUNNER_LABELS unset.
                    # On the primary perf box:
                    #   RUNNER_LABELS=perf,primary
                    # Other perf hosts use perf,<their-label>
@@ -134,10 +149,11 @@ docker compose logs -f          # tail to watch registration
 ```
 
 Within ~30 s of containers starting, the runners appear under
-**Settings → Actions → Runners** showing **Idle** with a label set
-of `self-hosted, linux, x64` plus whatever `RUNNER_LABELS` added.
-Push a commit to `main`; the `perf` job routes to the matching
-host.
+**Org → Settings → Actions → Runners** showing **Idle** with a
+label set of `self-hosted, linux, x64` plus whatever
+`RUNNER_LABELS` added. Push a commit or open a same-repo PR; the
+jobs route to the org runners, and the `perf` job to the matching
+perf host.
 
 Multiple compose projects can share one host (e.g. separate
 deployments for separate scopes): give each its own checkout,
@@ -240,14 +256,19 @@ A self-hosted runner executes whatever code the workflow run gives
 it, so the exposure is controlled at the workflow layer first and
 the platform layer second:
 
-1. **Workflow layer (committed, reviewable).** No `pull_request`-
-   triggered job targets a self-hosted runner. The `perf` job — the
-   only self-hosted job — carries an explicit
-   `if: github.event_name == 'push' && github.repository == 'Klebert-Engineering/zserio-c'`
-   guard. Changing that requires a reviewed commit to the workflow.
-2. **Runner scope.** Register the runners repo-scoped (or in an
-   org runner group restricted to this repo). Never place them in
-   the org-default group where any repo in the org can reach them.
+1. **Workflow layer (committed, reviewable).** Every job's
+   `runs-on` expression routes fork PRs to GitHub-hosted runners;
+   only same-repo runs (push / maintainer PR branches) resolve to
+   the self-hosted labels. The `perf` job carries an explicit
+   same-repo `if:` guard and skips for fork PRs. Changing either
+   requires a reviewed commit to the workflow. Note that fork PRs
+   *can* edit workflow files in their own PR — which is exactly
+   why the fork check keys on where the head branch lives, not on
+   file content, and why layer 3 exists.
+2. **Runner scope.** Keep the runners in an org runner group
+   restricted to this repo (with "Allow public repositories"
+   enabled once the repo is public). Never place them in the
+   org-default group where any repo in the org can reach them.
 3. **GitHub settings.** Settings → Actions → *Fork pull request
    workflows* — require approval for all outside collaborators.
    This is the backstop for mistakes in (1); it also gates
