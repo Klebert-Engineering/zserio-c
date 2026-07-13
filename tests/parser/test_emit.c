@@ -205,11 +205,59 @@ static void test_emit_writes_to_package_path(void)
     memory_sink_free(&sink);
 }
 
+static void test_emit_const_values(void)
+{
+    static const uint8_t INPUT[] =
+            "package x;\n"
+            "const float32 PI_ISH = 1.5;\n"
+            "const float64 BIG = 2.5;\n"
+            "const float64 WHOLE = 4.0;\n"
+            "const string GREETING = \"hello\\n\";\n"
+            "const bool FLAG = true;\n"
+            "const int32 NEG = -7;\n"
+            "const uint32 ANSWER = 42;\n";
+    memory_sink_t sink = {0};
+    parse_analyze_emit(INPUT, sizeof(INPUT) - 1U, &sink);
+
+    const emitted_file_t *const pi = find_file(&sink, "pi_ish.h");
+    TEST_ASSERT_NOT_NULL(pi);
+    TEST_ASSERT_NOT_NULL(strstr(pi->bytes, "PI_ISH (1.5F)"));
+
+    const emitted_file_t *const big = find_file(&sink, "big.h");
+    TEST_ASSERT_NOT_NULL(big);
+    TEST_ASSERT_NOT_NULL(strstr(big->bytes, "BIG (2.5)"));
+
+    /* %.17g renders integral doubles without a decimal point;
+     * the emitter must restore one to keep the literal's type. */
+    const emitted_file_t *const whole = find_file(&sink, "whole.h");
+    TEST_ASSERT_NOT_NULL(whole);
+    TEST_ASSERT_NOT_NULL(strstr(whole->bytes, "WHOLE (4.0)"));
+
+    const emitted_file_t *const greeting = find_file(&sink, "greeting.h");
+    TEST_ASSERT_NOT_NULL(greeting);
+    TEST_ASSERT_NOT_NULL(strstr(greeting->bytes, "GREETING (\"hello\\n\")"));
+
+    const emitted_file_t *const flag = find_file(&sink, "flag.h");
+    TEST_ASSERT_NOT_NULL(flag);
+    TEST_ASSERT_NOT_NULL(strstr(flag->bytes, "FLAG (1U)"));
+
+    const emitted_file_t *const neg = find_file(&sink, "neg.h");
+    TEST_ASSERT_NOT_NULL(neg);
+    TEST_ASSERT_NOT_NULL(strstr(neg->bytes, "NEG (-7)"));
+
+    const emitted_file_t *const answer = find_file(&sink, "answer.h");
+    TEST_ASSERT_NOT_NULL(answer);
+    TEST_ASSERT_NOT_NULL(strstr(answer->bytes, "ANSWER (42U)"));
+
+    memory_sink_free(&sink);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_emit_simple_struct);
     RUN_TEST(test_emit_enum);
     RUN_TEST(test_emit_writes_to_package_path);
+    RUN_TEST(test_emit_const_values);
     return UNITY_END();
 }

@@ -233,7 +233,11 @@ struct zsp_ast_node {
                  zsp_ast_node_t  *selector;        /**< Expression */
                  zsp_ast_node_t **cases;
                  size_t            n_cases;
-                 zsp_ast_node_t  *default_case; }  choice;
+                 zsp_ast_node_t  *default_case;
+                 /* True when the body declared one or more
+                  * functions. The analyzer rejects these until
+                  * function inlining covers choice types. */
+                 bool             has_functions; }  choice;
 
         struct { zsp_ast_node_t **labels;          /**< Expression list */
                  size_t            n_labels;
