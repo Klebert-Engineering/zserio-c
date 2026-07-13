@@ -47,8 +47,9 @@
 
 /* Schema language version. Independent of the release version.
  * 1.0 is the subset of upstream Zserio language v2.18.1 that
- * zserio-c accepts (no `service`, `pubsub`, `sql_table`,
- * `sql_database`). See `docs/spec/schema-language.md`. */
+ * zserio-c accepts, including `service` and `pubsub` interface
+ * generation (no `sql_table`/`sql_database`; rejected with a
+ * diagnostic). See `docs/spec/schema-language.md`. */
 #define ZSERIO_SCHEMA_LANGUAGE_VERSION_MAJOR 1
 #define ZSERIO_SCHEMA_LANGUAGE_VERSION_MINOR 0
 #define ZSERIO_SCHEMA_LANGUAGE_VERSION_STRING "1.0"
