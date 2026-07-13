@@ -1,12 +1,10 @@
 # CodeQL — semantic / dataflow static analysis for the C runtime + parser.
 #
-# IMPORTANT — licensing: CodeQL code scanning is free only for *public*
-# repositories. On a *private* repo it requires GitHub Advanced Security
-# (bundled with GitHub Enterprise, or the standalone "GitHub Code Security"
-# add-on, both per-committer paid). Without it the upload step fails with
-# "Advanced Security must be enabled for this repository". GHAS is enabled
-# for this repo, so the workflow gates pull requests as well as pushes to
-# main, plus a weekly scheduled scan and manual dispatch.
+# Licensing: CodeQL code scanning is free for public repositories.
+# The workflow gates pull requests as well as pushes to main, plus a
+# weekly scheduled scan and manual dispatch. Runs on GitHub-hosted
+# runners only — self-hosted runners must never be reachable from
+# pull_request triggers (see docs/ci-self-hosted.md).
 
 name: CodeQL
 
@@ -27,13 +25,14 @@ permissions:
 jobs:
   analyze:
     name: Analyze (C)
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
     permissions:
       security-events: write   # upload SARIF results to the Security tab
       contents: read
       actions: read            # private repos: analyze reads the workflow run
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5   # v4.3.1
         with:
           submodules: false
 
@@ -41,7 +40,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y ninja-build cmake clang
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@02c5e83432fe5497fd85b873b6c9f16a8578e1d9   # v3.37.0
         with:
           languages: c-cpp
           # security-and-quality adds the maintainability/reliability
@@ -53,14 +52,7 @@ jobs:
         # traces real compilations. Tests are disabled so the build does
         # not depend on fetching the Unity test dependency.
         #
-        # The build dir is removed first: these are persistent self-hosted
-        # runners, so a leftover build-codeql/ from a previous run would
-        # make `cmake --build` a no-op, CodeQL would trace zero
-        # compilations, and the run would fail with an empty database
-        # ("No source code was seen"). A from-scratch build guarantees
-        # every translation unit is compiled and traced.
         run: |
-          rm -rf build-codeql
           cmake -B build-codeql -S . -G Ninja \
             -DCMAKE_BUILD_TYPE=Debug \
             -DZSERIO_C_BUILD_TESTS=OFF \
@@ -68,6 +60,6 @@ jobs:
           cmake --build build-codeql
 
       - name: Perform CodeQL analysis
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@02c5e83432fe5497fd85b873b6c9f16a8578e1d9   # v3.37.0
         with:
           category: "/language:c-cpp"

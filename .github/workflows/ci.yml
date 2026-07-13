@@ -5,6 +5,13 @@ on:
     branches: [main]
   pull_request:
 
+# Runner policy: every job runs on GitHub-hosted runners except the
+# `perf` job, which needs the dedicated bare-metal measurement hosts
+# and is restricted to push events on this repository (never fork
+# PRs). Self-hosted runners must not be reachable from
+# `pull_request` triggers — a fork PR would execute arbitrary code
+# on them (see docs/ci-self-hosted.md).
+#
 # Least privilege by default: the build/test/lint jobs only read the
 # checkout. Jobs that post log comments raise their own scope locally
 # with an explicit `permissions:` block. (Hardening: without a
@@ -13,16 +20,24 @@ on:
 permissions:
   contents: read
 
+# Cancel superseded runs of the same PR/branch. The perf job opts
+# out via its own per-host concurrency group (a fresh commit must
+# not kill an in-flight measurement).
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   traceability:
     name: Requirements traceability
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5   # v4.3.1
         with:
           submodules: false
-      # python3 is provided by the self-hosted runner image
-      # (ci/Dockerfile) — no actions/setup-python needed.
+      # python3 is preinstalled on ubuntu-latest — no
+      # actions/setup-python needed.
       - name: Run traceability check + regenerate CSV
         run: python3 tools/check_traceability.py --write-csv
       - name: Fail if committed traceability.csv is stale
@@ -30,9 +45,10 @@ jobs:
 
   version-consistency:
     name: Version consistency (REQ-DM-007)
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5   # v4.3.1
         with:
           submodules: false
       - name: Cross-check version sources
@@ -40,7 +56,8 @@ jobs:
 
   build-and-test:
     name: Build and test (${{ matrix.compiler }})
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -51,7 +68,7 @@ jobs:
           - compiler: clang
             cc: clang
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5   # v4.3.1
         with:
           submodules: false
       - name: Install build tools
@@ -69,9 +86,10 @@ jobs:
 
   asan:
     name: Sanitizers (ASan + UBSan)
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5   # v4.3.1
         with:
           submodules: false
       - name: Install build tools
@@ -97,11 +115,12 @@ jobs:
 
   clang-tidy:
     name: clang-tidy (bugprone / cert / clang-analyzer)
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: write   # for posting the clang-tidy log as a commit comment
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5   # v4.3.1
         with:
           submodules: false
       - name: Install clang-tidy
@@ -114,12 +133,15 @@ jobs:
         run: tools/run_clang_tidy.sh --strict
       - name: Upload clang-tidy log
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02   # v4.6.2
         with:
           name: clang-tidy-log
           path: clang-tidy.log
       - name: Post clang-tidy output as commit comment
-        if: always()
+        # Push events only: fork PRs run with a read-only token,
+        # so posting would fail the job; PR feedback is the check
+        # status itself.
+        if: always() && github.event_name == 'push'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -145,11 +167,12 @@ jobs:
 
   misra:
     name: MISRA C:2012 (cppcheck) + forbidden-symbols
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: write   # for posting cppcheck output as a commit comment
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5   # v4.3.1
         with:
           submodules: false
       - name: Install cppcheck
@@ -162,7 +185,7 @@ jobs:
         run: tools/run_misra.sh --strict
       - name: Upload cppcheck log
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02   # v4.6.2
         with:
           name: cppcheck-log
           path: cppcheck.log
@@ -170,8 +193,9 @@ jobs:
         # The artifact path requires Azure blob access which our
         # development environment can't reach. Posting the log as a
         # commit comment keeps it accessible through the plain
-        # repos/.../commits/<sha>/comments endpoint.
-        if: always()
+        # repos/.../commits/<sha>/comments endpoint. Push events
+        # only: fork PRs run with a read-only token.
+        if: always() && github.event_name == 'push'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -198,11 +222,12 @@ jobs:
 
   misra-generator:
     name: MISRA C:2012 (generator output)
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
     permissions:
       contents: write   # for posting cppcheck output as a commit comment
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5   # v4.3.1
         with:
           submodules: false
       - name: Init upstream + test-data submodules
@@ -212,8 +237,13 @@ jobs:
         run: git submodule update --init third_party/zserio third_party/zserio-test-data
       - name: Install build + analysis tools
         run: sudo apt-get update && sudo apt-get install -y ant cppcheck
+      - name: Set up JDK 17
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9   # v4.8.0
+        with:
+          distribution: temurin
+          java-version: '17'
       - name: Cache upstream zserio jars
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830   # v4.3.0
         with:
           path: build-jars
           key: zserio-bundle-${{ hashFiles('third_party/zserio/compiler/**') }}
@@ -239,7 +269,10 @@ jobs:
           set -o pipefail
           tools/run_misra_generated.sh --strict 2>&1 | tee misra-generated.log
       - name: Post cppcheck output as commit comment
-        if: always()
+        # Push events only: fork PRs run with a read-only token,
+        # so posting would fail the job; PR feedback is the check
+        # status itself.
+        if: always() && github.event_name == 'push'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -265,11 +298,12 @@ jobs:
 
   fuzz:
     name: Decode-path fuzzing (REQ-FS-006)
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
     permissions:
       contents: write   # for posting the fuzz log as a commit comment
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5   # v4.3.1
         with:
           submodules: false
       - name: Init upstream + test-data submodules
@@ -284,8 +318,13 @@ jobs:
         # fails with `cannot find libclang_rt.fuzzer-x86_64.a`. If the
         # image upgrades to a newer clang, bump the version number.
         run: sudo apt-get update && sudo apt-get install -y ant clang libclang-rt-18-dev
+      - name: Set up JDK 17
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9   # v4.8.0
+        with:
+          distribution: temurin
+          java-version: '17'
       - name: Cache upstream zserio jars
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830   # v4.3.0
         with:
           path: build-jars
           key: zserio-bundle-${{ hashFiles('third_party/zserio/compiler/**') }}
@@ -304,7 +343,7 @@ jobs:
         # corpus accumulates across commits. A targets.txt change
         # bumps the prefix and the corpus starts fresh — intentional
         # (the corpus shape is tied to the set of fuzz targets).
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830   # v4.3.0
         with:
           path: tests/fuzz/corpus
           key: fuzz-corpus-${{ hashFiles('tests/fuzz/targets.txt') }}-${{ github.run_id }}
@@ -322,7 +361,10 @@ jobs:
           set -o pipefail
           FUZZ_SECONDS=60 tools/run_fuzz.sh 2>&1 | tee fuzz.log
       - name: Post fuzz log as commit comment
-        if: always()
+        # Push events only: fork PRs run with a read-only token,
+        # so posting would fail the job; PR feedback is the check
+        # status itself.
+        if: always() && github.event_name == 'push'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -348,11 +390,12 @@ jobs:
 
   stack:
     name: Stack-budget analysis (REQ-FS-003, hazard H-09)
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: write   # for posting the stack-usage report as a commit comment
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5   # v4.3.1
         with:
           submodules: false
       - name: Install build tools
@@ -365,7 +408,10 @@ jobs:
           set -o pipefail
           python3 tools/measure_stack_usage.py --strict | tee stack-report.txt
       - name: Post stack report as commit comment
-        if: always()
+        # Push events only: fork PRs run with a read-only token,
+        # so posting would fail the job; PR feedback is the check
+        # status itself.
+        if: always() && github.event_name == 'push'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -382,11 +428,12 @@ jobs:
 
   size:
     name: Size regression (REQ-PF-002)
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: write   # for posting the size diff as a commit comment
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5   # v4.3.1
         with:
           submodules: false
       - name: Install build tools
@@ -401,7 +448,10 @@ jobs:
           set -o pipefail
           python3 tools/check_size_regression.py sizes.json | tee size-report.txt
       - name: Post size report as commit comment
-        if: always()
+        # Push events only: fork PRs run with a read-only token,
+        # so posting would fail the job; PR feedback is the check
+        # status itself.
+        if: always() && github.event_name == 'push'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -418,12 +468,19 @@ jobs:
 
   perf:
     name: Performance benchmark (REQ-PF-001, host=${{ matrix.host }})
+    # SECURITY: the only job on self-hosted runners. Never runs for
+    # pull_request events — a fork PR could otherwise execute
+    # arbitrary code on the measurement hosts. The repository guard
+    # keeps forks of this workflow from queueing jobs that would
+    # hang waiting for runners they don't have.
+    if: github.event_name == 'push' && github.repository == 'Klebert-Engineering/zserio-c'
     # Routed to runners labelled `[self-hosted, perf, <host>]`. The
     # matrix's single entry today (`primary`) is the canonical per-
     # commit perf box; new hosts (pi5, macmini, jetson, ...) join the
     # list as their runners come online. See
     # docs/benchmarks/methodology.md for the multi-host policy.
     runs-on: [self-hosted, perf, "${{ matrix.host }}"]
+    timeout-minutes: 120
     # One perf run per host at a time — running two on the same host
     # in parallel destroys the measurement (cache contention, jitter).
     # Different hosts (different matrix entries) run independently.
@@ -439,7 +496,7 @@ jobs:
     permissions:
       contents: write   # for posting the benchmark report as a commit comment
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5   # v4.3.1
         with:
           submodules: false
       - name: Init upstream submodules
@@ -453,7 +510,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y ant gcc g++
       # JDK 17 + JAVA_HOME provided by the runner image (ci/Dockerfile).
       - name: Cache upstream zserio jars
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830   # v4.3.0
         with:
           path: build-jars
           key: zserio-bundle-${{ hashFiles('third_party/zserio/compiler/**') }}
@@ -484,7 +541,10 @@ jobs:
           set -o pipefail
           python3 tools/check_perf_regression.py perf.json | tee perf-report.txt
       - name: Post benchmark report as commit comment
-        if: always()
+        # Push events only: fork PRs run with a read-only token,
+        # so posting would fail the job; PR feedback is the check
+        # status itself.
+        if: always() && github.event_name == 'push'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PERF_HOST: ${{ matrix.host }}
@@ -509,20 +569,25 @@ jobs:
 
   generator:
     name: Legacy Java generator (build JAR + smoke load)
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: write   # for posting build logs as a commit comment
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5   # v4.3.1
         with:
           submodules: false
       - name: Init upstream submodule
         run: git submodule update --init third_party/zserio
       - name: Install build tools
         run: sudo apt-get update && sudo apt-get install -y ant
-      # JDK 17 + JAVA_HOME provided by the runner image (ci/Dockerfile).
+      - name: Set up JDK 17
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9   # v4.8.0
+        with:
+          distribution: temurin
+          java-version: '17'
       - name: Cache upstream zserio_core.jar
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830   # v4.3.0
         with:
           path: build-jars
           key: zserio-core-${{ hashFiles('third_party/zserio/compiler/core/**') }}
@@ -542,7 +607,10 @@ jobs:
           set -o pipefail
           tools/smoke_generator.sh 2>&1 | tee -a /tmp/generator.log
       - name: Post build log as commit comment
-        if: always()
+        # Push events only: fork PRs run with a read-only token,
+        # so posting would fail the job; PR feedback is the check
+        # status itself.
+        if: always() && github.event_name == 'push'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -562,11 +630,12 @@ jobs:
 
   discover:
     name: Test-data discovery (advisory)
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
     permissions:
       contents: write   # for posting the discovery summary as a commit comment
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5   # v4.3.1
         with:
           submodules: false
       - name: Init submodules
@@ -577,9 +646,13 @@ jobs:
           git submodule update --init third_party/zserio-test-data
       - name: Install build tools
         run: sudo apt-get update && sudo apt-get install -y ant
-      # JDK 17 + JAVA_HOME provided by the runner image (ci/Dockerfile).
+      - name: Set up JDK 17
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9   # v4.8.0
+        with:
+          distribution: temurin
+          java-version: '17'
       - name: Cache upstream zserio_core.jar
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830   # v4.3.0
         with:
           path: build-jars
           key: zserio-core-${{ hashFiles('third_party/zserio/compiler/core/**') }}
@@ -593,7 +666,10 @@ jobs:
         # us which feature gap to attack next.
         run: tools/discover_test_data.sh 2>&1 | tee /tmp/discover.log
       - name: Post discovery summary as commit comment
-        if: always()
+        # Push events only: fork PRs run with a read-only token,
+        # so posting would fail the job; PR feedback is the check
+        # status itself.
+        if: always() && github.event_name == 'push'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -613,18 +689,19 @@ jobs:
             -H 'Accept: application/vnd.github+json'
       - name: Upload full discovery results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02   # v4.6.2
         with:
           name: discover-results
           path: build-discover/
 
   coverage:
     name: Coverage (line / branch / function thresholds)
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: write   # for posting the coverage report as a commit comment
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5   # v4.3.1
         with:
           submodules: false
       - name: Install build tools
@@ -654,7 +731,10 @@ jobs:
           set -o pipefail
           python3 tools/check_coverage.py coverage-runtime.info | tee coverage-report.txt
       - name: Post coverage report as commit comment
-        if: always()
+        # Push events only: fork PRs run with a read-only token,
+        # so posting would fail the job; PR feedback is the check
+        # status itself.
+        if: always() && github.event_name == 'push'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -671,11 +751,12 @@ jobs:
 
   xvalidation:
     name: Wire-format cross-validation (REQ-FN-001)
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
     permissions:
       contents: write   # for posting the harness summary as a commit comment
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5   # v4.3.1
         with:
           submodules: false
       - name: Init submodules
@@ -691,13 +772,17 @@ jobs:
         # generator; gcc/g++ already on the runner image but the
         # explicit install keeps the step self-documenting.
         run: sudo apt-get update && sudo apt-get install -y ant gcc g++ cmake ninja-build python3
-      # JDK 17 + JAVA_HOME provided by the runner image (ci/Dockerfile).
+      - name: Set up JDK 17
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9   # v4.8.0
+        with:
+          distribution: temurin
+          java-version: '17'
       - name: Cache upstream zserio jars
         # Two artifacts cached together: zserio_core.jar (drives our
         # generator) and zserio.jar (the bundle with the cpp
         # extension, drives the oracle). Both rebuild from the same
         # source under compiler/.
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830   # v4.3.0
         with:
           path: build-jars
           key: zserio-bundle-${{ hashFiles('third_party/zserio/compiler/**', 'third_party/zserio/build.xml') }}
@@ -717,7 +802,7 @@ jobs:
       - name: Cache cpp runtime + harness scratch
         # The cpp runtime static lib is ~10MB and rebuilds in ~30s.
         # Cache it across runs keyed on the cpp-runtime sources.
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830   # v4.3.0
         with:
           path: |
             build-xvalidation/libZserioCppRuntime.a
@@ -725,7 +810,7 @@ jobs:
             build-xvalidation/runtime-objs
           key: xval-rt-${{ hashFiles('third_party/zserio/compiler/extensions/cpp/runtime/src/**', 'runtime/src/**', 'runtime/include/**') }}
       - name: Run xvalidation harness
-        # Five seeds × 181 schemas = 905 byte-equal round-trips per
+        # Five seeds × 182 schemas = 910 byte-equal round-trips per
         # run. Exits non-zero on any wire-format divergence, surfaced
         # here so a regression blocks the merge.
         shell: bash
@@ -767,7 +852,10 @@ jobs:
           } > /tmp/xval-summary.txt
           cat /tmp/xval-summary.txt
       - name: Post xvalidation summary as commit comment
-        if: always()
+        # Push events only: fork PRs run with a read-only token,
+        # so posting would fail the job; PR feedback is the check
+        # status itself.
+        if: always() && github.event_name == 'push'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -789,7 +877,7 @@ jobs:
         # uploading the whole tree gives us the diagnostic data
         # without having to reproduce locally.
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02   # v4.6.2
         with:
           name: xvalidation-failure
           path: |

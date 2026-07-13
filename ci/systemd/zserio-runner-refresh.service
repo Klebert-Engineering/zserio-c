@@ -8,7 +8,7 @@
 #   sudo systemctl enable --now zserio-runner-refresh.timer
 #
 # Adjust WorkingDirectory + ExecStart to the deployment you want kept
-# current. On a host with more than one deployment (org + shadow),
+# current. On a host with more than one deployment,
 # install renamed copies (e.g. zserio-runner-refresh-org.{service,timer})
 # with the right WorkingDirectory and COMPOSE_PROJECT for each.
 

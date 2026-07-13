@@ -22,7 +22,7 @@
 # Optional env:
 #   COMPOSE_PROJECT   passed to `docker compose -p` so the right
 #                     deployment is targeted on a host that runs more than
-#                     one (e.g. the org pool + the shadow-mirror pool).
+#                     one deployment.
 #                     Unset -> compose's own resolution (COMPOSE_PROJECT_NAME
 #                     in .env, else the directory name).
 

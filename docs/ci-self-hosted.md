@@ -1,62 +1,75 @@
-# Self-hosted CI runners
+# Self-hosted CI runners (perf hosts)
 
-GitHub-hosted minutes are a finite monthly quota. This document
-describes the self-hosted runner setup that takes over when the
-quota is exhausted (and, longer term, is the cheaper steady state).
+Almost all CI runs on GitHub-hosted `ubuntu-latest` runners — see
+`.github/workflows/ci.yml`. Self-hosted runners exist for exactly
+one job: `perf`, the performance benchmark (REQ-PF-001), which
+needs dedicated, always-on, otherwise-idle hardware so that
+measurements are reproducible. Virtualized GitHub-hosted runners
+have noisy neighbors and varying hardware generations; a perf gate
+on them would be a coin flip.
+
+**Security policy (enforced in the workflows, not just settings):**
+no job that triggers on `pull_request` may target a self-hosted
+runner. A fork PR would otherwise execute arbitrary code on the
+runner host. The `perf` job is restricted to
+`github.event_name == 'push'` on `Klebert-Engineering/zserio-c`,
+so it runs only for commits that a maintainer has already merged
+or pushed. See [Security](#security) for the defense-in-depth
+settings that back this up.
 
 Everything needed lives in [`ci/`](../ci/):
 
 | File | Purpose |
 | --- | --- |
-| `ci/Dockerfile` | Builder image — Ubuntu 24.04 (the same OS GitHub-hosted `ubuntu-latest` runs, so the committed size/perf/coverage baselines and MISRA suppressions stay valid) + the full CI toolchain + `gh` + the GitHub Actions runner agent |
+| `ci/Dockerfile` | Builder image — Ubuntu 24.04 (the same OS GitHub-hosted `ubuntu-latest` runs, so the committed perf baselines stay valid) + the full CI toolchain + `gh` + the GitHub Actions runner agent |
 | `ci/entrypoint.sh` | Runner lifecycle — exchanges a PAT for a registration token at start, de-registers on stop, runs the agent with `--disableupdate` (see [Keeping the runner agent current](#keeping-the-runner-agent-current)) |
 | `ci/docker-compose.yml` | Three runner instances on one host, sharing the image |
 | `ci/.env.example` | Template for the one secret the operator manages (a GitHub PAT) |
 | `ci/refresh-runner.sh` | Zero-touch agent upgrade — rebuilds the image when a newer runner release exists (replaces the fragile in-container self-update) |
 | `ci/systemd/zserio-runner-refresh.{service,timer}` | Weekly trigger for `refresh-runner.sh` so the agent stays current unattended |
 
-Most CI jobs target `runs-on: [self-hosted, linux, x64]` — any
-runner with those base labels picks them up. The `perf` job is
-the exception: it targets `[self-hosted, perf, <host>]` so it
-routes only to runners that have explicitly opted in via
+The `perf` job targets `[self-hosted, perf, <host>]`, so it routes
+only to runners that have explicitly opted in via
 `RUNNER_LABELS=perf,<host>` in `ci/.env`. The full multi-host
 policy is in `docs/benchmarks/methodology.md`; in short, the
-canonical x86_64 perf box gets `RUNNER_LABELS=perf,primary`,
-and additional hosts (Pi, Mac mini, Jetson, ...) come in as
-`perf,pi5` / `perf,macmini` / `perf,jetson`.
+canonical x86_64 perf box gets `RUNNER_LABELS=perf,primary`, and
+additional hosts (Pi, Mac mini, Jetson, ...) come in as
+`perf,pi4` / `perf,macmini` / `perf,jetson`.
 
 The image bakes in python3 and JDK 17 (with `JAVA_HOME` set), so
-the workflow uses no `actions/setup-python` or `actions/setup-java`
-steps — those download toolchains at runtime and are redundant
-against a purpose-built image. The `apt-get install` steps are
-kept as fast no-ops.
+the `perf` job uses no `actions/setup-python` or
+`actions/setup-java` steps — those download toolchains at runtime
+and are redundant against a purpose-built image. (The
+GitHub-hosted jobs that build the upstream jars do use
+`actions/setup-java`.) The `apt-get install` steps are kept as
+fast no-ops.
 
 ## Hardware
 
-Reference target: a Linux x86_64 server with 16 cores / 128 GB
-RAM, always-on, dedicated.
+Perf hosts are also the published measurement environments — their
+specs are part of the benchmark methodology
+(`docs/benchmarks/methodology.md`), not an implementation detail.
 
-The constraints that actually matter:
+The constraints that matter:
 
-- **x86-64 for the `primary` perf box.** The `size` baseline is
-  measured on x86_64; the `perf` baseline is per-host so a non-
-  x86 host just seeds its own `perf.baseline.<host>.json` on
-  first run. Non-`primary` perf hosts (Pi, Mac, Jetson) can be
-  any architecture.
+- **x86-64 for the `primary` perf box.** The `perf` baseline is
+  per-host, so a non-x86 host just seeds its own
+  `perf.baseline.<host>.json` on first run. Non-`primary` perf
+  hosts (Pi, Mac, Jetson) can be any architecture.
 - **RAM** — the Java/ant jar builds want ~2 GB headroom; the LTO
-  link of the `ndslive_tile` perf workload can spike to ~4 GB
-  transient. 8 GB is the floor, more is comfortable. 32 GB is
-  generous; the 128 GB on the reference Linux x86_64 server has
-  abundant headroom.
+  link of the largest benchmark workload can spike to ~4 GB
+  transient. 8 GB is the floor, more is comfortable.
 - **Cores** — 2 is enough; jobs just serialize more. Three runner
-  instances (the compose default) let GitHub dispatch the lighter
-  jobs in parallel, roughly halving a full run's wall-clock. On a
-  16-core box, duplicate the `runner-2` block in
-  `ci/docker-compose.yml` up to `runner-6` for more parallelism;
-  the image is shared, the resource overhead is small.
-- **Disk** — the xvalidation and perf jobs generate large trees
-  (`build-xvalidation/`, `build-benchmarks/`, 1500+ files for the
-  ndslive schema). Budget ~20 GB of working space.
+  instances (the compose default) let GitHub dispatch queued jobs
+  in parallel; on a many-core box, duplicate the `runner-2` block
+  in `ci/docker-compose.yml` for more parallelism — the image is
+  shared, the resource overhead is small.
+- **Disk** — the benchmark harness generates large trees
+  (`build-benchmarks/`). Budget ~20 GB of working space.
+- **Idle** — a perf host must not run other workloads while a
+  measurement is in flight. The workflow serializes perf runs per
+  host via a concurrency group, but it cannot see load from
+  outside CI.
 
 ## Scope: repo runner vs org runner
 
@@ -65,11 +78,15 @@ time. `entrypoint.sh` supports two scopes; pick one per deployment:
 
 | Scope | When to use | `ci/.env` |
 |---|---|---|
-| **Repo** | The legacy `ke-fritz/zserio-c-shadow` mirror (a personal account, not under an org), or any single-repo deployment. | `GITHUB_REPO=owner/name` |
-| **Org**  | The canonical `Klebert-Engineering/zserio-c` deployment, and any future repo in that org. One runner pool serves every repo in the org's runner groups it belongs to. | `GITHUB_ORG=org-name` |
+| **Repo** | Binds the runner to a single repository. Preferred for public repos — the runner cannot be reached by any other repo. | `GITHUB_REPO=owner/name` |
+| **Org**  | One runner pool serves every repo the runner group is enabled for. Only appropriate when every repo in the group is trusted and the group is explicitly restricted. | `GITHUB_ORG=org-name` |
 
 Set **exactly one** of `GITHUB_REPO` or `GITHUB_ORG` per `.env` —
 the entrypoint refuses both-set and neither-set configurations.
+For the public `zserio-c` deployment, prefer repo scope, or an
+org-level runner group restricted to `zserio-c` only (Org →
+Settings → Actions → Runner groups) — never the org-default group
+that serves all repositories.
 
 ## One-time: create the PAT
 
@@ -86,16 +103,17 @@ on the scope:
     **Self-hosted runners: Read and write**.
 
 GitHub → Settings → Developer settings → Personal access tokens.
+Prefer the fine-grained PAT — it limits the blast radius if the
+token leaks.
 
 The PAT is exchanged for a short-lived *registration* token at
 container start (`entrypoint.sh`); it is never baked into the image
 or the compose file. It lives only in `ci/.env`, which is gitignored.
 
-## Deploying a repo-scoped runner (e.g. the shadow mirror)
+## Deploying a perf runner
 
-The canonical path for the `primary` perf box and other Linux
-runners is `docker compose` from a checkout of the repo on the
-host. No GUI required.
+The canonical path is `docker compose` from a checkout of the repo
+on the host. No GUI required.
 
 ```bash
 git clone https://github.com/Klebert-Engineering/zserio-c.git /opt/zserio-ci
@@ -103,91 +121,30 @@ cd /opt/zserio-ci/ci
 
 cp .env.example .env
 $EDITOR .env       # GITHUB_PAT=<your PAT>
-                   # Set GITHUB_REPO=ke-fritz/zserio-c-shadow (or any
-                   # owner/name) and comment out GITHUB_ORG.
+                   # GITHUB_REPO=Klebert-Engineering/zserio-c
+                   # (or GITHUB_ORG with a restricted runner group)
                    #
-                   # On the primary perf box, also set:
+                   # On the primary perf box:
                    #   RUNNER_LABELS=perf,primary
-                   # Other perf hosts use perf,<their-label> (pi5 / macmini /
-                   # jetson, ...). Non-perf hosts leave RUNNER_LABELS unset.
+                   # Other perf hosts use perf,<their-label>
+                   # (pi4 / macmini / jetson, ...).
 
 docker compose up -d --build   # ~5 min first time (toolchain + runner agent)
 docker compose logs -f          # tail to watch registration
 ```
 
-Within ~30 s of containers starting, three runners (default
-`zserio-ci-1/2/3`) appear under **Repo → Settings → Actions →
-Runners** showing **Idle**. To run more concurrent CI jobs on a
-beefier host (e.g. the 16-core / 128 GB primary), duplicate the
-`runner-2` block in `ci/docker-compose.yml` up to `runner-6` before
-the first `docker compose up`.
+Within ~30 s of containers starting, the runners appear under
+**Settings → Actions → Runners** showing **Idle** with a label set
+of `self-hosted, linux, x64` plus whatever `RUNNER_LABELS` added.
+Push a commit to `main`; the `perf` job routes to the matching
+host.
 
-## Deploying an org-scoped runner (Klebert-Engineering)
-
-Org-scoped runners live in **org-level runner groups** and serve any
-repo the group is enabled for. The default group ("Default") is
-available to every repo in the org — fine for now with one repo;
-narrow it later via Org → Settings → Actions → Runner groups if you
-add lightweight projects that shouldn't be allowed to grab heavy
-perf runners.
-
-If the same host already hosts a repo-scoped deployment (e.g. the
-shadow runners), the org deployment runs **alongside** it as a
-separate compose project. Distinct `-p` project name + distinct
-`RUNNER_NAME_PREFIX` keep the runner names from colliding on GitHub
-and the container names from colliding in Docker:
-
-```bash
-# Pick a directory that is NOT the existing /opt/zserio-ci checkout —
-# the two deployments need separate ci/.env files.
-git clone https://github.com/Klebert-Engineering/zserio-c.git /opt/zserio-ci-org
-cd /opt/zserio-ci-org/ci
-
-cp .env.example .env
-$EDITOR .env       # GITHUB_PAT=<org-scoped PAT, see "One-time" above>
-                   # GITHUB_ORG=Klebert-Engineering
-                   # (comment out GITHUB_REPO)
-                   #
-                   # Required to avoid collisions when the same host
-                   # also hosts shadow runners:
-                   #   RUNNER_NAME_PREFIX=ke-org-zserio-ci
-                   #
-                   # If this is the primary perf box, also set:
-                   #   RUNNER_LABELS=perf,primary
-
-# -p namespaces the compose project so it doesn't clash with the
-# repo-scoped "zserio-ci" project also running on this host.
-docker compose -p zserio-ci-org up -d --build
-docker compose -p zserio-ci-org logs -f
-```
-
-Within ~30 s the new runners appear under **Org → Settings →
-Actions → Runners** (not the repo's runners page — that only lists
-repo-scoped runners). They show **Idle** and a label set of
-`self-hosted, linux, x64` plus whatever `RUNNER_LABELS` added. Open
-a PR or push to a branch on `Klebert-Engineering/zserio-c`; the
-jobs' `runs-on` labels match either scope identically, so the org
-runners pick them up without any workflow-side change.
-
-### Operating two compose projects on one host
-
-The two deployments are fully independent — each has its own
-`.env`, its own runner names, and its own set of containers:
-
-```bash
-# Status / restart / shutdown — pass -p to target the right project:
-docker compose -p zserio-ci      ps         # shadow runners
-docker compose -p zserio-ci-org  ps         # org runners
-docker compose -p zserio-ci-org  restart
-docker compose -p zserio-ci-org  down
-```
-
-The Docker image (`zserio-ci-runner:latest`) is the same for both;
-the first project to build it caches it for the second. Memory caps
-are per-container, so three org runners + three shadow runners =
-six × `memory: 8g` budget on the host. On the 128 GB primary that's
-trivial; on a smaller box, drop a runner or two from each compose
-file.
+Multiple compose projects can share one host (e.g. separate
+deployments for separate scopes): give each its own checkout,
+`.env`, `-p` project name, and `RUNNER_NAME_PREFIX` so runner and
+container names don't collide. The Docker image
+(`zserio-ci-runner:latest`) is shared; memory caps are
+per-container.
 
 ## Updating after a `ci/` change
 
@@ -231,8 +188,8 @@ latest `actions/runner` release, and **only when the pinned version is
 behind** it bumps `RUNNER_VERSION`, rebuilds, and recreates the runners:
 
 ```bash
-cd /opt/zserio-ci-org/ci
-COMPOSE_PROJECT=zserio-ci-org ./refresh-runner.sh   # -p target; omit if only one deployment
+cd /opt/zserio-ci/ci
+./refresh-runner.sh          # COMPOSE_PROJECT=<name> if not the default
 ```
 
 Install the systemd timer to run it weekly, unattended:
@@ -247,9 +204,9 @@ systemctl list-timers zserio-runner-refresh.timer                # confirm next 
 ```
 
 Recreating aborts a job that is mid-flight, so the timer fires at a quiet
-hour (Sunday 04:00). On a host with two deployments (org + shadow),
-install renamed copies of the unit pair, one per deployment, each with
-its own `WorkingDirectory` and `COMPOSE_PROJECT`.
+hour (Sunday 04:00). On a host with multiple deployments, install renamed
+copies of the unit pair, one per deployment, each with its own
+`WorkingDirectory` and `COMPOSE_PROJECT`.
 
 `refresh-runner.sh` edits the `RUNNER_VERSION` line in the host's
 `Dockerfile`; on a git checkout that is a local modification, so pull
@@ -279,13 +236,24 @@ at or ahead of upstream, so there is normally nothing to reconcile).
 
 ## Security
 
-Self-hosted runners on a **private** repository are safe — only
-collaborators can push code that runs on them.
+A self-hosted runner executes whatever code the workflow run gives
+it, so the exposure is controlled at the workflow layer first and
+the platform layer second:
 
-If `zserio-c` is ever made **public**, this changes: a fork pull
-request could run arbitrary code on the runner host. Before going
-public, either disable self-hosted runners for fork PRs or restrict
-them under **Settings → Actions → Fork pull request workflows**. The runner containers run as a non-root `runner` user
-with passwordless sudo scoped to the container — a compromised job
-is contained to the container, but the container still shares the
-host kernel, so the public-repo caveat stands.
+1. **Workflow layer (committed, reviewable).** No `pull_request`-
+   triggered job targets a self-hosted runner. The `perf` job — the
+   only self-hosted job — carries an explicit
+   `if: github.event_name == 'push' && github.repository == 'Klebert-Engineering/zserio-c'`
+   guard. Changing that requires a reviewed commit to the workflow.
+2. **Runner scope.** Register the runners repo-scoped (or in an
+   org runner group restricted to this repo). Never place them in
+   the org-default group where any repo in the org can reach them.
+3. **GitHub settings.** Settings → Actions → *Fork pull request
+   workflows* — require approval for all outside collaborators.
+   This is the backstop for mistakes in (1); it also gates
+   GitHub-hosted workflow runs on fork PRs.
+4. **Containment.** The runner containers run as a non-root
+   `runner` user; a compromised job is contained to the container.
+   The container still shares the host kernel, so treat (1)-(3) as
+   the real perimeter — containment only limits accidental damage,
+   not a targeted escape.
