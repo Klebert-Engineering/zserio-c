@@ -1,0 +1,65 @@
+name: Bug report
+description: Report a defect in the generator, runtime, or generated code
+labels: ["bug"]
+body:
+  - type: checkboxes
+    id: prechecks
+    attributes:
+      label: Before you file
+      options:
+        - label: I searched existing issues and found no duplicate
+          required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: A clear description of the defect.
+    validations:
+      required: true
+  - type: textarea
+    id: schema
+    attributes:
+      label: Minimal reproducing schema
+      description: >-
+        The smallest .zs snippet that triggers the problem. Ideally the
+        shape of an xvalidation harness (see
+        tests/xvalidation/harnesses/ for examples).
+      render: text
+      placeholder: |
+        package repro;
+
+        struct Broken
+        {
+            uint32 value;
+        };
+    validations:
+      required: false
+  - type: input
+    id: invocation
+    attributes:
+      label: Generator invocation
+      description: The exact zserio_c_gen command line, if applicable.
+      placeholder: zserio_c_gen repro.zs -c gen/ -src schemas/
+    validations:
+      required: false
+  - type: textarea
+    id: expected-actual
+    attributes:
+      label: Expected vs. actual
+      description: >-
+        What you expected and what you got instead. For wire-format
+        divergence, include the byte offset reported by
+        tests/xvalidation/run_xvalidation.sh if you have it.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: zserio-c version, compiler, and platform.
+      placeholder: |
+        zserio-c: 0.1.0 (or commit hash)
+        compiler: gcc 13.2 / clang 17
+        platform: x86_64 Linux / aarch64 macOS / ...
+    validations:
+      required: true
