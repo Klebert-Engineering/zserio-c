@@ -14,7 +14,7 @@ ASIL-B target, ASIL-D headroom).
 [![Upstream zserio](https://img.shields.io/badge/upstream-v2.18.1-orange.svg)](https://github.com/ndsev/zserio/releases/tag/v2.18.1)
 [![Wire compatibility](https://img.shields.io/badge/xvalidation-182%20%2F%20182-success.svg)](tests/xvalidation/)
 [![Coverage](https://img.shields.io/badge/coverage-99.9%25%20line%20%C2%B7%2088%25%20branch-success.svg)](docs/safety-case/tool-qualification-coverage.md)
-[![MISRA](https://img.shields.io/badge/MISRA--C%3A2012-strict%20%2B%20D001..D007-blue.svg)](docs/misra-deviations/)
+[![MISRA](https://img.shields.io/badge/MISRA--C%3A2012-strict%20%2B%20D001..D009-blue.svg)](docs/misra-deviations/)
 [![ISO 26262](https://img.shields.io/badge/ISO%2026262-ASIL--B%20target-blue.svg)](docs/safety-case/)
 
 --------
@@ -88,9 +88,9 @@ The four are CI-gated on every commit, not aspirational:
 | Pillar | Gate |
 |---|---|
 | Pure C99 generated code | `-std=c99 -pedantic -Werror` plus strict warnings in [`CMakeLists.txt`](CMakeLists.txt) on every supported compiler (clang, gcc). No GNU extensions. |
-| No implicit heap | Forbidden-symbol grep blocks any direct `malloc`/`calloc`/`realloc`/`free` in `runtime/src/*.c` or generated code. All allocation flows through `zserio_allocator_t`. |
-| MISRA C:2012 strict | `cppcheck --addon=misra` clean on runtime sources AND on generated output from the upstream test corpus. Seven documented deviations under [`docs/misra-deviations/`](docs/misra-deviations/). |
-| ISO 26262 alignment | 14 work products under [`docs/safety-case/`](docs/safety-case/) grown alongside the code, not retrofitted. |
+| No implicit heap | Forbidden-symbol grep in [`tools/run_misra.sh`](tools/run_misra.sh) blocks any direct `malloc`/`calloc`/`realloc`/`free` in `runtime/src/*.c`; generated output is held to the same property by the MISRA gate on generated code (Rule 21.3) and the [`tools/check_no_alloc_in_writers.py`](tools/check_no_alloc_in_writers.py) write-path gate. All allocation flows through `zserio_allocator_t`. |
+| MISRA C:2012 strict | `cppcheck --addon=misra` clean on runtime sources AND on generated output from the upstream test corpus. Nine documented deviations under [`docs/misra-deviations/`](docs/misra-deviations/). |
+| ISO 26262 alignment | 13 work products under [`docs/safety-case/`](docs/safety-case/) grown alongside the code, not retrofitted. |
 
 ## Numbers
 
@@ -100,6 +100,8 @@ The four are CI-gated on every commit, not aspirational:
 each through our writer and decodes through upstream's cpp reader,
 then re-encodes via upstream's cpp writer and decodes via ours.
 **182 / 182 byte-equal in both directions**, on every commit.
+Supplementary conformance against a production NDS.Live payload is
+maintained in a private companion repository.
 
 ### Test coverage — `coverage` gate
 
@@ -172,9 +174,9 @@ For **working on** zserio-c, or **deploying it under ISO 26262**:
 | [Contributing](docs/contributing.md) | Build, test, MISRA, perf. |
 | [Architecture](docs/architecture.md) | Internal design. Load-bearing. |
 | [Requirements](requirements/) | Domain, functional, safety, and performance requirements. |
-| [Safety case](docs/safety-case/) | 14 ISO 26262 work products. |
+| [Safety case](docs/safety-case/) | 13 ISO 26262 work products. |
 | [Integration responsibilities](docs/integration-guide.md) | What the safety case delegates to the embedding system. |
-| [MISRA deviations](docs/misra-deviations/) | D001..D007 with justifications. |
+| [MISRA deviations](docs/misra-deviations/) | D001..D009 with justifications. |
 | [Upstream analysis](docs/upstream-analysis/) | Six deep-reads of zserio that motivated v1 design. |
 
 ## Repository layout
@@ -188,7 +190,6 @@ third_party/zserio/      upstream submodule, pinned at v2.18.1
 tests/runtime/           Unity unit tests
 tests/xvalidation/       182-schema byte-equal cross-validation harness
 tests/benchmarks/        REQ-PF-001 throughput harness vs upstream cpp
-conformance/ndslive/     NDS Live SmartLayerTile end-to-end fixture
 
 requirements/            REQ-FN-* (functional), REQ-FS-* (safety),
                          REQ-PF-* (performance) — one .md per requirement

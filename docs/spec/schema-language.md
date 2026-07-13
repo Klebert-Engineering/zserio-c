@@ -95,15 +95,14 @@ single-line documentation.
 
 ### Comments
 
-Three comment forms exist. Two are normative for tooling; one is
-discarded.
+Four comment forms exist.
 
 | Syntax | Form | Behavior |
 |---|---|---|
 | `// … <EOL>` | Single-line | Discarded by the parser; not available to generators. |
 | `/* … */` | Multi-line | Discarded by the parser; not available to generators. |
-| `/** … */` | Classic doc-comment | Preserved; associated with the immediately following declaration. |
-| `/*! … !*/` | Markdown doc-comment | Preserved; same association rule. |
+| `/** … */` | Classic doc-comment | Accepted; associated with the immediately following declaration. Currently discarded after parse — not propagated to generated code (propagation is a planned enhancement). |
+| `/*! … !*/` | Markdown doc-comment | Accepted; same association rule, same current behavior. |
 
 `/**` and `/*!` comments may only be separated from their target
 declaration by whitespace. They cannot float free.
@@ -664,7 +663,8 @@ The two forms differ in how presence is determined:
 | `optional T x` | A 1-bit presence flag written before the field | yes (1 bit) |
 
 The `optional` keyword cannot coexist with `if`: `optional T x if
-…` is rejected. The `if` form requires the predicate to be
+…` is rejected with a diagnostic, matching upstream. The `if` form
+requires the predicate to be
 evaluable from already-decoded context (the decoder needs to know
 whether to read the field before reading it). The `optional` form
 imposes no such dependency.
@@ -721,9 +721,11 @@ evolution model.
 
 ### Functions
 
-A compound type may declare functions — read-only expressions
+A `struct` or `union` may declare functions — read-only expressions
 that take no arguments and return a value computed from the
-enclosing instance.
+enclosing instance. Whether `choice` bodies may declare functions is
+currently unresolved in zserio-c; schemas targeting zserio-c SHOULD
+declare functions only in `struct` and `union` bodies.
 
 ```zserio
 struct ItemCount
@@ -815,7 +817,7 @@ Six array forms exist:
 | `T arr[N]` | literal `N` (compile-time constant) | none |
 | `T arr[expr]` | `expr` evaluated against parameters and earlier fields | none |
 | `T arr[]` | self-describing (varsize prefix) | yes |
-| `implicit T arr[]` | bitstream remainder | none (deprecated; see below) |
+| `implicit T arr[]` | — | rejected with a diagnostic (deprecated upstream; see below) |
 | `packed T arr[N]` / `packed T arr[expr]` / `packed T arr[]` | as above | as above; payload is delta-compressed |
 
 Examples:
@@ -834,26 +836,16 @@ struct AutoArray
 };
 ```
 
-### Implicit length arrays
+### Implicit length arrays — not supported
 
-`implicit T arr[]` consumes bytes until the bitstream ends. It
-must be the final field of its containing type, and the payload
-must be the entire bitstream tail. Implicit arrays of compound
-elements are NOT permitted.
+In upstream zserio, `implicit T arr[]` consumes bytes until the
+bitstream ends: it must be the final field of its containing type,
+and the payload is the entire bitstream tail. The construct is
+deprecated upstream as of `2.4.0`.
 
-```zserio
-struct ImplicitArray
-{
-    implicit int16 list[];
-};
-```
-
-`implicit` is deprecated as of upstream `2.4.0`. New schemas
-should use `T arr[]` instead. zserio-c continues to accept
-`implicit` for compatibility with existing schemas.
-
-The length of an `implicit` array is recoverable through
-[`lengthof`](#lengthof-operator).
+zserio-c does not support implicit arrays: the parser rejects
+`implicit T arr[]` with a diagnostic. Schemas should use a
+self-describing array `T arr[]` instead.
 
 ### Packed arrays
 
@@ -888,7 +880,6 @@ struct PackedArrays
 
 Restrictions:
 
-- Packed `implicit` arrays are forbidden.
 - A field used as an offset cannot be packed (the wire-format
   positions of packed elements are not statically known at the
   point of offset resolution).
@@ -1145,7 +1136,7 @@ bytes value as an integer.
 - For bytes: the byte count.
 
 `lengthof` is the only way to refer to the length of an auto-length
-or implicit array.
+array.
 
 ```zserio
 struct LengthOfOperator
@@ -1458,6 +1449,15 @@ Name resolution proceeds in order:
 5. If no import provides the name, or more than one wildcard
    provides it ambiguously, the schema is rejected.
 
+> **Implementation status.** zserio-c parses import statements and
+> uses them to locate schema files, but does not currently enforce
+> import-based visibility: all top-level declarations across the
+> schema set share one namespace, disambiguated by the package
+> suffix in generated identifiers. A schema that references a type
+> it never imports is therefore accepted today. Stricter
+> import-gated visibility is planned; portable schemas SHOULD
+> declare their imports as specified above.
+
 ### Packages and files
 
 Package and file names are coupled. The package `pkg.sub.module`
@@ -1668,12 +1668,17 @@ Available since upstream `2.4.0`.
 
 ## Documentation comments
 
-Two documentation comment forms are preserved by the parser and
-made available to generators: classic (`/** … */`) and markdown
-(`/*! … !*/`).
+Two documentation comment forms exist: classic (`/** … */`) and
+markdown (`/*! … !*/`).
 
 Both are associated with the immediately following declaration,
 separated by whitespace only.
+
+zserio-c accepts both forms for compatibility with upstream
+schemas, but currently discards their content after parse — doc
+comments are not propagated to generated code. Propagation into
+generated headers is a planned enhancement. The grammar below
+remains normative for what is accepted.
 
 ### Classic doc-comments
 
@@ -1754,9 +1759,9 @@ have no on-wire effect; generators may use them to modify emitted
 code. An annotation begins with `@` and precedes the element it
 annotates.
 
-Currently defined annotations are listed below. zserio-c parses
-every defined annotation but may not act on all of them at code
-generation time.
+Currently defined annotations are listed below. zserio-c parses and
+records every defined annotation, but none of them currently affects
+generated code — see the per-annotation status notes.
 
 ### `@deprecated` annotation
 
@@ -1774,8 +1779,10 @@ enum uint8 Traffic
 };
 ```
 
-Available since upstream `2.12.0`. Currently supported on
-enumeration items only.
+Available since upstream `2.12.0`. Permitted on enumeration items
+only. zserio-c parses and records the annotation; it currently has
+no effect on generated code (no deprecation attribute or warning is
+emitted yet — planned enhancement).
 
 ### `@removed` annotation
 
@@ -1796,8 +1803,14 @@ enum uint8 Traffic
 };
 ```
 
-Available since upstream `2.12.0`. Currently supported on
-enumeration items only.
+Available since upstream `2.12.0`. Permitted on enumeration items
+only. zserio-c parses and records the annotation; it currently has
+no effect on the generated API — the item is still emitted and
+writable. What holds today is the property wire compatibility
+depends on: the item's numeric value (and those of subsequent
+items) is preserved. Suppressing the item from the public API and
+rejecting it on encode are planned enhancements; see
+[`schema-evolution.md`](schema-evolution.md).
 
 ---
 
@@ -1816,9 +1829,11 @@ zserio_compatibility_version("2.4.2");
 package compatibility;
 ```
 
-When the directive is present, the parser verifies that every
-feature used by the schema was available in the declared version,
-and rejects the schema if not.
+zserio-c parses the directive and records the declared version, but
+does not currently enforce it: no feature-availability check is
+performed against the declared version (planned enhancement).
+Upstream zserio rejects schemas that use features newer than the
+declared version.
 
 Available since upstream `2.5.0`.
 
@@ -1853,12 +1868,13 @@ scope rationale.
 
 | Feature | Upstream keywords | Why excluded |
 |---|---|---|
-| SQL extension | `sql_table`, `sql_database`, `sql_virtual`, `sql_without_rowid`, `sql`, `using`, `explicit` (in the SQL-explicit-parameter sense) | Relational metadata layer for SQLite-backed schemas. Outside the C99 embedded-target scope. |
+| SQL extension | `sql_table`, `sql_database`, `sql_virtual`, `sql_without_rowid`, `sql`, `using`, `explicit` (in the SQL-explicit-parameter sense) | Relational metadata layer for SQLite-backed schemas. Outside the C99 embedded-target ASIL scope. SQLite-backed support is planned as an optional extension outside the ASIL scope. |
 | JSON encoding | (no schema syntax) | Upstream generators support JSON dump/load on generated types. Not in scope for the C target. |
 
-The parser recognizes these reserved keywords and produces an
-informative diagnostic when one of these out-of-scope features is
-used; the C generator never emits anything for them. (`service` and
+The parser recognizes these reserved keywords and rejects any use
+of an out-of-scope feature with an informative
+"not yet supported, planned" diagnostic; the C generator never
+emits anything — not even a partial type — for them. (`service` and
 `pubsub` are supported — see [Services and Pub/Sub](#services-and-pubsub).)
 
 These omissions do not affect the wire format. A schema that

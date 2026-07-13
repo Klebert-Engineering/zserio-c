@@ -388,8 +388,9 @@ footprint over our current scaffold:
   lines C, ~200 lines C++ for the upstream-oracle bridge).
 - `tests/conformance/error_mapping.csv` — `ZSERIO_ERR_*` ↔ upstream
   exception type.
-- `tools/build_upstream_jar.sh` — bootstraps the upstream
-  `zserio.jar` from the submodule. Cached by CI.
+- `tools/build_zserio_core_jar.sh` and
+  `tools/build_zserio_bundle_jar.sh` — bootstrap the upstream
+  `zserio_core.jar` / `zserio.jar` from the submodule. Cached by CI.
 - Generator option `-cWithRandomCode` and the corresponding
   `Random.inc.ftl` template (Phase 2 work item).
 - `.github/workflows/conformance.yml` — added at Phase 4 start, not

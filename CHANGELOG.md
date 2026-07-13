@@ -27,6 +27,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Previously these constructs parsed but emitted placeholder
   stubs only; SQL and JSON extensions remain out of scope.
 
+### Fixed — generator correctness (open-source readiness audit)
+
+- `float`/`string`/`bool` and negative signed constants now emit
+  correct C literals; previously every `const` was printed through
+  the unsigned integer payload, so `const float32 X = 1.5;`
+  produced a garbage `#define` (raw bit-pattern decimal).
+- `implicit` arrays are rejected with a diagnostic. They
+  previously generated silently as length-prefixed auto arrays —
+  a wire-format divergence from upstream (the construct is
+  deprecated upstream).
+- `sql_table` / `sql_database` are rejected with an informative
+  diagnostic instead of silently emitting a partial data-holder
+  struct. SQLite-backed generation is planned as an optional
+  extension outside the ASIL scope.
+- `optional` combined with an `if` condition is rejected,
+  matching upstream.
+- Functions declared inside `choice` bodies are rejected with a
+  diagnostic; they were previously parsed and silently discarded,
+  and calls to them emitted `0 /*unsupported-call*/`.
+- `tools/check_no_alloc_in_writers.py` now really scans the
+  runtime write path (`zserio_write_*` naming was invisible to
+  the old `*_write` matcher) and fails closed on an empty scan.
+
+### Changed — CI and repository hardening for open source
+
+- All CI jobs moved to GitHub-hosted runners except the `perf`
+  benchmark, which stays on the dedicated measurement hosts and
+  is restricted to push events on this repository — self-hosted
+  runners are no longer reachable from pull requests.
+- GitHub Actions are pinned to commit SHAs; dependabot keeps the
+  pins and submodules current; per-job timeouts added.
+- NDS.Live conformance and benchmark harnesses relocated to a
+  private companion repository
+  (`zserio-c-ndslive-conformance`, NDS Association members only);
+  public docs and requirements reference it as supplementary
+  evidence.
+- Added `SECURITY.md`, `CODE_OF_CONDUCT.md`, root
+  `CONTRIBUTING.md`, issue/PR templates, `CODEOWNERS`,
+  `.editorconfig`.
+- MISRA deviation register extended by D008 (Rule 10.8) and D009
+  (Rule 8.9) after a re-triage of blanket suppressions; the
+  suppression rationale document was rewritten with verified
+  code sites.
+- Documentation accuracy pass: every quantified claim
+  (work-product count, deviation count, gate scopes, doc-comment
+  and `compatibility_version` status, import semantics) now
+  matches the code.
+
 ## [0.1.0] - 2026-06-12
 
 First release. Wire format 1.0 and schema language 1.0 are stable;
@@ -39,8 +87,8 @@ full versioning policy.
 The C-native parser + generator (`zserio_c_gen`) replaced the Java
 front-end on the C target; the legacy Java extension under
 `generator/` remains as the cpp-side oracle for the xvalidation
-gate only. ndslive end-to-end conformance + bidirectional roundtrip
-under ASan + UBSan are clean. Safety-case documents (14 work
+gate only. NDS.Live end-to-end conformance + bidirectional
+roundtrip under ASan + UBSan are clean. Safety-case documents (13 work
 products under `docs/safety-case/`) are structurally complete at
 `status: draft`, awaiting independent review.
 
@@ -272,7 +320,8 @@ the closure of the three Open items recorded in
     `tool-qualification-generator.md` (TCL1 via xvalidation TD1).
   - **Verification**: `unit-verification.md` (ISO 26262-6 §9,
     per-runtime-module evidence), `integration-verification.md`
-    (ISO 26262-6 §10, xvalidation + conformance/ndslive).
+    (ISO 26262-6 §10, xvalidation + NDS.Live end-to-end
+    conformance).
   - **Assembly**: `safety-case-report.md` (ISO 26262-2 §6.4, the
     single entry document for a reviewer).
 - **`tools/measure_stack_usage.py`** — `-fstack-usage` build + per-
@@ -329,10 +378,11 @@ the closure of the three Open items recorded in
   AST, compiles drivers against our runtime and upstream's runtime,
   and asserts byte-equal output across 5 seeds. Wires into CI as
   the `xvalidation` job. Gates **REQ-FN-001**.
-- **`conformance/ndslive/`** — production-shape end-to-end fixture
-  for a 50,896-byte NDS Live SmartLayerTile encoded by upstream
-  zserio v2.18.1; verifies every decoded field against zs-yaml
-  ground truth.
+- **NDS.Live end-to-end conformance fixture** — production-shape
+  fixture for a 50,896-byte payload encoded by upstream zserio
+  v2.18.1; verifies every decoded field against zs-yaml ground
+  truth. (Since relocated to a private companion repository —
+  NDS Association membership required.)
 - Packed-array runtime work:
   - Trait-driven delta context for varint elements
     (`zserio_delta_traits_t` + 9 traits structs in `varint.c`).
