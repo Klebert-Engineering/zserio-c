@@ -103,6 +103,16 @@ if [[ ! -f "${RUNNER_DIR}/.runner" ]]; then
     # `--labels` carries ONLY our custom labels. The agent auto-adds
     # `self-hosted`, `linux`, and the host arch, so we don't repeat
     # those (and don't lie about the arch).
+    # --disableupdate is a REGISTRATION-time flag: the runner's
+    # self-update deletes and replaces bin/ + externals/ via a
+    # detached process that must outlive the listener restart. In a
+    # container that process dies when the entrypoint exits on the
+    # update, leaving bin/Runner.Listener deleted and the container
+    # crash-looping with exit 127. Containers can't auto-update; we
+    # pin the version in the image (Dockerfile RUNNER_VERSION) and
+    # upgrade by rebuilding (ci/refresh-runner.sh). Passing the flag
+    # to run.sh instead does nothing — current agents reject it with
+    # "Unrecognized command-line input arguments for command run".
     config_args=(
         --unattended
         --url "${RUNNER_URL}"
@@ -110,6 +120,7 @@ if [[ ! -f "${RUNNER_DIR}/.runner" ]]; then
         --name "${RUNNER_NAME}"
         --work "_work"
         --replace
+        --disableupdate
     )
     if [[ -n "${RUNNER_LABELS}" ]]; then
         config_args+=(--labels "${RUNNER_LABELS}")
@@ -121,14 +132,6 @@ fi
 
 # --- Run -------------------------------------------------------------------
 # `& wait` so the SIGTERM trap fires promptly instead of being held
-# until run.sh returns on its own.
-#
-# --disableupdate: the runner's self-update deletes and replaces bin/ +
-# externals/ via a detached process that must outlive the listener
-# restart. In a container that process dies when the entrypoint exits on
-# the update, leaving bin/Runner.Listener deleted and the container
-# crash-looping with exit 127. Containers can't auto-update; we pin the
-# version in the image (Dockerfile RUNNER_VERSION) and upgrade by
-# rebuilding instead. This also keeps the runner version reproducible,
-# matching the pinned-toolchain policy in the Dockerfile.
-./run.sh --disableupdate & wait $!
+# until run.sh returns on its own. Self-update is disabled at
+# registration time (see --disableupdate in config_args above).
+./run.sh & wait $!
