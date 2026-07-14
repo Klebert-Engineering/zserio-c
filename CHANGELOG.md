@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — packaging, releases, and adoption docs
+
+- CMake install/export: `find_package(zserio_c <version>)` imports
+  `zserio_c::runtime`, `zserio_c::parser`, and `zserio_c::gen`
+  after `cmake --install`; version compatibility is
+  SameMinorVersion (pre-1.0 minors may change APIs). A
+  `zserio_c_runtime.pc` pkg-config file covers non-CMake builds.
+  Tests and install rules now default off when zserio-c is
+  consumed via `add_subdirectory`/FetchContent, so embedding it
+  no longer pulls the Unity test dependency. A CI `packaging` job
+  installs to a scratch prefix and builds a `find_package`
+  consumer end-to-end (generate → compile → byte round-trip) on
+  every commit.
+- Release workflow: pushing a `v*.*.*` tag verifies the tag
+  against the source version, builds and tests the release
+  commit, and publishes a GitHub release with notes extracted
+  from the matching CHANGELOG section
+  (`tools/extract_changelog.py`).
+- `docs/feature-matrix.md`: every upstream zserio v2.18.1 feature
+  with its support status (full / partial / rejected / out of
+  scope) and the harness or test that verifies it.
+
+### Fixed — documentation
+
+- README stated the upstream `ndsev/zserio` license as Apache 2.0;
+  it is BSD 3-Clause.
+
 ### Added — service and pub/sub interface generation (REQ-FN-027)
 
 - `service` declarations now generate transport-agnostic C

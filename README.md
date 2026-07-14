@@ -160,6 +160,7 @@ For **implementing** an interoperable zserio codec, or **auditing the wire forma
 
 | | |
 |---|---|
+| [Feature-support matrix](docs/feature-matrix.md) | Every upstream v2.18.1 feature: full / partial / rejected, at a glance. |
 | [Schema language reference](docs/spec/schema-language.md) | Normative spec of the language `zserio_c_gen` accepts. |
 | [Wire format reference](docs/spec/wire-format.md) | Normative spec of the binary encoding. |
 | [Schema evolution](docs/spec/schema-evolution.md) | `optional` / `extend` / `@removed` semantics. |
@@ -229,17 +230,31 @@ zserio_c_gen 0.1.0
 
 The same values are available at build time as preprocessor
 constants in [`<zserio/version.h>`](runtime/include/zserio/version.h).
-Consumers vendor or submodule the runtime and rebuild from source —
-there is no shared library to install. The CI gate
-`tools/check_version_consistency.py` keeps `version.h`,
+The CI gate `tools/check_version_consistency.py` keeps `version.h`,
 `CMakeLists.txt`, and the spec docs in sync.
+
+Consuming the library — all three of the usual routes work; there
+is no shared library, the runtime is always built from source:
+
+```sh
+# 1. Installed package
+cmake -B build -DZSERIO_C_BUILD_TESTS=OFF && cmake --build build && cmake --install build
+#    then in your project:  find_package(zserio_c 0.1 REQUIRED)
+#    targets: zserio_c::runtime, zserio_c::parser, zserio_c::gen (the generator)
+
+# 2. Vendored / submodule:   add_subdirectory(zserio-c)   (tests stay off)
+# 3. FetchContent:           GIT_TAG v0.1.0
+```
+
+A `pkg-config` file (`zserio_c_runtime.pc`) is installed for
+non-CMake builds.
 
 ## License
 
 [MIT](LICENSE). Copyright © 2026 Klebert Engineering.
 
 The upstream `ndsev/zserio` submodule retains its own license
-(Apache 2.0). No upstream source is copied into this repository —
+(BSD 3-Clause). No upstream source is copied into this repository —
 the submodule is consulted at build time only for the Java
 generator extension (`generator/`) and at xvalidation time for the
 cpp wire-format oracle.
