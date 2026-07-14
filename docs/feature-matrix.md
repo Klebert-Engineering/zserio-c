@@ -13,7 +13,7 @@ carries one of four statuses:
 
 - **Full** — parsed, analyzed, and generated; verified by the
   cross-validation harness ([`tests/xvalidation/`](../tests/xvalidation/)),
-  which runs 182 schemas × 5 seeds on every commit and requires the C
+  which runs 183 schemas × 5 seeds on every commit and requires the C
   and upstream-C++ wire output to be byte-equal in both directions.
   The Notes column cites representative harness names.
 - **Partial** — accepted, but with limited semantics as noted.
@@ -146,7 +146,7 @@ The differences an upstream user encounters first:
 The statuses above are enforced by CI, not asserted by hand:
 
 - **Full** rows are gated by the cross-validation harness
-  ([`tests/xvalidation/`](../tests/xvalidation/)): 182 schemas × 5
+  ([`tests/xvalidation/`](../tests/xvalidation/)): 183 schemas × 5
   seeds, byte-equal against upstream C++ in both directions on every
   commit. Harness names cited in the Notes columns correspond to
   directories under

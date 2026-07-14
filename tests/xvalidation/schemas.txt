@@ -1,5 +1,6 @@
-# Schemas exercised by the cross-validation harness. Paths are
-# relative to third_party/zserio-test-data/language/. Each schema
+# Schemas exercised by the cross-validation harness. Paths resolve
+# against third_party/zserio-test-data/language/ first, then against
+# tests/xvalidation/schemas/ (in-tree synthetic schemas). Each schema
 # must have a matching `tests/xvalidation/harnesses/<schema_stem>/`
 # directory with `c_driver.c` and `cpp_driver.cpp` files.
 #
@@ -194,3 +195,7 @@ array_types/zs/array_types/packed_arrays_mapping.zs
 # `extra_codegen_args` case). The harness drivers reference the
 # prefixed symbols accordingly.
 packages/zs/index.zs
+
+# In-tree synthetic schemas (production-shape coverage; see the
+# header comment in each schema for the feature profile).
+synthetic/layered_container.zs

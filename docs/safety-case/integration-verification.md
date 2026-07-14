@@ -48,7 +48,7 @@ proves byte-equality:
 
 | Quantity                         | Value (snapshot)                              |
 | -------------------------------- | --------------------------------------------- |
-| Schemas exercised                | 182                                           |
+| Schemas exercised                | 183                                           |
 | Seeds per schema                 | 5 (default `SEEDS="1 2 7 42 999"`)            |
 | Total round-trips per CI run     | 910                                           |
 | Pass rate (current `main`)       | 100% — see the `xvalidation` CI job comment   |
@@ -82,7 +82,7 @@ decoded values, not just identical re-encoding.
 
 | Requirement | Verification mechanism                                                                                | Status                                                |
 | ----------- | ----------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
-| REQ-FN-001  | `xvalidation` CI job + private NDS.Live companion conformance harness                                | Verified (snapshot: 182/182 schemas pass)             |
+| REQ-FN-001  | `xvalidation` CI job + private NDS.Live companion conformance harness                                | Verified (snapshot: 183/183 schemas pass)             |
 | REQ-FS-001  | `tools/run_misra.sh` forbidden-symbol grep covers both runtime and (per integrator) generated code   | Verified for the runtime; gap for generator output noted in `tool-qualification-generator.md` |
 | REQ-FS-006  | Negative-path tests at unit level (`test_failure_modes.c`) + xvalidation's malformed-input resilience | Verified                                              |
 | REQ-FS-007  | xvalidation runs each schema in an isolated work dir; no cross-schema state                          | Verified                                              |
@@ -97,7 +97,7 @@ verification evidence. Every commit to `main` reproduces them:
 | ------------------------------------------ | ------------------------------------------------------- |
 | `Build and test (gcc)`                     | Compiles runtime + generated codec for the xvalidation harness; runs the runtime test suite. |
 | `Build and test (clang)`                   | Independent toolchain re-runs the same tests.           |
-| `Wire-format cross-validation (REQ-FN-001)` | The 182-schema × 5-seed harness.                       |
+| `Wire-format cross-validation (REQ-FN-001)` | The 183-schema × 5-seed harness.                       |
 | `Legacy Java generator (build JAR + smoke load)` | Smoke-builds the generator jar end-to-end.        |
 | `Test-data discovery (advisory)`           | Reports schemas in the upstream corpus that are not yet in xvalidation. |
 | `Requirements traceability`                | Enforces the `Verifies:` marker contract.               |

@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — synthetic production-shape conformance coverage
+
+- New xvalidation harness `layered_container` (183rd schema): a
+  synthetic multi-package schema mirroring the complexity profile
+  of a real layered map-tile payload — indexed offsets into
+  variable-length layers, enum-dispatched choice per layer,
+  parameterized compounds with dynamic bitfields, packed compound
+  arrays, unions, strings, an extern blob, and alignment. Restores
+  a public production-shape gate after the NDS.Live harness moved
+  to the private companion repository. `schemas.txt` entries now
+  also resolve against in-tree `tests/xvalidation/schemas/`.
+
 ### Added — packaging, releases, and adoption docs
 
 - CMake install/export: `find_package(zserio_c <version>)` imports

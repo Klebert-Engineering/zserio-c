@@ -54,7 +54,7 @@ upstream reference.
 ## Verification
 
 - The cross-validation harness verifies byte-equality against
-  the upstream reference for 182 schemas: any field-order
+  the upstream reference for 183 schemas: any field-order
   divergence would manifest as a byte-position mismatch.
 - The auto-roundtrip harness verifies `_read` consumes bytes in
   the same order `_write` produces them, by definition of the

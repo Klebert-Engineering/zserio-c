@@ -52,11 +52,11 @@ versioning gate.
 ## Verification
 
 - Cross-validation harness `tests/xvalidation/run_xvalidation.sh`
-  exercises both directions on 182 schemas with 5 seeded
+  exercises both directions on 183 schemas with 5 seeded
   inputs each:
   - `cpp_writes → c_reads → byte-equal`
   - `c_writes → cpp_reads → byte-equal`
-- Current result: 182/182 byte-equal in both directions, on
+- Current result: 183/183 byte-equal in both directions, on
   every commit.
 - Bidirectional auto-roundtrip
   (`tests/xvalidation/c_roundtrip.c`) provides a third

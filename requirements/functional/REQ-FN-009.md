@@ -69,7 +69,7 @@ is their own type's `_init`.
   the union tag prefix, and the disambiguation suffix on
   forced-collision inputs.
 - The cross-validation harness implicitly exercises every
-  identifier path: each of 182 driver programs successfully
+  identifier path: each of 183 driver programs successfully
   references generated symbols by the documented name.
 - `tests/parser/test_no_runtime_collision.c` exercises a schema
   whose type name spells `zserio_something` and verifies the

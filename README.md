@@ -12,7 +12,7 @@ ASIL-B target, ASIL-D headroom).
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Standard](https://img.shields.io/badge/C-99-informational.svg)](https://www.iso.org/standard/29237.html)
 [![Upstream zserio](https://img.shields.io/badge/upstream-v2.18.1-orange.svg)](https://github.com/ndsev/zserio/releases/tag/v2.18.1)
-[![Wire compatibility](https://img.shields.io/badge/xvalidation-182%20%2F%20182-success.svg)](tests/xvalidation/)
+[![Wire compatibility](https://img.shields.io/badge/xvalidation-183%20%2F%20183-success.svg)](tests/xvalidation/)
 [![Coverage](https://img.shields.io/badge/coverage-99.9%25%20line%20%C2%B7%2088%25%20branch-success.svg)](docs/safety-case/tool-qualification-coverage.md)
 [![MISRA](https://img.shields.io/badge/MISRA--C%3A2012-strict%20%2B%20D001..D009-blue.svg)](docs/misra-deviations/)
 [![ISO 26262](https://img.shields.io/badge/ISO%2026262-ASIL--B%20target-blue.svg)](docs/safety-case/)
@@ -96,10 +96,10 @@ The four are CI-gated on every commit, not aspirational:
 
 ### Wire compatibility — `xvalidation` gate
 
-`tests/xvalidation/run_xvalidation.sh` encodes 182 schemas × 5 seeds
+`tests/xvalidation/run_xvalidation.sh` encodes 183 schemas × 5 seeds
 each through our writer and decodes through upstream's cpp reader,
 then re-encodes via upstream's cpp writer and decodes via ours.
-**182 / 182 byte-equal in both directions**, on every commit.
+**183 / 183 byte-equal in both directions**, on every commit.
 Supplementary conformance against a production NDS.Live payload is
 maintained in a private companion repository.
 
@@ -189,7 +189,7 @@ generator/               legacy Java generator extension (xvalidation oracle)
 third_party/zserio/      upstream submodule, pinned at v2.18.1
 
 tests/runtime/           Unity unit tests
-tests/xvalidation/       182-schema byte-equal cross-validation harness
+tests/xvalidation/       183-schema byte-equal cross-validation harness
 tests/benchmarks/        REQ-PF-001 throughput harness vs upstream cpp
 
 requirements/            REQ-FN-* (functional), REQ-FS-* (safety),

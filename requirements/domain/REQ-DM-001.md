@@ -37,7 +37,7 @@ remains stable as the project evolves.
 
 Demonstrated by the existence of the parser/generator/runtime
 triple and by the cross-validation harness
-(`tests/xvalidation/run_xvalidation.sh`), which exercises 182
+(`tests/xvalidation/run_xvalidation.sh`), which exercises 183
 distinct schemas through the encode/decode path and verifies the
 transformation is schema-determined.
 

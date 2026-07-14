@@ -48,7 +48,7 @@ the build system, which is preferable to silent deletion.
 
 ## Verification
 
-- The cross-validation harness compiles 182 schemas with
+- The cross-validation harness compiles 183 schemas with
   distinct package paths; the build system enumerates files at
   expected paths via globbing and fails if any are missing.
 - `tests/parser/test_output_layout.c` exercises:

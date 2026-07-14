@@ -900,7 +900,7 @@ jobs:
             build-xvalidation/runtime-objs
           key: xval-rt-${{ hashFiles('third_party/zserio/compiler/extensions/cpp/runtime/src/**', 'runtime/src/**', 'runtime/include/**') }}
       - name: Run xvalidation harness
-        # Five seeds × 182 schemas = 910 byte-equal round-trips per
+        # Five seeds × 183 schemas = 915 byte-equal round-trips per
         # run. Exits non-zero on any wire-format divergence, surfaced
         # here so a regression blocks the merge.
         shell: bash

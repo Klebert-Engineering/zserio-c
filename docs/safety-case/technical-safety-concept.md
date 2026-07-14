@@ -153,7 +153,7 @@ For each schema in `tests/xvalidation/schemas.txt` and each seed in
 | Element                              | Verifies                                                                |
 | ------------------------------------ | ----------------------------------------------------------------------- |
 | `tests/xvalidation/run_xvalidation.sh` | Harness driver                                                        |
-| `tests/xvalidation/schemas.txt`      | Schema corpus (currently 182 entries)                                   |
+| `tests/xvalidation/schemas.txt`      | Schema corpus (currently 183 entries)                                   |
 | `.github/workflows/ci.yml`           | `xvalidation` job runs the harness with `SEEDS="1 2 7 42 999"` per commit |
 | `third_party/zserio` (submodule at `v2.18.1`) | The reference encoder we compare against                        |
 

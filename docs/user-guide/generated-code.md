@@ -363,7 +363,7 @@ and the `ZSERIO_TRY` propagation pattern.
 
 ## Worked examples
 
-The 182 harness files under `tests/xvalidation/harnesses/<schema>/c_driver.c`
+The 183 harness files under `tests/xvalidation/harnesses/<schema>/c_driver.c`
 each populate one schema's top-level type for a deterministic seed,
 write the bytes, and dump the count. They're a corpus of small
 focused examples per language feature.

@@ -134,7 +134,12 @@ while IFS= read -r schema_rel; do
     [[ -z "${schema_rel}" || "${schema_rel}" =~ ^# ]] && continue
     schema_path="${CORPUS_ROOT}/${schema_rel}"
     if [[ ! -f "${schema_path}" ]]; then
-        echo "xval: schema not found: ${schema_path}" >&2
+        # Not in the upstream corpus — try the in-tree synthetic
+        # schemas (committed under tests/xvalidation/schemas/).
+        schema_path="${REPO_ROOT}/tests/xvalidation/schemas/${schema_rel}"
+    fi
+    if [[ ! -f "${schema_path}" ]]; then
+        echo "xval: schema not found in corpus or tests/xvalidation/schemas: ${schema_rel}" >&2
         fail=$((fail + 1))
         continue
     fi

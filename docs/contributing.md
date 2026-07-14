@@ -13,7 +13,7 @@ need this page — start with [Getting started](getting-started.md).
 
 The upstream pin is **v2.18.1** (`third_party/zserio/`). The C
 output is byte-equal against the upstream cpp generator on all
-182 cross-validation harness schemas, in both directions.
+183 cross-validation harness schemas, in both directions.
 
 ## Building
 
@@ -50,7 +50,7 @@ generator/        Java extension that drives upstream zserio for
 
 tests/
   xvalidation/    bidirectional cpp ↔ C wire-format harness
-    harnesses/    one directory per schema (182 total)
+    harnesses/    one directory per schema (183 total)
     run_xvalidation.sh
   runtime/        runtime unit tests (Unity)
   parser/         parser unit tests (Unity)
@@ -81,7 +81,7 @@ strict warnings; under 30 s on a developer laptop.
 
 ### 2. Cross-validation (xvalidation)
 
-The flagship correctness gate. 182 schemas covering every
+The flagship correctness gate. 183 schemas covering every
 upstream zserio language feature. For each schema:
 
 - cpp_writes → c_reads → byte-equal
@@ -185,7 +185,7 @@ Most schema-language coverage gaps go through the same loop:
    harness to catch read-side regressions:
    `XVAL_SAN=1 ./tests/xvalidation/run_xvalidation.sh`.
 
-The 182 existing harnesses are the canonical examples of how to
+The 183 existing harnesses are the canonical examples of how to
 shape a new one.
 
 ## Safety case

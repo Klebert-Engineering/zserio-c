@@ -50,7 +50,7 @@ zserio_status_t round_trip(const uint8_t *in_buf, size_t in_len,
 ```
 
 This is the exact shape `tests/xvalidation/c_roundtrip.c` runs
-across 182 schemas to verify byte-equal round-trip.
+across 183 schemas to verify byte-equal round-trip.
 
 ## Reuse a message struct across reads
 

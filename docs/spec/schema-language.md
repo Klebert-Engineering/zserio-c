@@ -1888,7 +1888,7 @@ identically here and against upstream zserio v2.18.1.
 zserio-c targets schema-language compatibility with upstream
 zserio v2.18.1. Schema-feature coverage is verified by the
 cross-validation harness at `tests/xvalidation/harnesses/`: each
-of the 182 harnesses exercises one or more language features and
+of the 183 harnesses exercises one or more language features and
 the generated C round-trips byte-identical against upstream-cpp
 output on the same schema.
 

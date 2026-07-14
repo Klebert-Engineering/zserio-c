@@ -345,7 +345,7 @@ If you find a gap, open an issue with the schema that hits it.
 
 ## Reference corpus
 
-182 schemas in `tests/xvalidation/harnesses/` cover one language
+183 schemas in `tests/xvalidation/harnesses/` cover one language
 feature each, named by the feature (`auto_optional_bool`,
 `packed_auto_array_struct_recursion`, `choice_templated_enum_selector`,
 etc.). They're a fast lookup if you want a minimal example of a

@@ -62,7 +62,7 @@ the header is the signal.
 ## Verification
 
 - The cross-validation harness drivers call exactly this
-  contract on 182 schemas. A missing entry point would fail at
+  contract on 183 schemas. A missing entry point would fail at
   compile time.
 - The bidirectional auto-roundtrip harness
   (`tests/xvalidation/c_roundtrip.c`) runs `_init` →
