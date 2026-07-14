@@ -53,7 +53,7 @@ use **method (1) — increased confidence from use** combined with
 
   | Property gcc must hold                           | Validation                                                                 |
   | ------------------------------------------------ | -------------------------------------------------------------------------- |
-  | Correct codec output                             | `xvalidation` job: 182 schemas × 5 seeds, byte-equal vs upstream cpp       |
+  | Correct codec output                             | `xvalidation` job: 183 schemas × 5 seeds, byte-equal vs upstream cpp       |
   | Correct evaluation of buffer-bound checks (SG-1) | `test_bitstream.c`, `test_failure_modes.c` H-01                            |
   | Correct loop bounds preserved (SG-2)             | `test_varint.c`, `test_failure_modes.c` H-02                               |
   | No spurious recursion introduced by optimizer    | cppcheck Rule 17.2 (operates on source AST, not gcc output); cross-checked by manual inspection of generated assembly for the inner-loop functions |

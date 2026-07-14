@@ -19,6 +19,7 @@ add_library(zserio_c_runtime STATIC
 target_include_directories(zserio_c_runtime
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
 )
 
 # C99 strict for our own sources (top-level already sets this; restated
@@ -31,3 +32,15 @@ set_target_properties(zserio_c_runtime PROPERTIES
 
 # Convenience alias mirroring the typical "namespace::target" idiom.
 add_library(zserio_c::runtime ALIAS zserio_c_runtime)
+
+if(ZSERIO_C_INSTALL)
+    include(GNUInstallDirs)
+    set_target_properties(zserio_c_runtime PROPERTIES EXPORT_NAME runtime)
+    install(TARGETS zserio_c_runtime
+        EXPORT zserio_c-targets
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    )
+    install(DIRECTORY include/zserio
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+    )
+endif()

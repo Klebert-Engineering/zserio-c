@@ -47,7 +47,7 @@ implementation to be kept in sync at every change.
 
 ## Verification
 
-- The cross-validation harness exercises 182 schemas covering
+- The cross-validation harness exercises 183 schemas covering
   every language feature. Each schema is parsed successfully and
   the resulting C output round-trips byte-equal against
   upstream.

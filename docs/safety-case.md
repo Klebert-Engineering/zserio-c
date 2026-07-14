@@ -34,7 +34,7 @@ Done (CI-gated, evidence reproducible per commit):
 - [x] Size regression gate — `tools/measure_size.py` +
       `tools/check_size_regression.py`.
 - [x] Wire-format conformance harness — `tests/xvalidation/`,
-      182 schemas × 5 seeds per CI run.
+      183 schemas × 5 seeds per CI run.
 
 Draft (delivered in the safety-case launch commit):
 
@@ -67,7 +67,7 @@ Draft (delivered subsequently):
       runtime-module evidence against `main` HEAD.
 - [/] Software integration and verification report —
       `docs/safety-case/integration-verification.md`. xvalidation
-      (182 × 5) + private NDS.Live companion conformance harness
+      (183 × 5) + private NDS.Live companion conformance harness
       end-to-end.
 - [/] Safety case report —
       `docs/safety-case/safety-case-report.md`. Single entry

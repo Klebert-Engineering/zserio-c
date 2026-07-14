@@ -1,0 +1,10 @@
+prefix=@CMAKE_INSTALL_PREFIX@
+libdir=${prefix}/@CMAKE_INSTALL_LIBDIR@
+includedir=${prefix}/@CMAKE_INSTALL_INCLUDEDIR@
+
+Name: zserio_c_runtime
+Description: C99 runtime library for zserio-c generated serialization code
+URL: https://github.com/Klebert-Engineering/zserio-c
+Version: @PROJECT_VERSION@
+Libs: -L${libdir} -lzserio_c_runtime
+Cflags: -I${includedir}

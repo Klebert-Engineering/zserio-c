@@ -1,0 +1,5 @@
+@PACKAGE_INIT@
+
+include("${CMAKE_CURRENT_LIST_DIR}/zserio_c-targets.cmake")
+
+check_required_components(zserio_c)

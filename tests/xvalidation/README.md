@@ -29,21 +29,28 @@ localize the divergent field.
 
 ## Adding a schema
 
-1. Pick a `.zs` file under `third_party/zserio-test-data/language/`.
-   The harness re-derives the staging dir from the schema's `package`
-   line, so any path under that root works.
+1. Pick a `.zs` file under `third_party/zserio-test-data/language/`,
+   or author one under `schemas/` (in-tree synthetic schemas — used
+   for shapes the upstream corpus doesn't cover, e.g. the
+   production-shape `synthetic/layered_container.zs`). The harness
+   re-derives the staging dir from the schema's `package` line, so
+   any path under either root works.
 2. Add the path to `schemas.txt`.
 3. Create `harnesses/<schema_stem>/c_driver.c` and `cpp_driver.cpp`.
    Both drivers are small (~30 lines each) and follow the contract
-   in the existing examples.
+   in the existing examples. Regenerate the bidirectional driver
+   with `python3 tests/xvalidation/gen_roundtrip.py`.
 4. Run `bash tests/xvalidation/run_xvalidation.sh`.
+5. Bump the schema count in the docs (`grep -rn` for the old count).
 
 ## Files
 
 - `run_xvalidation.sh` — orchestrator. Generates code on both sides,
   builds drivers, runs each seed, diff'd results.
 - `schemas.txt` — list of schemas to validate, one path per line
-  (relative to `third_party/zserio-test-data/language/`).
+  (resolved against `third_party/zserio-test-data/language/`, then
+  `schemas/`).
+- `schemas/` — in-tree synthetic schemas.
 - `harnesses/<schema_stem>/` — per-schema drivers.
 - `<repo>/build-xvalidation/` — work tree (gitignored). Per-schema
   subdirs hold the generated code on both sides, the compiled

@@ -5,7 +5,7 @@
  * Acceptance test: parse a curated subset of the upstream
  * zserio test-data corpus and assert every schema parses to
  * zero errors. This is the milestone-7.2 sanity gate; the
- * full 182-schema xvalidation gate runs against the analyzer
+ * full 183-schema xvalidation gate runs against the analyzer
  * + emitter.
  *
  * Verifies: REQ-FN-002 — parser accepts the schema language

@@ -46,13 +46,13 @@ This requirement is the basis for canonical encoding
 
 The bidirectional cross-validation harness
 (`tests/xvalidation/run_xvalidation.sh`) exercises both
-directions on 182 schemas with 5 seeded inputs each:
+directions on 183 schemas with 5 seeded inputs each:
 
 - `cpp_writes → c_reads → byte-equal against cpp_writes`
 - `c_writes → cpp_reads → byte-equal against c_writes`
 - `c_writes → c_reads → c_writes → byte-equal` (auto-roundtrip)
 
-Current result: 182/182 byte-equal in all three modes
+Current result: 183/183 byte-equal in all three modes
 (`docs/safety-case/safety-case-report.md`).
 
 ## Notes

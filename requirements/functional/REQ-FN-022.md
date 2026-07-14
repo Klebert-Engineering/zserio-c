@@ -20,7 +20,7 @@ SHALL produce a bitstream `b'` that is byte-identical to `b`,
 where `b` is the original valid encoding and `b'` is the
 re-encoding.
 
-This identity SHALL hold for all 182 schemas in the
+This identity SHALL hold for all 183 schemas in the
 cross-validation harness, at every seed exercised by the
 harness.
 
@@ -50,7 +50,7 @@ round-trip byte equality is the operational definition of
 
 - `tests/xvalidation/c_roundtrip.c` is a per-harness driver
   that does exactly the operation sequence above and `cmp`s
-  the result against the input. It runs against all 182
+  the result against the input. It runs against all 183
   cross-validation harnesses on every commit.
 - Supplementary conformance against a production NDS.Live
   payload is maintained in a private companion repository

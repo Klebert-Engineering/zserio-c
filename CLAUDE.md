@@ -23,7 +23,7 @@ Three deliverables live in this tree:
   **not** on the C build path; do not confuse it with `parser/`.
 
 The xvalidation harness in `tests/xvalidation/` is the flagship correctness
-gate: 182 schemas × 5 seeds, cpp↔C byte-equal in both directions on every
+gate: 183 schemas × 5 seeds, cpp↔C byte-equal in both directions on every
 commit. Treat it as the source of truth for "does this still work."
 
 ## Commands
@@ -149,7 +149,7 @@ For schema-language gaps, follow this loop (full version in `docs/contributing.m
    (typing / identifier mangling).
 6. Confirm bidirectionally: `XVAL_SAN=1 ./tests/xvalidation/run_xvalidation.sh`.
 
-The 182 existing harnesses are the canonical reference shapes.
+The 183 existing harnesses are the canonical reference shapes.
 
 ## Style
 

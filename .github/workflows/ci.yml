@@ -93,6 +93,83 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure
 
+  packaging:
+    name: Packaging (install + find_package consumer)
+    runs-on: ${{ fromJSON(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && '"ubuntu-latest"' || '["self-hosted", "linux", "x64"]') }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5   # v4.3.1
+        with:
+          submodules: false
+      - name: Install build tools
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - name: Build and install to a scratch prefix
+        run: |
+          cmake -B build-pkg -S . -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DZSERIO_C_BUILD_TESTS=OFF \
+            -DCMAKE_INSTALL_PREFIX="${RUNNER_TEMP}/prefix"
+          cmake --build build-pkg
+          cmake --install build-pkg
+      - name: Build and run a find_package consumer
+        # End-to-end: find_package(zserio_c) -> run zserio_c::gen on a
+        # schema -> compile generated code -> link zserio_c::runtime ->
+        # byte round-trip. Guards the install/export rules against rot.
+        run: |
+          set -eu
+          C="${RUNNER_TEMP}/consumer"
+          mkdir -p "$C"
+          printf 'package demo;\n\nstruct Point {\n    uint32 x;\n    uint32 y;\n    string label;\n};\n' > "$C/demo.zs"
+          cat > "$C/CMakeLists.txt" <<'CMAKE'
+          cmake_minimum_required(VERSION 3.20)
+          project(consumer LANGUAGES C)
+          find_package(zserio_c 0.1 REQUIRED)
+          set(GEN_DIR ${CMAKE_CURRENT_BINARY_DIR}/gen)
+          add_custom_command(
+              OUTPUT ${GEN_DIR}/demo/point.c ${GEN_DIR}/demo/point.h
+              COMMAND ${CMAKE_COMMAND} -E make_directory ${GEN_DIR}
+              COMMAND zserio_c::gen ${CMAKE_CURRENT_SOURCE_DIR}/demo.zs -c ${GEN_DIR}
+              DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/demo.zs
+          )
+          add_executable(consumer main.c ${GEN_DIR}/demo/point.c)
+          target_include_directories(consumer PRIVATE ${GEN_DIR})
+          target_link_libraries(consumer PRIVATE zserio_c::runtime)
+          CMAKE
+          cat > "$C/main.c" <<'CSRC'
+          #include <stdio.h>
+          #include <string.h>
+          #include "demo/point.h"
+
+          int main(void)
+          {
+              zserio_allocator_t alloc = zserio_allocator_libc();
+              demo_point_t p;
+              demo_point_init(&p);
+              p.x = 7U;
+              p.y = 42U;
+              p.label.bytes = (char *)"hello";   /* borrowed; p is not freed */
+              p.label.length = 5U;
+              uint8_t buf[64];
+              zserio_bitstream_writer_t w;
+              if (zserio_bitstream_writer_init(&w, buf, sizeof(buf) * 8U) != ZSERIO_OK) return 1;
+              if (demo_point_write(&p, &w) != ZSERIO_OK) return 1;
+              zserio_bitstream_reader_t r;
+              if (zserio_bitstream_reader_init(&r, buf,
+                      zserio_bitstream_writer_position(&w)) != ZSERIO_OK) return 1;
+              demo_point_t q;
+              demo_point_init(&q);
+              if (demo_point_read(&q, &r, &alloc) != ZSERIO_OK) return 1;
+              const int ok = (q.x == 7U) && (q.y == 42U) && (q.label.length == 5U)
+                  && (memcmp(q.label.bytes, "hello", 5U) == 0);
+              demo_point_free(&q, &alloc);
+              printf(ok ? "CONSUMER_OK\n" : "CONSUMER_MISMATCH\n");
+              return ok ? 0 : 1;
+          }
+          CSRC
+          cmake -B "$C/build" -S "$C" -G Ninja -DCMAKE_PREFIX_PATH="${RUNNER_TEMP}/prefix"
+          cmake --build "$C/build"
+          "$C/build/consumer" | grep -q CONSUMER_OK
+
   asan:
     name: Sanitizers (ASan + UBSan)
     runs-on: ${{ fromJSON(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && '"ubuntu-latest"' || '["self-hosted", "linux", "x64"]') }}
@@ -823,7 +900,7 @@ jobs:
             build-xvalidation/runtime-objs
           key: xval-rt-${{ hashFiles('third_party/zserio/compiler/extensions/cpp/runtime/src/**', 'runtime/src/**', 'runtime/include/**') }}
       - name: Run xvalidation harness
-        # Five seeds × 182 schemas = 910 byte-equal round-trips per
+        # Five seeds × 183 schemas = 915 byte-equal round-trips per
         # run. Exits non-zero on any wire-format divergence, surfaced
         # here so a regression blocks the merge.
         shell: bash

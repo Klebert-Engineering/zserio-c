@@ -2,7 +2,7 @@
 
 Conformance metadata shared by the cross-validation harnesses.
 The actual byte-equal cross-validation lives in
-`tests/xvalidation/` (182 schemas × 5 seeds per CI run);
+`tests/xvalidation/` (183 schemas × 5 seeds per CI run);
 supplementary end-to-end conformance against a production
 NDS.Live payload is maintained in a private companion repository
 (NDS Association membership required).

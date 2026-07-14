@@ -3,6 +3,33 @@
 Wiring `zserio_c_gen` into a real build. Three patterns, ordered
 by how much of your build system you want to give it.
 
+## Getting the library
+
+All routes build the runtime from source (there is no shared
+library) and provide the same namespaced targets:
+`zserio_c::runtime`, `zserio_c::parser`, and `zserio_c::gen`
+(the generator executable).
+
+```cmake
+# Installed package (after `cmake --install`):
+find_package(zserio_c 0.1 REQUIRED)
+
+# Vendored checkout / git submodule (tests stay off automatically):
+add_subdirectory(third_party/zserio-c)
+
+# FetchContent:
+include(FetchContent)
+FetchContent_Declare(zserio_c
+    GIT_REPOSITORY https://github.com/Klebert-Engineering/zserio-c.git
+    GIT_TAG        v0.1.0)
+FetchContent_MakeAvailable(zserio_c)
+```
+
+An installed tree also carries `lib/pkgconfig/zserio_c_runtime.pc`
+for non-CMake builds. The snippets below use the plain target
+names from an in-tree build; substitute the `zserio_c::` namespaced
+forms when consuming any of the routes above.
+
 ## Pattern 1 — Pre-generate and check in
 
 Run `zserio_c_gen` once outside the build, commit the generated

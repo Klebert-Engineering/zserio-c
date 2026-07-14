@@ -33,7 +33,7 @@ oracle and its sibling gates (see "Phasing — status" below).
   jar → FreeMarker → emitted C → C compiler`. Every link is in scope
   for ISO 26262-8 Cl 11.4.6 toolchain qualification. The JVM, ANT,
   and the upstream Java AST are large pieces of third-party
-  machinery that we currently qualify by validation (the 182-schema
+  machinery that we currently qualify by validation (the 183-schema
   xvalidation gate). A C-native pipeline collapses this to
   `C parser → C emitter → C compiler` — three components, all in
   the same language, all under our own MISRA and coverage gates.
@@ -54,7 +54,7 @@ oracle and its sibling gates (see "Phasing — status" below).
 1. **C-native schema parser.** Tokenizer + parser for the upstream
    zserio schema language (`.zs`), producing an internal AST. Must
    accept every schema in the upstream `tests/` corpus + every
-   schema in the 182-schema xvalidation set.
+   schema in the 183-schema xvalidation set.
 2. **Semantic analyzer.** Name resolution, type checking, expression
    evaluation, choice-resolution analysis, packed-array eligibility —
    everything upstream's `compiler/core` AST passes do today.
@@ -173,7 +173,7 @@ parser-toolkit from TQ scope. Suggested mitigation for the
 "hand-written drifts from spec" risk: a small property-based fuzz
 target that generates random grammar-conforming schemas via the
 upstream grammar and asserts our parser accepts them — exists
-today in spirit via the 182-schema corpus, but we could extend.
+today in spirit via the 183-schema corpus, but we could extend.
 
 ### Q2 — AST shape
 
@@ -329,7 +329,7 @@ Options:
   emitter logic, public-API shape change that ripples through every
   consumer of our generated headers.
 - **Keep parameters as struct members + `_init` style.** Simpler,
-  less generated code per compound, existing 182-schema xvalidation
+  less generated code per compound, existing 183-schema xvalidation
   harness already validates this works.
 
 Decision: **don't adopt for Phase 7**. Tracked under "Future
@@ -434,10 +434,10 @@ Each milestone gated the next. Status reflects the tree as of
 | --------- | ----------- | ------ |
 | 7.0 | This scope doc accepted. Q1–Q8 resolved. | **Done** — decisions recorded in the log below. |
 | 7.1 | Lexer + parser skeleton (primitives + structs only). | **Done.** |
-| 7.2 | Full grammar coverage: parser accepts all 182 xvalidation schemas + the upstream `tests/` schemas. | **Done** — acceptance testing lives in `tests/parser/` (`test_acceptance.c`, `test_corpus_compile.c`, `test_corpus_sweep.c`), run via ctest. |
+| 7.2 | Full grammar coverage: parser accepts all 183 xvalidation schemas + the upstream `tests/` schemas. | **Done** — acceptance testing lives in `tests/parser/` (`test_acceptance.c`, `test_corpus_compile.c`, `test_corpus_sweep.c`), run via ctest. |
 | 7.3 | Semantic analyzer: name resolution, type checking, expression evaluation, packed-array eligibility. | **Done** (`parser/src/sema.c`). |
 | 7.4 | Emitter, first cut, for a hand-picked feature-covering schema subset. | **Done.** |
-| 7.5 | Full emitter, all 182 xvalidation schemas. | **Done** — the per-commit `xvalidation` CI job runs `zserio_c_gen` as the C-side generator. |
+| 7.5 | Full emitter, all 183 xvalidation schemas. | **Done** — the per-commit `xvalidation` CI job runs `zserio_c_gen` as the C-side generator. |
 | 7.6 | Decode-hardening emission (in-scope items #5/#6). | **Done as revised** — the pre-allocation guard pair (overflow + remaining-bits) is emitted per wire-driven array; verified by `tests/parser/test_decode_hardening.c` and the decode-path fuzz CI job. The item-#6 allocation-cap design was not adopted (see the as-built note there). |
 | 7.7 | Tool-qualification doc + cutover. | **Partially done** — the C build path is fully cut over (a C99 toolchain alone builds `zserio_c_gen`; no JVM on the build path). The Java pieces were *retained*, not removed: `generator/` and the upstream jars remain solely to drive the xvalidation oracle and its sibling gates (perf, MISRA-on-generated-output). The `zserio_c_gen` tool-qualification write-up is an open work item. |
 
@@ -506,7 +506,7 @@ target.
 
 | ID | Risk | Mitigation |
 | -- | ---- | ---------- |
-| R-01 | Hand-written parser drifts from upstream grammar over time. | CI-pinned upstream submodule + 182-schema xvalidation gate + per-release diff of upstream `ZserioParser.g4`. |
+| R-01 | Hand-written parser drifts from upstream grammar over time. | CI-pinned upstream submodule + 183-schema xvalidation gate + per-release diff of upstream `ZserioParser.g4`. |
 | R-02 | Semantic analyzer misses a subtle upstream invariant (e.g. expression context). | Parallel run: every analyzed AST is dumped + diffed against a "Java-front-end structural dump" the existing jar produces. Divergence fails CI. |
 | R-03 | Emitter output drifts; xvalidation catches behavior but not source-level stability. | Byte-equal-modulo-whitespace gate during parallel run. Tightens to byte-equal at cutover. |
 | R-04 | Effort estimate underruns. The Java front-end has 5+ years of corner cases baked in. | Phasing above is gated, not time-bound. We don't cut over until 7.5's seven-commit criterion is met. Slip is on schedule, not safety. |
@@ -519,7 +519,7 @@ Current status per criterion:
 
 - A C99 toolchain alone produces a working zserio-c generator
   binary. **Met.**
-- xvalidation (182 schemas × 5 seeds) is green on every commit.
+- xvalidation (183 schemas × 5 seeds) is green on every commit.
   **Met** — per-commit CI gate.
 - The array-length sanity bound is emitted and verified. **Met** —
   `tests/parser/test_decode_hardening.c` + the decode-path fuzz job.
@@ -546,7 +546,7 @@ resolved at scoping time; as-built divergences are noted inline.)
 
 | Q | Decision | Date | Rationale |
 | - | -------- | ---- | --------- |
-| Q1 | Hand-written recursive descent + Pratt for expressions. | 2026-05-15 | Minimum TQ-2 surface (no third-party parser-toolkit dependency); full control over diagnostics + error recovery; single C99 toolchain preserves Phase 7's build-hermeticity goal. Grammar size (~500 LOC of `.g4`) is well inside hand-written territory. Upstream grammar change rate confirmed mature: ~2–3 substantive changes per year, decelerating to zero (20 months with no changes leading into v2.18.1). Drift risk small enough that the 182-schema xvalidation harness + a documented per-release diff procedure is sufficient. |
+| Q1 | Hand-written recursive descent + Pratt for expressions. | 2026-05-15 | Minimum TQ-2 surface (no third-party parser-toolkit dependency); full control over diagnostics + error recovery; single C99 toolchain preserves Phase 7's build-hermeticity goal. Grammar size (~500 LOC of `.g4`) is well inside hand-written territory. Upstream grammar change rate confirmed mature: ~2–3 substantive changes per year, decelerating to zero (20 months with no changes leading into v2.18.1). Drift risk small enough that the 183-schema xvalidation harness + a documented per-release diff procedure is sufficient. |
 | Q2 | Tagged union per node kind, arena-allocated. ~30–50 distinct kinds collapsed from upstream's 105 Java classes. | 2026-05-15 | MISRA-cleanest of the three options (no casts, no vtables, no flex arrays); memory-cheapest (single struct size, arena-allocated, zero per-node alloc overhead); visitor-cleanest (`switch(kind)` with `default: assert(0)` catches missing handlers at compile time when the enum grows). Production precedent: lua, tcc, chibicc, Zig stage1. The "every switch needs updating when kinds grow" property is the safety property we want. AST lives in a per-compilation arena; lifetime matches parser+analyzer+emitter exactly. |
 | Q3 | Hand-written tree-walking print pass via a small disciplined emitter API (`emit_lit`, `emit_indent`, `emit_block_open/close`, `emit_fmt`). One emit function per concern (~50–80 functions, est. 5–10 kLOC). No template engine. | 2026-05-15 | Single C99 toolchain end-to-end (option C would have kept FreeMarker + JVM in the build, halving Phase 7's hermeticity goal); MISRA-coverable like the rest of the project's C; debuggable in `gdb`; cross-cutting emission patterns become reusable helpers the compiler enforces. Embedded template-engine (option B) was rejected because it reintroduces a templating-engine surface (Rule 21.6 framing + multi-layer indirection) without buying much given FreeMarker's heaviest use in our templates is conditionals + loops which don't compress into template strings anyway. Per-schema xvalidation-byte-equal-at-the-wire (not source-equal-to-Java-generator) is the correctness gate. |
 | Q4 | Parallel run with byte-equal-at-the-wire cutover. Both generators build in CI for the duration; the C generator's xvalidation gate must be green for 7 consecutive main commits before cutover (matches milestone 7.5). Source-level byte-equality is **not** required — wire-level byte-equality is the gate. Java generator is **retained** after cutover (not deleted; as built it stays in place at `generator/`, serving as the xvalidation-oracle driver), but **excluded from the safety case** at cutover. Rationale for retention: (1) integrators need to compile a dozen custom schemas through both pipelines side-by-side during their own cutover ramp; (2) a C emitter sitting alongside cpp/java generators may stay useful long-term as one of several generator outputs; (3) keeps an option open to extract the retained tree to a separate repo at a future major-version boundary without scrambling. Excluded-from-safety-case framing: the Java generator's qualification ends at cutover; any post-cutover use is at the integrator's risk under their own QA. C-generator CI can drop from per-commit to nightly for milestones 7.1–7.4, re-entering per-commit gating at 7.5. | 2026-05-15 | Lowest regression risk (every commit runs both pipelines through xvalidation; divergence fails build); cleanest safety-case transition (gradual overlap is what ISO 26262-8 calls for); reversible at every step; aligns with the "N consecutive green commits" cutover pattern used in Phase 5/6. The legacy-retention choice (vs. delete) is a deliberate trade: small ongoing maintenance burden on a frozen tree in exchange for integrator-side cutover flexibility and the option to repurpose later. |

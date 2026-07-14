@@ -28,7 +28,7 @@ describe that auxiliary path.
 | Axis                       | Classification | Rationale                                                                                                |
 | -------------------------- | -------------- | -------------------------------------------------------------------------------------------------------- |
 | Tool Impact (TI)           | **TI2**        | The generator's output is part of every shipped binary. A generator bug could violate any safety goal whose enforcement is in the generated code (e.g. cross-compound offset patching, packing-context construction). |
-| Tool error Detection (TD)  | **TD1**        | Strongest TD on any tool in the case: every generated artifact is exercised end-to-end against an independent reference (upstream cpp generator) for 182 schemas × 5 seeds per commit. A semantic error in the generator surfaces as a wire-format divergence in the `xvalidation` job, which fails the build. |
+| Tool error Detection (TD)  | **TD1**        | Strongest TD on any tool in the case: every generated artifact is exercised end-to-end against an independent reference (upstream cpp generator) for 183 schemas × 5 seeds per commit. A semantic error in the generator surfaces as a wire-format divergence in the `xvalidation` job, which fails the build. |
 | Derived **TCL**            | **TCL1**       | TI2 × TD1 per ISO 26262-8 Table 4. The strong detection layer brings the generator down to TCL1 despite the TI2 impact. |
 
 For a TCL1 classification, ISO 26262-8 §11.4.6 requires only that
@@ -55,7 +55,7 @@ Combination of **(1) — increased confidence from use** and
   recursive-descent parser, semantic analyzer, and a single
   emitter, all under `parser/src/`). Every emission path is
   exercised by at least one schema in the xvalidation corpus. The corpus has grown from 0 schemas at
-  initial bring-up to 182 schemas now, covering every primitive
+  initial bring-up to 183 schemas now, covering every primitive
   type, every compound kind (struct, choice, union, bitmask,
   enum), packed arrays in every shape, parametrized types,
   cross-compound offsets, and self-referential pointers.
@@ -69,7 +69,7 @@ Combination of **(1) — increased confidence from use** and
   | Property the generator must hold                | Validation                                                                                  |
   | ----------------------------------------------- | ------------------------------------------------------------------------------------------- |
   | Correct C identifier mapping                    | Identifier lowering lives in `parser/src/emit.c`; unit-tested under `tests/parser/` (`test_emit.c`, `test_identifier_truncation.c`) and exercised end-to-end by xvalidation (upstream-convention snake_case must match for the harness drivers to compile). |
-  | Correct codec output for every supported construct | `xvalidation` job: 182 schemas, byte-equal round-trip against upstream                  |
+  | Correct codec output for every supported construct | `xvalidation` job: 183 schemas, byte-equal round-trip against upstream                  |
   | No use of forbidden symbols (REQ-FS-001/002)    | `tools/run_misra.sh` forbidden-symbol grep runs on the runtime, AND `tools/run_misra_generated.sh` (the `misra-generator` CI job) runs cppcheck + MISRA addon on the generator's output for a 13-schema representative set. |
   | No runtime reflection (REQ-FS-008)              | Architectural review: the generator templates contain no reflection scaffolding. **Smoke-checked** by REQ-FS-008's traceability marker in `tools/run_misra.sh`. |
   | Correct cross-compound offset patching          | xvalidation; the `offsets_compound_field_array` and related schemas exercise it.            |

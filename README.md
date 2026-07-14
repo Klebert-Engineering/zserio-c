@@ -12,7 +12,7 @@ ASIL-B target, ASIL-D headroom).
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Standard](https://img.shields.io/badge/C-99-informational.svg)](https://www.iso.org/standard/29237.html)
 [![Upstream zserio](https://img.shields.io/badge/upstream-v2.18.1-orange.svg)](https://github.com/ndsev/zserio/releases/tag/v2.18.1)
-[![Wire compatibility](https://img.shields.io/badge/xvalidation-182%20%2F%20182-success.svg)](tests/xvalidation/)
+[![Wire compatibility](https://img.shields.io/badge/xvalidation-183%20%2F%20183-success.svg)](tests/xvalidation/)
 [![Coverage](https://img.shields.io/badge/coverage-99.9%25%20line%20%C2%B7%2088%25%20branch-success.svg)](docs/safety-case/tool-qualification-coverage.md)
 [![MISRA](https://img.shields.io/badge/MISRA--C%3A2012-strict%20%2B%20D001..D009-blue.svg)](docs/misra-deviations/)
 [![ISO 26262](https://img.shields.io/badge/ISO%2026262-ASIL--B%20target-blue.svg)](docs/safety-case/)
@@ -96,10 +96,10 @@ The four are CI-gated on every commit, not aspirational:
 
 ### Wire compatibility — `xvalidation` gate
 
-`tests/xvalidation/run_xvalidation.sh` encodes 182 schemas × 5 seeds
+`tests/xvalidation/run_xvalidation.sh` encodes 183 schemas × 5 seeds
 each through our writer and decodes through upstream's cpp reader,
 then re-encodes via upstream's cpp writer and decodes via ours.
-**182 / 182 byte-equal in both directions**, on every commit.
+**183 / 183 byte-equal in both directions**, on every commit.
 Supplementary conformance against a production NDS.Live payload is
 maintained in a private companion repository.
 
@@ -160,6 +160,7 @@ For **implementing** an interoperable zserio codec, or **auditing the wire forma
 
 | | |
 |---|---|
+| [Feature-support matrix](docs/feature-matrix.md) | Every upstream v2.18.1 feature: full / partial / rejected, at a glance. |
 | [Schema language reference](docs/spec/schema-language.md) | Normative spec of the language `zserio_c_gen` accepts. |
 | [Wire format reference](docs/spec/wire-format.md) | Normative spec of the binary encoding. |
 | [Schema evolution](docs/spec/schema-evolution.md) | `optional` / `extend` / `@removed` semantics. |
@@ -188,7 +189,7 @@ generator/               legacy Java generator extension (xvalidation oracle)
 third_party/zserio/      upstream submodule, pinned at v2.18.1
 
 tests/runtime/           Unity unit tests
-tests/xvalidation/       182-schema byte-equal cross-validation harness
+tests/xvalidation/       183-schema byte-equal cross-validation harness
 tests/benchmarks/        REQ-PF-001 throughput harness vs upstream cpp
 
 requirements/            REQ-FN-* (functional), REQ-FS-* (safety),
@@ -229,17 +230,31 @@ zserio_c_gen 0.1.0
 
 The same values are available at build time as preprocessor
 constants in [`<zserio/version.h>`](runtime/include/zserio/version.h).
-Consumers vendor or submodule the runtime and rebuild from source —
-there is no shared library to install. The CI gate
-`tools/check_version_consistency.py` keeps `version.h`,
+The CI gate `tools/check_version_consistency.py` keeps `version.h`,
 `CMakeLists.txt`, and the spec docs in sync.
+
+Consuming the library — all three of the usual routes work; there
+is no shared library, the runtime is always built from source:
+
+```sh
+# 1. Installed package
+cmake -B build -DZSERIO_C_BUILD_TESTS=OFF && cmake --build build && cmake --install build
+#    then in your project:  find_package(zserio_c 0.1 REQUIRED)
+#    targets: zserio_c::runtime, zserio_c::parser, zserio_c::gen (the generator)
+
+# 2. Vendored / submodule:   add_subdirectory(zserio-c)   (tests stay off)
+# 3. FetchContent:           GIT_TAG v0.1.0
+```
+
+A `pkg-config` file (`zserio_c_runtime.pc`) is installed for
+non-CMake builds.
 
 ## License
 
 [MIT](LICENSE). Copyright © 2026 Klebert Engineering.
 
 The upstream `ndsev/zserio` submodule retains its own license
-(Apache 2.0). No upstream source is copied into this repository —
+(BSD 3-Clause). No upstream source is copied into this repository —
 the submodule is consulted at build time only for the Java
 generator extension (`generator/`) and at xvalidation time for the
 cpp wire-format oracle.
