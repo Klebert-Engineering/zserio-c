@@ -27,6 +27,7 @@ add_library(zserio_c_parser STATIC
 target_include_directories(zserio_c_parser
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
 )
 
 # The parser depends on the runtime's allocator + status headers.
@@ -46,3 +47,17 @@ add_library(zserio_c::parser ALIAS zserio_c_parser)
 add_executable(zserio_c_gen cli/main.c)
 target_link_libraries(zserio_c_gen PRIVATE zserio_c::parser)
 target_compile_features(zserio_c_gen PRIVATE c_std_99)
+
+if(ZSERIO_C_INSTALL)
+    include(GNUInstallDirs)
+    set_target_properties(zserio_c_parser PROPERTIES EXPORT_NAME parser)
+    set_target_properties(zserio_c_gen PROPERTIES EXPORT_NAME gen)
+    install(TARGETS zserio_c_parser zserio_c_gen
+        EXPORT zserio_c-targets
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    )
+    install(DIRECTORY include/zsparser
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+    )
+endif()
