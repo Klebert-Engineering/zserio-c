@@ -42,7 +42,7 @@ carries one of four statuses:
 
 | Feature | Status | Notes |
 |---|---|---|
-| Packages and imports | Partial | Imports are parsed and used to locate schema files, but visibility is not gated: all top-level declarations share one namespace, disambiguated by the package suffix in generated identifiers. Stricter import-gated visibility is planned. |
+| Packages and imports | Partial | Imports are parsed and used to locate schema files, but visibility is not gated: all top-level declarations share one namespace, disambiguated by the package suffix in generated identifiers. Stricter import-gated visibility is planned ([#10](https://github.com/Klebert-Engineering/zserio-c/issues/10)). |
 | Constants | Full | All value kinds, including negative, boolean, floating-point, and string constants; `const_type`, `full_const_type`, `constant_in_choice_case` |
 | Subtypes | Full | `structure_subtype`, `uint16_subtype`, `subtype_imported` |
 | Enumerations | Full | `enumeration_type`, `full_enumeration_type` |
@@ -50,7 +50,7 @@ carries one of four statuses:
 | Structures | Full | `simple_structure`, `empty_structure`, `structure_value` |
 | Unions | Full | `simple_union`, `union_with_parameter`, `union_with_multiple_parameters` |
 | Choices (multi-label cases, `default`, empty arms) | Full | `expression_selector_choice`, `bool_choice_with_default`, `default_empty_choice` |
-| `sql_table` / `sql_database` | Rejected | Diagnostic: "sql_table is not supported; SQLite-backed generation is planned as an optional extension outside the ASIL scope" (and likewise for `sql_database`). |
+| `sql_table` / `sql_database` | Rejected | Diagnostic: "sql_table is not supported; SQLite-backed generation is planned as an optional extension outside the ASIL scope" (and likewise for `sql_database`). Tracked in [#8](https://github.com/Klebert-Engineering/zserio-c/issues/8). |
 
 ## Fields, arrays, and layout
 
@@ -63,7 +63,7 @@ carries one of four statuses:
 | Default values | Full | `structure_default_values`, `optional_default_values`, `extended_default_values` |
 | Extended fields (`extend`, forward compatibility) | Full | `extended_simple_field`, `multiple_extended_fields`, `extended_packed_array` |
 | Functions in structures and unions | Full | `function_type`, `bitfield_function_length`, `function_selector_choice` |
-| Functions in choice bodies | Rejected | Diagnostic: "functions in choice types are not yet supported". Support is planned. |
+| Functions in choice bodies | Rejected | Diagnostic: "functions in choice types are not yet supported". Support is planned ([#13](https://github.com/Klebert-Engineering/zserio-c/issues/13)). |
 | Fixed-length arrays | Full | `fixed_array_uint8`, `array_type` |
 | Variable-length arrays | Full | `variable_array_subtyped_struct`, `structure_array` |
 | Auto arrays | Full | `auto_array_uint8`, `auto_array_struct_recursion` |
@@ -100,16 +100,16 @@ carries one of four statuses:
 | JSON debug encode/decode | Out of scope | Upstream's JSON dump/load relies on runtime type information, which zserio-c does not generate. |
 | Reflection, type-info, walker | Out of scope | [REQ-FS-008](../requirements/safety/REQ-FS-008.md) forbids runtime type-information structures in generated code; all type knowledge is compiled into direct C calls. |
 | Multi-language code generation | Out of scope | zserio-c generates C99 only; use upstream zserio for other targets. |
-| SQLite runtime layer | Out of scope | Planned as a separate, opt-in component outside the ASIL scope; see the `sql_table` / `sql_database` rejection above. |
+| SQLite runtime layer | Out of scope | Planned as a separate, opt-in component outside the ASIL scope; see the `sql_table` / `sql_database` rejection above and [#8](https://github.com/Klebert-Engineering/zserio-c/issues/8). |
 
 ## Metadata and directives
 
 | Feature | Status | Notes |
 |---|---|---|
-| Documentation comments (`/** */` and `/*! !*/`) | Partial | Both forms are accepted for upstream compatibility, but their content is discarded after parse — not propagated to generated code. Propagation into generated headers is planned. |
-| `@deprecated` annotation | Partial | Parsed and recorded; no effect on generated code yet (no deprecation attribute or warning). |
-| `@removed` annotation | Partial | Parsed and recorded; the item is still emitted and writable, but its numeric value (and those of subsequent items) is preserved, which is the property wire compatibility depends on. Exercised by `structure_with_removed_enum_item_field`, `packed_auto_array_removed_enum_item`. |
-| `zserio_compatibility_version` | Partial | Parsed and recorded; no feature-availability check is performed against the declared version (planned). Upstream enforces it. |
+| Documentation comments (`/** */` and `/*! !*/`) | Partial | Both forms are accepted for upstream compatibility, but their content is discarded after parse — not propagated to generated code. Propagation into generated headers is planned ([#9](https://github.com/Klebert-Engineering/zserio-c/issues/9)). |
+| `@deprecated` annotation | Partial | Parsed and recorded; no effect on generated code yet (no deprecation attribute or warning). Tracked in [#11](https://github.com/Klebert-Engineering/zserio-c/issues/11). |
+| `@removed` annotation | Partial | Parsed and recorded; the item is still emitted and writable, but its numeric value (and those of subsequent items) is preserved, which is the property wire compatibility depends on. Exercised by `structure_with_removed_enum_item_field`, `packed_auto_array_removed_enum_item`. Write-time rejection of removed items is tracked in [#11](https://github.com/Klebert-Engineering/zserio-c/issues/11). |
+| `zserio_compatibility_version` | Partial | Parsed and recorded; no feature-availability check is performed against the declared version (planned, [#12](https://github.com/Klebert-Engineering/zserio-c/issues/12)). Upstream enforces it. |
 | `rule` / `rule_group` | Partial | Parsed; the generator emits a comment-only marker header and nothing else. Rules have no wire or runtime effect upstream either. |
 
 ## Migrating from upstream zserio
