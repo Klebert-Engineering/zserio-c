@@ -1,0 +1,70 @@
+# Release — fires on version tags (v*.*.*) pushed by a maintainer.
+#
+# Gates before publishing:
+#   1. The tag must match the version in CMakeLists.txt / version.h
+#      (check_version_consistency.py cross-checks the sources, then
+#      the tag is compared against the project version).
+#   2. CHANGELOG.md must contain a section for the version — it
+#      becomes the release notes.
+#   3. A clean build + full unit-test pass on the release commit.
+#
+# Runs on GitHub-hosted runners: tag pushes are rare, maintainer-
+# initiated events, and keeping the release path independent of the
+# self-hosted fleet means a runner outage can't block a release.
+
+name: Release
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Publish GitHub release
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write   # create the release for the tag
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5   # v4.3.1
+        with:
+          submodules: false
+
+      - name: Verify tag matches the source version
+        run: |
+          set -eu
+          python3 tools/check_version_consistency.py
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          CMAKE_VERSION="$(sed -n 's/^ *VERSION \([0-9][0-9.]*\)$/\1/p' CMakeLists.txt | head -1)"
+          if [ "${TAG_VERSION}" != "${CMAKE_VERSION}" ]; then
+            echo "FAIL: tag ${GITHUB_REF_NAME} does not match project VERSION ${CMAKE_VERSION}" >&2
+            exit 1
+          fi
+
+      - name: Extract release notes from CHANGELOG.md
+        run: |
+          set -eu
+          python3 tools/extract_changelog.py "${GITHUB_REF_NAME}" > release-notes.md
+          echo "--- release notes ---"
+          cat release-notes.md
+
+      - name: Install build tools
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: Build and test the release commit
+        run: |
+          cmake -B build -S . -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build
+          ctest --test-dir build --output-on-failure
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --verify-tag \
+            --title "zserio-c ${GITHUB_REF_NAME}" \
+            --notes-file release-notes.md
