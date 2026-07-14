@@ -53,9 +53,11 @@ generator/out/
 # Self-hosted CI runner secrets — the PAT lives here, never commit it.
 ci/.env
 
-# Conformance corpus is staged from external assets (extract.sh).
-# We don't ship the multi-MB zserio-generated C++ reference or the
-# fixture binaries in-tree.
+# These paths are populated by the private NDS.Live conformance
+# overlay (a companion repository that checks out on top of this
+# tree); its extract.sh stages them from external assets. We never
+# ship the multi-MB zserio-generated C++ reference or the fixture
+# binaries.
 conformance/.staging/
 conformance/ndslive/zs/
 conformance/ndslive/cpp/

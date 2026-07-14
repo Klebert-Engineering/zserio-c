@@ -465,6 +465,81 @@ static void test_builtins_are_not_type_refs(void)
     fixture_teardown(&f);
 }
 
+/* Run parse + analyze on `bytes` and return the diagnostic
+ * error count. Parse itself must succeed with zero errors —
+ * the rejections under test are analyzer-level. */
+static size_t analyze_error_count(const uint8_t *bytes, size_t len)
+{
+    fixture_t f;
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_source_init(&f.src, &libc_alloc));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_arena_init(&f.arena, &libc_alloc));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_diag_init(&f.diag, &libc_alloc, 0U));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_source_add_borrowed(
+            &f.src, "test.zs", 7U, bytes, len, &f.fid));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_parse_unit(
+            &f.src, f.fid, &f.arena, &f.diag, &f.unit));
+    TEST_ASSERT_EQUAL_size_t(0U, zsp_diag_error_count(&f.diag));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_sema_init(&f.sema, &f.src,
+                                              &f.arena, &f.diag));
+    TEST_ASSERT_EQUAL(ZSERIO_OK, zsp_sema_analyze_unit(&f.sema, f.unit));
+    const size_t errors = zsp_diag_error_count(&f.diag);
+    fixture_teardown(&f);
+    return errors;
+}
+
+static void test_implicit_array_is_rejected(void)
+{
+    static const uint8_t INPUT[] =
+            "package x;\n"
+            "struct Blob {\n"
+            "    implicit uint8 data[];\n"
+            "};\n";
+    TEST_ASSERT_EQUAL_size_t(1U,
+            analyze_error_count(INPUT, sizeof(INPUT) - 1U));
+}
+
+static void test_optional_with_if_is_rejected(void)
+{
+    static const uint8_t INPUT[] =
+            "package x;\n"
+            "struct Frame {\n"
+            "    uint32 kind;\n"
+            "    optional uint32 extra if kind > 0;\n"
+            "};\n";
+    TEST_ASSERT_EQUAL_size_t(1U,
+            analyze_error_count(INPUT, sizeof(INPUT) - 1U));
+}
+
+static void test_sql_declarations_are_rejected(void)
+{
+    static const uint8_t INPUT[] =
+            "package x;\n"
+            "sql_table Stops {\n"
+            "    uint32 id;\n"
+            "    string name;\n"
+            "};\n"
+            "sql_database TransitDb {\n"
+            "    Stops stops;\n"
+            "};\n";
+    TEST_ASSERT_EQUAL_size_t(2U,
+            analyze_error_count(INPUT, sizeof(INPUT) - 1U));
+}
+
+static void test_choice_function_is_rejected(void)
+{
+    static const uint8_t INPUT[] =
+            "package x;\n"
+            "choice Value(uint8 tag) on tag {\n"
+            "    case 0:\n"
+            "        uint8 small;\n"
+            "    default:\n"
+            "        uint16 wide;\n"
+            "    function uint16 widened() { return wide; }\n"
+            "};\n";
+    TEST_ASSERT_EQUAL_size_t(1U,
+            analyze_error_count(INPUT, sizeof(INPUT) - 1U));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -485,5 +560,9 @@ int main(void)
     RUN_TEST(test_const_eval_cycle_detected);
     RUN_TEST(test_cross_file_type_reference_resolves);
     RUN_TEST(test_builtins_are_not_type_refs);
+    RUN_TEST(test_implicit_array_is_rejected);
+    RUN_TEST(test_optional_with_if_is_rejected);
+    RUN_TEST(test_sql_declarations_are_rejected);
+    RUN_TEST(test_choice_function_is_rejected);
     return UNITY_END();
 }

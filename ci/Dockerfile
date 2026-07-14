@@ -83,15 +83,19 @@ RUN useradd -m -s /bin/bash runner \
     && chmod 0440 /etc/sudoers.d/runner
 
 # --- GitHub Actions runner -------------------------------------------------
-# RUNNER_VERSION is overridable at build time; bump it when GitHub
-# deprecates older runner releases.
+# RUNNER_VERSION is the SINGLE source of truth for the agent version:
+# the entrypoint runs the listener with --disableupdate, so the runner
+# never self-updates (in-container self-update deletes bin/ and crash-
+# loops it — see entrypoint.sh). Upgrade the runner by bumping this and
+# rebuilding the image. Bump it whenever GitHub deprecates the pinned
+# release (a too-old runner with auto-update disabled is refused jobs).
 #
 # Runner agent URL is arch-specific. GitHub publishes
 #   linux-x64 / linux-arm64 / linux-arm
 # tarballs; we map dpkg's amd64 -> x64 and pass arm64/arm through.
 # A Pi 5 (aarch64) and an x86 server build from the same Dockerfile
 # and get the right tarball each.
-ARG RUNNER_VERSION=2.334.0
+ARG RUNNER_VERSION=2.335.1
 RUN mkdir -p /home/runner/actions-runner \
     && cd /home/runner/actions-runner \
     && deb_arch="$(dpkg --print-architecture)" \

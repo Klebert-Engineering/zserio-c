@@ -18,6 +18,8 @@ misra-c2012-18.4:*bytes.c
 misra-c2012-18.4:*extern.c
 misra-c2012-18.4:*allocator.c
 misra-c2012-8.7
+misra-c2012-2.3:*service.h
+misra-c2012-2.4:*service.h
 misra-c2012-8.9
 misra-c2012-7.2
 misra-c2012-10.4

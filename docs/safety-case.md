@@ -67,7 +67,8 @@ Draft (delivered subsequently):
       runtime-module evidence against `main` HEAD.
 - [/] Software integration and verification report —
       `docs/safety-case/integration-verification.md`. xvalidation
-      (182 × 5) + conformance/ndslive end-to-end.
+      (182 × 5) + private NDS.Live companion conformance harness
+      end-to-end.
 - [/] Safety case report —
       `docs/safety-case/safety-case-report.md`. Single entry
       document for a reviewer.

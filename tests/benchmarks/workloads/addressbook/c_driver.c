@@ -4,9 +4,9 @@
  * the wire-format BLOB produced by bootstrap.cpp (from the upstream
  * JSON dataset) and times zserio-c's decode in a tight loop.
  *
- * Pattern matches the ndslive_tile driver: load file once, warm-up
- * decode, then N decode iterations with a noinline `decode_one`
- * wrapper to defeat LTO loop-invariant hoisting. */
+ * Pattern: load file once, warm-up decode, then N decode
+ * iterations with a noinline `decode_one` wrapper to defeat LTO
+ * loop-invariant hoisting. */
 
 #define _POSIX_C_SOURCE 199309L
 #include <stdint.h>

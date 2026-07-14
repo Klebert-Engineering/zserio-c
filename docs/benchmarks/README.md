@@ -48,7 +48,14 @@ bash tests/benchmarks/run_benchmark.sh > docs/benchmarks/perf.baseline.json
 | `medium_nested` | nested structs across two levels | landed |
 | `large_array` | array-heavy bulk-throughput schema | landed |
 | `apollo`, `addressbook` (+`_align`, `_packed`, `_align_arena`), `carsales` (+`_align`, `_packed`), `simpletrace` (+`_packed`, `_packed_arena`) | corpus-derived workloads bootstrapped from the upstream benchmark datasets (`third_party/zserio-benchmarks-datasets`) | landed |
-| `ndslive_tile` | 50 KiB NDS Live SmartLayerTile | landed |
+| `ndslive_tile` | 50 KiB production NDS.Live payload | private overlay only |
+
+The `ndslive_tile` workload ships with the private NDS.Live
+conformance overlay (a companion repository that checks out on top
+of this tree; NDS Association membership required). When the
+overlay is absent the harness simply does not see the workload;
+when it is present without its assets extracted,
+`run_benchmark.sh` skips it cleanly.
 
 The measured numbers per host live in
 [`RESULTS.md`](RESULTS.md); the per-host gate baselines in

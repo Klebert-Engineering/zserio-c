@@ -22,9 +22,10 @@ The pattern is intentionally narrow:
      read our output AND re-emitted the same bytes ⇒ the wire format
      agrees for this struct value.
 
-Mismatch ⇒ run the trace-diff workflow in
-`conformance/ndslive/cpp_oracle/README.md` against the failing
-schema to localize the divergent field.
+Mismatch ⇒ enable the per-primitive-read trace hook
+(`ZSERIO_TRACE`, see `runtime/include/zserio/bitstream.h`) on
+both sides and diff the traces against the failing schema to
+localize the divergent field.
 
 ## Adding a schema
 

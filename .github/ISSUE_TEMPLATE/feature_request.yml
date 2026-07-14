@@ -1,0 +1,50 @@
+name: Feature request
+description: Propose a schema-language feature, runtime capability, or tooling improvement
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem statement
+      description: What can you not do today, and in what context does it matter?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: >-
+        How you would like it to work. Schema snippets and expected
+        generated-code shape are welcome.
+    validations:
+      required: false
+  - type: dropdown
+    id: upstream-parity
+    attributes:
+      label: Upstream zserio parity
+      description: Does upstream zserio v2.18.1 support this?
+      options:
+        - Yes — upstream supports it, zserio-c does not
+        - No — this would go beyond upstream
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: upstream-reference
+    attributes:
+      label: Upstream reference
+      description: >-
+        If upstream supports it, link the relevant upstream documentation
+        or test so the wire format can be cross-validated.
+    validations:
+      required: false
+  - type: dropdown
+    id: contribution
+    attributes:
+      label: Willingness to contribute
+      options:
+        - I can submit a PR (with an xvalidation harness)
+        - I can help test or review
+        - I can only report
+    validations:
+      required: true

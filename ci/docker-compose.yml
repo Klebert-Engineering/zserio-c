@@ -32,9 +32,8 @@ services:
       dockerfile: Dockerfile
     image: zserio-ci-runner:latest
     # container_name is parameterized by RUNNER_NAME_PREFIX so two
-    # deployments on the same host (e.g. one repo-scoped against
-    # the shadow mirror, one org-scoped against Klebert-Engineering)
-    # don't collide on the Docker daemon. `-p <project>` only
+    # deployments on the same host (e.g. one repo-scoped, one
+    # org-scoped) don't collide on the Docker daemon. `-p <project>` only
     # namespaces auto-generated names; an explicit container_name
     # overrides that, so the only way to keep both deployments is
     # to drive the prefix from the environment. Default matches the

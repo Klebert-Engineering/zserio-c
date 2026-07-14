@@ -29,7 +29,7 @@ is in.
 | [tool-qualification-coverage.md](tool-qualification-coverage.md) | draft | TCL2 qualification analysis for lcov / gcov (coverage gate). ISO 26262-8 §11. |
 | [tool-qualification-generator.md](tool-qualification-generator.md) | draft | TCL1 qualification analysis for the zserio-c generator. ISO 26262-8 §11. |
 | [unit-verification.md](unit-verification.md) | draft | Per-runtime-module evidence: coverage, MISRA, stack, size, traceability. ISO 26262-6 §9. |
-| [integration-verification.md](integration-verification.md) | draft | Wire-format evidence: xvalidation (182 schemas × 5 seeds) + conformance/ndslive end-to-end fixture. ISO 26262-6 §10. |
+| [integration-verification.md](integration-verification.md) | draft | Wire-format evidence: xvalidation (182 schemas × 5 seeds) + supplementary end-to-end evidence from the private NDS.Live companion conformance harness. ISO 26262-6 §10. |
 | [safety-case-report.md](safety-case-report.md) | draft | Final assembly. The single entry document for a reviewer. ISO 26262-2 §6.4. |
 
 Every document has a YAML frontmatter `status` field. `draft` means

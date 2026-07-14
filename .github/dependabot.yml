@@ -1,0 +1,17 @@
+# Keep GitHub Actions pins and submodules current. Actions are
+# pinned to commit SHAs in the workflows; dependabot proposes the
+# bumps so updates stay deliberate and reviewed.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns:
+          - "*"
+  - package-ecosystem: gitsubmodule
+    directory: /
+    schedule:
+      interval: weekly

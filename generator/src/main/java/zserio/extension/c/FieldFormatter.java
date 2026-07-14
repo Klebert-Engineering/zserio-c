@@ -1,6 +1,6 @@
 /*
  * SPDX-License-Identifier: MIT
- * Copyright (c) 2026 Fabian Klebert
+ * Copyright (c) 2026 Klebert Engineering
  */
 
 package zserio.extension.c;
@@ -214,9 +214,9 @@ public final class FieldFormatter
 
         // `align(N):` (and the per-field `align(N) T x;` shape) tells
         // the bitstream cursor to skip forward to the next N-bit
-        // boundary before reading or writing this field. NDS Live's
-        // ExternData / DataLayer / DataLayerDefinition rely on
-        // align(8) to byte-align embedded extern blobs.
+        // boundary before reading or writing this field. Large
+        // production schemas rely on align(8) to byte-align embedded
+        // extern blobs.
         if (field.getAlignmentExpr() != null)
         {
             final String formattedAlign = CExpressionFormatter.format(
@@ -416,8 +416,9 @@ public final class FieldFormatter
      * Wrap a {@link FieldData} with a bitstream alignment call. The
      * runtime advances the cursor to the next N-bit boundary; a
      * power-of-two N is required (the runtime checks). For align(8)
-     * (the common case in NDS Live's ExternData blobs) this byte-
-     * aligns the cursor before the inner field's read / write.
+     * (the common case for embedded extern blobs in large production
+     * schemas) this byte-aligns the cursor before the inner field's
+     * read / write.
      */
     private static FieldData wrapAlignment(FieldData inner, String formattedAlign)
     {

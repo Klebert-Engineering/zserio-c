@@ -1510,13 +1510,16 @@ static zsp_ast_node_t *parse_choice(parser_t *p,
     zsp_ast_list_t cases;
     zsp_ast_list_init(&cases, p->arena);
     zsp_ast_node_t *default_case = NULL;
+    bool has_functions = false;
     while (!check(p, ZSP_TOK_RBRACE) && !check(p, ZSP_TOK_EOF)) {
         const uint32_t before = p->cur.offset;
         /* `function` declarations may appear inside a choice
-         * body alongside cases. Parse + discard for the MVP
-         * emitter; the analyzer tracks them on the AST. */
+         * body alongside cases. Parsed for recovery, flagged on
+         * the AST; the analyzer rejects them until inlining
+         * covers choice types. */
         if (check(p, ZSP_TOK_KW_FUNCTION)) {
             (void)parse_function(p);
+            has_functions = true;
             if (p->cur.offset == before) {
                 advance(p);
             }
@@ -1551,6 +1554,7 @@ static zsp_ast_node_t *parse_choice(parser_t *p,
         n->u.choice.selector          = selector;
         zsp_ast_list_take(&cases, &n->u.choice.cases, &n->u.choice.n_cases);
         n->u.choice.default_case      = default_case;
+        n->u.choice.has_functions     = has_functions;
     }
     return n;
 }

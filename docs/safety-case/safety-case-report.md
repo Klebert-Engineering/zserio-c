@@ -104,7 +104,7 @@ can re-execute every claim by re-running the named CI jobs.
 | Layer       | Report                                | Primary evidence                                  |
 | ----------- | ------------------------------------- | ------------------------------------------------- |
 | Unit        | `unit-verification.md`                | Coverage gate, MISRA gate, traceability, stack, size |
-| Integration | `integration-verification.md`         | xvalidation gate, conformance/ndslive fixture     |
+| Integration | `integration-verification.md`         | xvalidation gate, private NDS.Live companion conformance harness |
 
 Both reports are snapshots against `main` HEAD. Per-release
 versions are produced by replacing the snapshot tables with the
@@ -172,9 +172,9 @@ The safety case has three categories of open items:
 
 | Role                  | Name             | Date              | Decision |
 | --------------------- | ---------------- | ----------------- | -------- |
-| Author                | Fritz Herrmann   | 2026-05-13        | Draft submitted |
-| Independent reviewer  | (TBD)            | (TBD)             | (Pending) |
-| Safety manager        | (TBD)            | (TBD)             | (Pending) |
+| Author                | Fabian Klebert   | 2026-05-13        | Draft submitted |
+| Independent reviewer  | Open — independent review pending | — | — |
+| Safety manager        | Open — independent review pending | — | — |
 
 Independent review is the gate that moves this report from
 `draft` to `accepted`. The review pack consists of this file,

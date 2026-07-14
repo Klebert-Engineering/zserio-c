@@ -63,7 +63,7 @@ Legend:
 | Arrays — length-prefixed `T x[N]` (N is field) | In v1 | Length stored in the named field; runtime walks it.                            |
 | Arrays — auto `T x[]` | In v1 | Length stored as a `varsize` prefix.                                                                    |
 | Arrays — packed     | In v1  | Delta-encoded variants (`packed` keyword). Required by realistic zserio schemas; supported.               |
-| Arrays — implicit `T x` (last-field, no length) | In v1 | Read-until-EOF. Decode requires explicit caller bound (REQ-FS-005). |
+| Arrays — implicit `T x` (last-field, no length) | Rejected (revised) | Originally accepted for v1 (read-until-EOF under REQ-FS-005). Revised: deprecated upstream since 2.4.0 and now rejected by `zserio_c_gen` with a diagnostic; use auto arrays instead. See §6.2. |
 | Aligned arrays      | In v1  | `align(N)` between elements.                                                                              |
 | `align(N)` between fields | In v1 | Generator emits explicit padding handling.                                                          |
 | Offsets, indexed offsets | In v1 | Encode writes offsets after the rest of the struct is sized; decode validates them.                  |
@@ -76,8 +76,8 @@ Legend:
 | Parameterized types          | In v1       | Heavily used; generator threads parameters through encode/decode.                  |
 | Templates (`<T>`, `instantiate`) | In v1   | Resolved at parse time; each instantiation gets its own generated type.            |
 | Packages and imports         | In v1       | Map to header organization in generated code; one C header per zserio package.     |
-| Comments / doc comments      | In v1       | Doc comments propagated to generated headers.                                      |
-| Annotations — `@deprecated`  | In v1       | Surfaced as a `__attribute__((deprecated))` in supported compilers; comment otherwise. |
+| Comments / doc comments      | Partial     | Doc comments are accepted and associated with declarations but not propagated to generated headers; propagation is a planned enhancement. |
+| Annotations — `@deprecated`  | Partial     | Parsed and recorded; no generated-code effect yet (a deprecation attribute or warning is a planned enhancement). |
 | Annotations — others         | Deferred (3) | Most are generator hints; revisit when concrete need surfaces.                    |
 | Rules                        | Deferred (5) | Documentation-only constructs; do not affect wire format. No v1 generation.       |
 
@@ -85,9 +85,9 @@ Legend:
 
 | Construct                                 | Status   | Reason                                                                   |
 |-------------------------------------------|----------|--------------------------------------------------------------------------|
-| `service` types                           | Deferred | RPC layer; orthogonal to codec. Out of automotive ECU primary need.      |
-| `pubsub` types                            | Deferred | Same reasoning as services.                                              |
-| `sql_table`, `sql_database`, `sql_*`      | Deferred | SQLite is not a typical automotive ECU concern; pulls in heavy dependency. |
+| `service` types                           | Supported (since delivered) | Deferred at v1 scoping; since delivered as transport-agnostic C interfaces (typed client wrappers + server dispatch bound via the `zserio_service_t` vtable). See `docs/design/service-pubsub.md`. |
+| `pubsub` types                            | Supported (since delivered) | Same history as services; typed publish/subscribe wrappers bound via the `zserio_pubsub_t` vtable. |
+| `sql_table`, `sql_database`, `sql_*`      | Rejected (planned extension) | SQLite is not a typical automotive ECU concern; pulls in a heavy dependency. The parser rejects `sql_table` / `sql_database` / `sql_virtual` with an informative diagnostic; SQLite-backed support is planned as an optional component outside the ASIL scope. |
 | **JSON I/O (encode/decode to/from JSON text)** | **Deferred** | **Inspection / debug-data tool, not an ASIL-B serialization need. Reintroduces in Phase 5+.** |
 | Reflection / `ITypeInfo` / `IReflectable` | Out      | Forbidden by REQ-FS-008.                                                 |
 | Walk / validation tooling                 | Out      | Depends on reflection; not needed for the codec proper.                  |
@@ -102,7 +102,8 @@ the v1 codec cannot read mainstream schemas. Worth the runtime complexity.
 
 **Implicit arrays kept in v1.** They are the right tool for "this is the
 last field; consume the rest of the buffer." Bounded cleanly by REQ-FS-005
-since the caller passes a buffer of finite size.
+since the caller passes a buffer of finite size. *(Since revised:
+`zserio_c_gen` rejects implicit arrays with a diagnostic — see §6.2.)*
 
 **Templates kept in v1.** Resolved at codegen time, so the *runtime*
 sees only fully-instantiated types — no template machinery in the C
@@ -151,7 +152,7 @@ All 36 categories under `test/extensions/language/`, classified:
 | 3 | `bitmask_types`        | Bitmasks                        |
 | 4 | `builtin_types`        | Primitive integers & bool       |
 | 5 | `choice_types`         | Choices                         |
-| 6 | `comments`             | Doc comments propagation        |
+| 6 | `comments`             | Doc comments (accepted but not propagated to generated code; no conformance harness exists for this category) |
 | 7 | `constants`            | `const` declarations            |
 | 8 | `constraints`          | Field constraints               |
 | 9 | `default_values`       | Default values                  |
@@ -177,8 +178,8 @@ All 36 categories under `test/extensions/language/`, classified:
 
 | # | Category                       | Reason                                              |
 |---|--------------------------------|-----------------------------------------------------|
-| 1 | `pubsub_types`                 | Pub/sub deferred (§1)                               |
-| 2 | `service_types`                | Services deferred (§1)                              |
+| 1 | `pubsub_types`                 | Pub/sub deferred at v1 scoping (§1); since delivered — verified by the service/pubsub round-trip tests (`tests/parser/service_pubsub_roundtrip.c`), not by this upstream category |
+| 2 | `service_types`                | Services deferred at v1 scoping (§1); since delivered — same verification note as `pubsub_types` |
 | 3 | `sql_constraints`              | SQLite deferred (§1)                                |
 | 4 | `sql_databases`                | SQLite deferred (§1)                                |
 | 5 | `sql_tables`                   | SQLite deferred (§1)                                |
@@ -225,12 +226,16 @@ public headers we write in Phase 1:
 
 Out of v1, deferred to Phase 5+. See §3.
 
-### 6.2 Implicit arrays — **ACCEPT, with caller-supplied bound**
+### 6.2 Implicit arrays — **ACCEPT, with caller-supplied bound** *(superseded: rejected)*
 
-Confirmed in v1. Decode requires the caller to pass an upper bound
-(REQ-FS-005); the runtime stops at min(buffer remaining, caller bound).
-Generator emits implicit arrays as auto-sized arrays with a
-`max_count` parameter on the read function.
+Original resolution: confirmed in v1, with decode requiring a
+caller-supplied upper bound (REQ-FS-005).
+
+Superseded as built: the caller-supplied-bound design was never
+implemented, and `zserio_c_gen` now rejects `implicit` arrays with a
+diagnostic. The construct is deprecated upstream since 2.4.0; the
+auto array `T x[]` covers the use case with a self-describing
+length.
 
 ### 6.3 `extend` — **FULL SUPPORT, port upstream's algorithm**
 

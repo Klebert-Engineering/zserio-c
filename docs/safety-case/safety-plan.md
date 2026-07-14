@@ -30,31 +30,31 @@ sibling files in this directory and in `requirements/`.
 
 | Status | Work product                                  | Location                                            | Responsible | Notes |
 | ------ | --------------------------------------------- | --------------------------------------------------- | ----------- | ----- |
-| done   | Architecture description                      | `docs/architecture.md`                              | Fritz       | Frozen for v1; phase-target 1 |
-| done   | Safety requirements (REQ-FS-*)                | `requirements/safety/`                              | Fritz       | 8 items, all `accepted` |
-| done   | Functional requirements (REQ-FN-*)            | `requirements/functional/`                          | Fritz       | REQ-FN-001 = wire compatibility |
-| done   | Performance requirements (REQ-PF-*)           | `requirements/performance/`                         | Fritz       | REQ-PF-001 (perf gate), REQ-PF-002 (size gate) — both accepted |
-| done   | Requirements traceability (`Verifies:` markers) | tests/* + tools/check_traceability.py             | Fritz       | CI-gated |
-| done   | MISRA enforcement                             | tools/run_misra.sh + cppcheck-suppressions.txt      | Fritz       | CI-gated, strict mode, zero findings |
-| done   | Coding rules                                  | `docs/coding-rules.md`                              | Fritz       | Frozen for v1 |
-| done   | Coverage gate (line ≥ 99%, branch ≥ 85%, function = 100%) | `tools/check_coverage.py` + CI            | Fritz       | CI-gated; baseline currently 99.89% / 88.03% / 100% |
-| done   | Size regression gate (REQ-PF-002)             | `tools/measure_size.py` + `tools/check_size_regression.py` | Fritz | CI-gated; 5% per-section threshold |
-| done   | Wire-format conformance (REQ-FN-001)          | `tests/xvalidation/run_xvalidation.sh` + CI         | Fritz       | 182 schemas × 5 seeds per CI run; byte-equal vs upstream cpp |
-| draft  | Item definition                               | `docs/safety-case/item-definition.md`               | Fritz       | This phase |
-| draft  | Hazard analysis (HARA)                        | `docs/safety-case/hazard-analysis.md`               | Fritz       | This phase |
-| draft  | Safety plan                                   | `docs/safety-case/safety-plan.md` (this document)   | Fritz       | This phase |
-| done   | Functional safety concept                     | `docs/safety-case/functional-safety-concept.md`     | Fritz       | 9 safety goals, mapped to existing `requirements/` set and architecture layers; SG-9 (tool qualification) is the only goal not yet fully discharged |
-| done   | Technical safety concept                      | `docs/safety-case/technical-safety-concept.md`      | Fritz       | Per-goal implementation mechanisms with mechanism-to-gate matrix; moves to `accepted` when tool-qualification records land |
-| done   | Software unit verification report             | `docs/safety-case/unit-verification.md`             | Fritz       | Per-runtime-module evidence: coverage, MISRA, stack, size, traceability. Snapshot pattern; per-release versions replace snapshot tables. |
-| done   | Software integration and verification report  | `docs/safety-case/integration-verification.md`      | Fritz       | xvalidation (182 schemas × 5 seeds) + conformance/ndslive end-to-end. |
-| done   | Tool qualification — compiler                 | `docs/safety-case/tool-qualification-gcc.md`        | Fritz       | TCL2; method (1) confidence-from-use + (3) validation; validated by `build-and-test`, `xvalidation`, `stack`, `coverage` gates |
-| done   | Tool qualification — cppcheck                 | `docs/safety-case/tool-qualification-cppcheck.md`   | Fritz       | TCL2; method (3) validation per rule category; one off-CI sanity check (Rule 17.2 recursive program) noted for follow-up |
-| done   | Tool qualification — lcov / gcov              | `docs/safety-case/tool-qualification-coverage.md`   | Fritz       | TCL2; method (1) + (3); gate uses raw .info so summary bugs cannot affect outcome |
-| done   | Tool qualification — zserio-c generator       | `docs/safety-case/tool-qualification-generator.md`  | Fritz       | TCL1 (TI2 × TD1 due to xvalidation's strong detection); MISRA gate on generator output landed in the `misra-generator` CI job (commit `c13bd41`) |
-| done   | Stack-budget analysis                         | `tools/measure_stack_usage.py` + `docs/safety-case/stack-budget.md` + `stack` CI job | Fritz | Closes hazard H-09; per-function ≤ 256 B AND transitive call-chain ≤ 1024 B, plus the static-qualifier strict check |
-| done   | Failure-mode injection tests                  | `tests/runtime/test_failure_modes.c`                | Fritz       | One test per actionable HARA row (H-01, H-02, H-03, H-06); others handled by other gates or out of scope |
-| done   | Decode-path fuzzing (REQ-FS-006)              | `tools/run_fuzz.sh` + `tests/fuzz/` + `fuzz` CI job | Fritz       | libFuzzer + ASan + UBSan, two representative targets, 60 s each per commit, persistent corpus via actions/cache |
-| done   | Safety case report                            | `docs/safety-case/safety-case-report.md`            | Fritz       | Single entry document for a reviewer. Assembles the argument from item definition through HARA → SG/FSC/TSC → verification → TQ. |
+| done   | Architecture description                      | `docs/architecture.md`                              | Fabian Klebert       | Frozen for v1; phase-target 1 |
+| done   | Safety requirements (REQ-FS-*)                | `requirements/safety/`                              | Fabian Klebert       | 8 items, all `accepted` |
+| done   | Functional requirements (REQ-FN-*)            | `requirements/functional/`                          | Fabian Klebert       | REQ-FN-001 = wire compatibility |
+| done   | Performance requirements (REQ-PF-*)           | `requirements/performance/`                         | Fabian Klebert       | REQ-PF-001 (perf gate), REQ-PF-002 (size gate) — both accepted |
+| done   | Requirements traceability (`Verifies:` markers) | tests/* + tools/check_traceability.py             | Fabian Klebert       | CI-gated |
+| done   | MISRA enforcement                             | tools/run_misra.sh + cppcheck-suppressions.txt      | Fabian Klebert       | CI-gated, strict mode, zero findings |
+| done   | Coding rules                                  | `docs/coding-rules.md`                              | Fabian Klebert       | Frozen for v1 |
+| done   | Coverage gate (line ≥ 99%, branch ≥ 85%, function = 100%) | `tools/check_coverage.py` + CI            | Fabian Klebert       | CI-gated; baseline currently 99.89% / 88.03% / 100% |
+| done   | Size regression gate (REQ-PF-002)             | `tools/measure_size.py` + `tools/check_size_regression.py` | Fabian Klebert | CI-gated; 5% per-section threshold |
+| done   | Wire-format conformance (REQ-FN-001)          | `tests/xvalidation/run_xvalidation.sh` + CI         | Fabian Klebert       | 182 schemas × 5 seeds per CI run; byte-equal vs upstream cpp |
+| draft  | Item definition                               | `docs/safety-case/item-definition.md`               | Fabian Klebert       | This phase |
+| draft  | Hazard analysis (HARA)                        | `docs/safety-case/hazard-analysis.md`               | Fabian Klebert       | This phase |
+| draft  | Safety plan                                   | `docs/safety-case/safety-plan.md` (this document)   | Fabian Klebert       | This phase |
+| done   | Functional safety concept                     | `docs/safety-case/functional-safety-concept.md`     | Fabian Klebert       | 9 safety goals, mapped to existing `requirements/` set and architecture layers; SG-9 (tool qualification) is the only goal not yet fully discharged |
+| done   | Technical safety concept                      | `docs/safety-case/technical-safety-concept.md`      | Fabian Klebert       | Per-goal implementation mechanisms with mechanism-to-gate matrix; moves to `accepted` when tool-qualification records land |
+| done   | Software unit verification report             | `docs/safety-case/unit-verification.md`             | Fabian Klebert       | Per-runtime-module evidence: coverage, MISRA, stack, size, traceability. Snapshot pattern; per-release versions replace snapshot tables. |
+| done   | Software integration and verification report  | `docs/safety-case/integration-verification.md`      | Fabian Klebert       | xvalidation (182 schemas × 5 seeds) + private NDS.Live companion conformance harness end-to-end. |
+| done   | Tool qualification — compiler                 | `docs/safety-case/tool-qualification-gcc.md`        | Fabian Klebert       | TCL2; method (1) confidence-from-use + (3) validation; validated by `build-and-test`, `xvalidation`, `stack`, `coverage` gates |
+| done   | Tool qualification — cppcheck                 | `docs/safety-case/tool-qualification-cppcheck.md`   | Fabian Klebert       | TCL2; method (3) validation per rule category; one off-CI sanity check (Rule 17.2 recursive program) noted for follow-up |
+| done   | Tool qualification — lcov / gcov              | `docs/safety-case/tool-qualification-coverage.md`   | Fabian Klebert       | TCL2; method (1) + (3); gate uses raw .info so summary bugs cannot affect outcome |
+| done   | Tool qualification — zserio-c generator       | `docs/safety-case/tool-qualification-generator.md`  | Fabian Klebert       | TCL1 (TI2 × TD1 due to xvalidation's strong detection); MISRA gate on generator output landed in the `misra-generator` CI job (commit `c13bd41`) |
+| done   | Stack-budget analysis                         | `tools/measure_stack_usage.py` + `docs/safety-case/stack-budget.md` + `stack` CI job | Fabian Klebert | Closes hazard H-09; per-function ≤ 256 B AND transitive call-chain ≤ 1024 B, plus the static-qualifier strict check |
+| done   | Failure-mode injection tests                  | `tests/runtime/test_failure_modes.c`                | Fabian Klebert       | One test per actionable HARA row (H-01, H-02, H-03, H-06); others handled by other gates or out of scope |
+| done   | Decode-path fuzzing (REQ-FS-006)              | `tools/run_fuzz.sh` + `tests/fuzz/` + `fuzz` CI job | Fabian Klebert       | libFuzzer + ASan + UBSan, two representative targets, 60 s each per commit, persistent corpus via actions/cache |
+| done   | Safety case report                            | `docs/safety-case/safety-case-report.md`            | Fabian Klebert       | Single entry document for a reviewer. Assembles the argument from item definition through HARA → SG/FSC/TSC → verification → TQ. |
 
 ## Sequencing
 
@@ -85,8 +85,9 @@ Deliverables, in dependency order:
    discharged in `draft` status.
 6. **Done after that:** the two verification reports —
    `unit-verification.md` (per-runtime-module evidence) and
-   `integration-verification.md` (xvalidation + conformance/
-   ndslive). Each is taken as a snapshot against `main` HEAD;
+   `integration-verification.md` (xvalidation + the private
+   NDS.Live companion conformance harness). Each is taken as a
+   snapshot against `main` HEAD;
    per-release versions replace the snapshot tables.
 7. **Done after that:** the safety case report — `safety-case-report.md`.
    The safety case is structurally complete; every work product is at

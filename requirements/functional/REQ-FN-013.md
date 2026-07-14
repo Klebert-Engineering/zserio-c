@@ -36,15 +36,17 @@ only concrete instantiations produce output. A template that is
 declared but never instantiated produces no generated files.
 
 Multi-level template chains (template-of-template-of-...) SHALL
-be supported to the depth reached by realistic schemas; the NDS
-Live conformance corpus provides the current depth target.
+be supported to the depth reached by realistic schemas; the
+production NDS.Live schema set exercised by the private
+companion conformance harness provides the current depth target.
 
 ## Rationale
 
 Templates are the schema language's mechanism for generic
 container types and parameterized compound types. Without
 template support, large fractions of practical zserio schemas
-(notably NDS Live's attribute hierarchy) cannot be processed.
+(notably production NDS.Live map-data schemas) cannot be
+processed.
 
 The "wire-compatible with equivalent non-templated definition"
 clause is what makes template instantiation a *front-end* feature
@@ -69,9 +71,11 @@ keeps them filesystem-valid.
   `constraints_in_templates`, `expression_*_template_argument`,
   …) covering scalar / enum / bitmask / type template
   parameters and multi-level chains.
-- The NDS Live conformance corpus exercises ~600 templated types
-  across ~140 schemas. All instantiate, generate, and run under
-  the round-trip read_tile gate.
+- Supplementary evidence from the private companion conformance
+  harness (NDS Association membership required): the production
+  NDS.Live schema set exercises ~600 templated types across
+  ~140 schemas; all instantiate, generate, and pass that
+  harness's round-trip gate.
 - `tests/parser/test_template_unused.c` exercises an unused
   template definition and verifies no output.
 

@@ -26,7 +26,7 @@ The four constructs that permit non-breaking evolution are:
 |---|---|---|
 | Top-level structure extension | both | Reader stops at schema end; bytes beyond are skipped or appear via `extend`. |
 | `extend` keyword | backward | Reader checks end-of-stream before decoding; defaults to zero if absent. |
-| `@removed` enum item | both | Removed item keeps its numeric value; new encoders reject it on serialize. |
+| `@removed` enum item | both | Removed item keeps its numeric value; encoders are expected to reject it on serialize (not yet enforced by zserio-c — see below). |
 | Choice case addition (no default) | backward | Old encoders can't produce the new case; new readers handle all old cases. |
 
 Anything outside these — adding a non-extend field in the
@@ -91,6 +91,14 @@ The `@removed` annotation:
 
 Without `@removed`, deleting an item shifts all subsequent
 ordinals, breaking every encoded bitstream that contains them.
+
+> **Implementation status.** zserio-c currently parses and records
+> `@removed` without enforcing the encode-time rejection: the
+> generated API still accepts the removed item on serialize
+> (enforcement is a planned enhancement). The ordinal preservation —
+> the property wire compatibility depends on — holds today.
+> Integrators wanting the encode-time guard must enforce it in
+> application code for now.
 
 ## Backward compatibility
 
@@ -203,8 +211,10 @@ enum bit:8 DarkColor
 };
 ```
 
-New encoders refuse to *produce* the removed item; new readers
-still *consume* it without error.
+New encoders are expected to refuse to *produce* the removed item;
+new readers still *consume* it without error. (zserio-c does not yet
+enforce the encode-time refusal — see the implementation-status note
+above.)
 
 ## Compatibility matrix
 

@@ -2,30 +2,35 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Klebert Engineering
 """
-Static check: no allocator vtable in `_write` paths.
+Static check: no allocator vtable in write paths.
 
 Verifies: REQ-FN-016 — encoder performs no heap allocation.
 
 Two scans, both run as part of the standard CI:
 
-1. **API-shape check.** Every function whose name ends in `_write`
-   in `runtime/src/*.c` and in any directory passed via `--gen`
-   SHALL NOT take a `zserio_allocator_t` parameter.
+1. **API-shape check.** Every function whose name contains
+   `write` in `runtime/src/*.c` and in any directory passed via
+   `--gen` SHALL NOT take a `zserio_allocator_t` parameter. This
+   covers both naming families: generated encoders end in
+   `_write`; runtime writers are `zserio_write_<type>`,
+   `zserio_bitstream_write*`, and their `write_*_impl` helpers.
 
-2. **Body-use check.** The body of every `_write` function SHALL
+2. **Body-use check.** The body of every matched function SHALL
    NOT reference the identifier `alloc` (the conventional name
    for the allocator parameter in the rest of the runtime).
    Comments and string literals are excluded; the check looks at
    tokenized C source.
 
-The two checks together establish that no `_write` function can
+The two checks together establish that no write-path function can
 plumb an allocator down to a helper that allocates. Combined with
 REQ-FS-001 (no direct libc heap), this proves the encoder
 allocates nothing.
 
 Exit codes:
     0  — both checks pass
-    1  — at least one offending `_write` found
+    1  — at least one offending writer found (or an empty scan;
+         zero matched functions means the gate would pass
+         vacuously, which is treated as a failure)
     2  — usage error or missing inputs
 
 Usage:
@@ -43,9 +48,9 @@ import sys
 REPO = pathlib.Path(__file__).resolve().parent.parent
 RUNTIME_SRC = REPO / "runtime" / "src"
 
-# Match a function definition whose name ends in `_write`. We
-# tolerate the `static` / return-type prefix and any whitespace
-# wrapping. The capture groups give us:
+# Match any function definition; the caller filters for names
+# containing `write`. We tolerate the `static` / return-type
+# prefix and any whitespace wrapping. The capture groups give us:
 #   1. function name
 #   2. parameter list (single line or multi-line)
 # A trailing `{` distinguishes definitions from declarations.
@@ -54,7 +59,7 @@ FUNC_DEF_RE = re.compile(
     ^                              # start of line
     (?:static\s+)?                  # optional static
     [A-Za-z_][\w\s*]*?\s+           # return type (greedy until name)
-    ([A-Za-z_]\w*_write)            # capture: function name ending in _write
+    ([A-Za-z_]\w*)                  # capture: function name
     \s*\(
     ([^)]*)                         # capture: parameters
     \)
@@ -141,12 +146,14 @@ def main() -> int:
             text = src.read_text(encoding="utf-8", errors="ignore")
         except OSError:
             continue
-        if "_write" not in text:
+        if "write" not in text:
             continue
         clean = strip_comments_and_strings(text)
         for match in FUNC_DEF_RE.finditer(clean):
-            writers_seen += 1
             fn_name = match.group(1)
+            if "write" not in fn_name:
+                continue
+            writers_seen += 1
             params = match.group(2)
             if "zserio_allocator_t" in params:
                 issues.append((
@@ -182,39 +189,29 @@ def main() -> int:
             )
         return EXIT_FAIL
 
-    if writers_seen == 0 and args.gen:
-        # Fail closed: --gen was supplied (so the caller intends to
-        # verify generated code), yet not one `_write` function was
-        # found. Generated encoders are named `<type>_write`, so zero
-        # writers means the paths are wrong/empty and the gate would
-        # otherwise pass vacuously — exactly the misconfiguration that
-        # lets an un-scanned regression slip through.
+    if writers_seen == 0:
+        # Fail closed: the runtime alone contains dozens of
+        # writer functions, so an empty scan means the naming
+        # convention drifted or the paths are wrong/empty — and
+        # the gate would otherwise pass vacuously, exactly the
+        # misconfiguration that lets an un-scanned regression
+        # slip through.
         sys.stderr.write(
-            "check_no_alloc_in_writers: FAIL — --gen supplied but no "
-            "`_write` functions were found in:\n"
+            "check_no_alloc_in_writers: FAIL — no writer functions "
+            "were found in:\n"
         )
+        sys.stderr.write(f"    {RUNTIME_SRC}\n")
         for gen_root in args.gen:
             sys.stderr.write(f"    {gen_root}\n")
         sys.stderr.write(
-            "Generated encoders end in `_write`; an empty scan means "
-            "the generated tree is missing or the paths are wrong.\n"
+            "Writers contain `write` in their name; an empty scan "
+            "means the trees are missing or the convention drifted.\n"
         )
         return EXIT_FAIL
 
-    if writers_seen == 0 and not args.gen:
-        # Runtime-only scan finds no `_write` functions — that's
-        # expected (runtime helpers are named `zserio_write_<type>`,
-        # `write` in the middle, not at the end). For real coverage
-        # the caller should pass --gen pointing at generated code.
-        sys.stderr.write(
-            "check_no_alloc_in_writers: warning — no `_write` "
-            "functions found. Pass --gen <dir> to scan generated "
-            "code (the primary target of REQ-FN-016).\n"
-        )
-
     print(
         f"check_no_alloc_in_writers: OK  "
-        f"({writers_seen} `_write` function(s) scanned, none take or "
+        f"({writers_seen} writer function(s) scanned, none take or "
         f"reference an allocator)"
     )
     return EXIT_OK

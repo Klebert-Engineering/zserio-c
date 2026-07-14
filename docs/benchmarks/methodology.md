@@ -172,8 +172,10 @@ numbers to be useful:
   of variable I/O latency that shows up in the build phase (less
   so in the in-process benchmark loop itself, which runs from
   RAM).
-- **Memory:** 8 GB minimum (LTO link of the `ndslive_tile` perf
-  workload can spike to ~4 GB transient). 16 GB is comfortable.
+- **Memory:** 8 GB minimum (the LTO link of the largest workloads
+  can spike to several GB transient; the `ndslive_tile` workload
+  from the private conformance overlay is the worst case at ~4 GB).
+  16 GB is comfortable.
 - **CPU governor:** **must** be set to `performance` and made
   persistent. Default is `ondemand` (Pi 4) / `schedutil` (Pi 5);
   both scale the clock with load and add a startup ramp-up

@@ -1,0 +1,20 @@
+# Weekly trigger for zserio-runner-refresh.service. See the .service file
+# for install instructions.
+
+[Unit]
+Description=Weekly refresh of the self-hosted runner image
+Documentation=https://github.com/Klebert-Engineering/zserio-c/blob/main/docs/ci-self-hosted.md
+
+[Timer]
+# Sunday 04:00 local — a quiet hour. The refresh recreates the runners
+# only when a newer agent exists, which briefly aborts any job that is
+# mid-flight; jobs are rare on this pool, rarer still at 04:00 Sunday.
+OnCalendar=Sun *-*-* 04:00:00
+# Fire on next boot if the host was off at the scheduled time.
+Persistent=true
+# Spread load if several hosts share the timer (unauthenticated GitHub
+# API is rate-limited per IP; harmless here, tidy anyway).
+RandomizedDelaySec=1h
+
+[Install]
+WantedBy=timers.target

@@ -1,7 +1,7 @@
 ---
 work_product: ISO 26262-8 §11 — Tool qualification (zserio-c generator)
 status: draft
-tool: zserio_c.jar
+tool: zserio_c_gen
 ---
 
 # Tool qualification — `zserio-c` generator
@@ -10,12 +10,18 @@ tool: zserio_c.jar
 
 | Field          | Value                                                                                              |
 | -------------- | -------------------------------------------------------------------------------------------------- |
-| Tool name      | `zserio_c.jar` — Java extension to the upstream zserio compiler that emits C99 codec sources.      |
+| Tool name      | `zserio_c_gen` — C-native schema compiler (`parser/`: lexer → parser → sema → emit) that emits C99 codec sources. |
 | Role           | Produces the C structs, init/free/read/write functions, and packing-context helpers per schema. Output is part of the production binary. |
-| Source         | This repository, `generator/`. Built by `tools/build_generator_jar.sh`.                            |
-| Pinned by      | Repository state (commit SHA). The generator's jar is rebuilt from source on every CI run; there is no cached binary. |
-| Configuration  | Invoked from `tests/xvalidation/run_xvalidation.sh` and from integrator-side build scripts; no per-schema configuration beyond `-setTopLevelPackage` (only used for `packages/zs/index.zs`). |
+| Source         | This repository, `parser/`. Built by CMake (`--target zserio_c_gen`).                              |
+| Pinned by      | Repository state (commit SHA). The generator is rebuilt from source on every CI run; there is no cached binary. |
+| Configuration  | Invoked from `tests/xvalidation/run_xvalidation.sh` and from integrator-side build scripts; no per-schema configuration beyond `-src` / `-c` / `-setTopLevelPackage`. |
 | License        | MIT (Klebert Engineering, 2026), same as the runtime.                                              |
+
+The legacy Java generator (`zserio_c.jar`, `generator/`) is
+retained solely as tooling for the cross-validation oracle and
+auxiliary CI gates; it is not on the production code-generation
+path. Statements below that reference `generator/` sources
+describe that auxiliary path.
 
 ## TCL analysis (ISO 26262-8 §11.4.5)
 
@@ -35,8 +41,9 @@ analysis.
    integrator's application.
 2. Generate the codec sources used by the xvalidation harness
    c_driver.
-3. Generate the codec sources used by the conformance/ndslive
-   end-to-end fixture.
+3. Generate the codec sources used by the private NDS.Live
+   companion conformance harness (maintained in a separate
+   repository; NDS Association membership required).
 
 ## Qualification approach
 
@@ -44,10 +51,10 @@ Combination of **(1) — increased confidence from use** and
 **(3) — validation**:
 
 - **Increased confidence from use.** The generator is freshly
-  authored for this project. Its surface is small (~30 FreeMarker
-  templates, a CIdentifierFormatter, and the SPI integration
-  layer). Every template is exercised by at least one schema in
-  the xvalidation corpus. The corpus has grown from 0 schemas at
+  authored for this project. Its surface is bounded (a lexer,
+  recursive-descent parser, semantic analyzer, and a single
+  emitter, all under `parser/src/`). Every emission path is
+  exercised by at least one schema in the xvalidation corpus. The corpus has grown from 0 schemas at
   initial bring-up to 182 schemas now, covering every primitive
   type, every compound kind (struct, choice, union, bitmask,
   enum), packed arrays in every shape, parametrized types,
@@ -61,7 +68,7 @@ Combination of **(1) — increased confidence from use** and
 
   | Property the generator must hold                | Validation                                                                                  |
   | ----------------------------------------------- | ------------------------------------------------------------------------------------------- |
-  | Correct C identifier mapping                    | `generator/src/main/java/zserio/extension/c/CIdentifierFormatter.java` is unit-tested under `generator/src/test/`. |
+  | Correct C identifier mapping                    | Identifier lowering lives in `parser/src/emit.c`; unit-tested under `tests/parser/` (`test_emit.c`, `test_identifier_truncation.c`) and exercised end-to-end by xvalidation (upstream-convention snake_case must match for the harness drivers to compile). |
   | Correct codec output for every supported construct | `xvalidation` job: 182 schemas, byte-equal round-trip against upstream                  |
   | No use of forbidden symbols (REQ-FS-001/002)    | `tools/run_misra.sh` forbidden-symbol grep runs on the runtime, AND `tools/run_misra_generated.sh` (the `misra-generator` CI job) runs cppcheck + MISRA addon on the generator's output for a 13-schema representative set. |
   | No runtime reflection (REQ-FS-008)              | Architectural review: the generator templates contain no reflection scaffolding. **Smoke-checked** by REQ-FS-008's traceability marker in `tools/run_misra.sh`. |
@@ -69,25 +76,33 @@ Combination of **(1) — increased confidence from use** and
 
 ## Specific criteria and evidence
 
-- **Build reproducibility.** The jar is built from source per CI
-  run; no cached binary. The build is deterministic given the
-  same JDK 17 and Ant version.
-- **No host-state pollution.** The generator runs as a JVM
-  invocation with explicit `-src` / `-c` / `-cpp` paths; it has
-  no global state across runs.
+- **Build reproducibility.** The generator is built from source
+  per CI run; no cached binary. The build is deterministic given
+  the same C toolchain.
+- **No host-state pollution.** The generator runs as a single
+  process with explicit `-src` / `-c` paths; it has no global
+  state across runs.
 - **Output is reviewable.** Every commit's generated output for
   the xvalidation corpus is reproduced under
   `build-xvalidation/<schema>/c_out/` and can be diffed against
   the upstream cpp output side-by-side.
-- **Conformance against NDS Live.** Beyond the xvalidation
-  corpus, the `conformance/ndslive/` fixture exercises a full NDS
-  Live SmartLayerTile (50,896 bytes of upstream-encoded data)
-  end-to-end, providing an external production-shape validation.
+- **Conformance against NDS.Live.** Beyond the xvalidation
+  corpus, supplementary conformance against a production
+  NDS.Live payload is maintained in a private companion
+  repository (NDS Association membership required). That harness
+  exercises a full production payload (50,896 bytes of
+  upstream-encoded data) end-to-end, providing an external
+  production-shape validation.
 
 ## Known limitations
 
-- **Generator output now subject to a strict MISRA gate** *(closed
-  2026-05-15, commit `c13bd41`)*. The `misra-generator` CI job
+- **The MISRA-on-generated-output gate runs on the legacy
+  pipeline.** `tools/run_misra_generated.sh` generates its input
+  via the retained `zserio_c.jar`; migrating the gate to
+  `zserio_c_gen` output is an open follow-up. Both generators'
+  wire behavior is held byte-equal by xvalidation, but the MISRA
+  scan formally covers the legacy output shape. *(Gate closed
+  2026-05-15, commit `c13bd41`.)* The `misra-generator` CI job
   (`.github/workflows/ci.yml`) runs `tools/run_misra_generated.sh
   --strict` against a 13-schema representative set chosen to cover
   the major emission paths (every primitive width, varint, bitfield,

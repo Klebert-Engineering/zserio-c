@@ -980,11 +980,70 @@ static void resolve_member_access(zsp_sema_t *s, zsp_ast_node_t *m)
 static void resolve_label_expr(zsp_sema_t *s, zsp_ast_node_t *e,
                                zsp_ast_node_t *enum_decl);
 
+/* Diagnose constructs the pipeline accepts syntactically but
+ * does not support downstream. Rejecting here (rather than
+ * emitting wrong or partial output) keeps generation honest:
+ * the CLI exit code gates on these diagnostics. */
+static void reject_unsupported(zsp_sema_t *s, const zsp_ast_node_t *n)
+{
+    switch (n->kind) {
+    case ZSP_AST_FIELD:
+        if (n->u.field.optional && (n->u.field.if_clause != NULL)) {
+            (void)zsp_diag_emit_lit(s->diag, ZSP_SEV_ERROR,
+                    n->file_id, n->offset,
+                    "a field cannot combine 'optional' with an 'if' "
+                    "condition (upstream zserio rejects this too)");
+        }
+        if (n->u.field.implicit) {
+            (void)zsp_diag_emit_lit(s->diag, ZSP_SEV_ERROR,
+                    n->file_id, n->offset,
+                    "implicit arrays are not supported (deprecated "
+                    "upstream); use an auto array 'T x[]' or an "
+                    "explicit length");
+        }
+        break;
+    case ZSP_AST_TYPE_ARRAY:
+        if (n->u.type_array.implicit) {
+            (void)zsp_diag_emit_lit(s->diag, ZSP_SEV_ERROR,
+                    n->file_id, n->offset,
+                    "implicit arrays are not supported (deprecated "
+                    "upstream); use an auto array 'T x[]' or an "
+                    "explicit length");
+        }
+        break;
+    case ZSP_AST_CHOICE:
+        if (n->u.choice.has_functions) {
+            (void)zsp_diag_emit_lit(s->diag, ZSP_SEV_ERROR,
+                    n->file_id, n->offset,
+                    "functions in choice types are not yet supported");
+        }
+        break;
+    case ZSP_AST_SQL_TABLE:
+        (void)zsp_diag_emit_lit(s->diag, ZSP_SEV_ERROR,
+                n->file_id, n->offset,
+                "sql_table is not supported; SQLite-backed generation "
+                "is planned as an optional extension outside the ASIL "
+                "scope");
+        break;
+    case ZSP_AST_SQL_DATABASE:
+        (void)zsp_diag_emit_lit(s->diag, ZSP_SEV_ERROR,
+                n->file_id, n->offset,
+                "sql_database is not supported; SQLite-backed "
+                "generation is planned as an optional extension "
+                "outside the ASIL scope");
+        break;
+    default:
+        break;
+    }
+}
+
 static zserio_status_t resolve_walk(zsp_sema_t *s, zsp_ast_node_t *n)
 {
     if (n == NULL) {
         return ZSERIO_OK;
     }
+
+    reject_unsupported(s, n);
 
     zsp_sema_scope_t *saved = NULL;
     if (is_scope_owner(n->kind)) {
@@ -1374,6 +1433,21 @@ const zsp_sema_const_t *zsp_sema_eval(zsp_sema_t *s, zsp_ast_node_t *expr)
     case ZSP_AST_EXPR_FLOAT_LIT:
         result = eval_float(s, expr->u.float_lit.value);
         break;
+    case ZSP_AST_EXPR_STRING_LIT:
+    {
+        /* Borrow the raw source span (quotes included) so the
+         * emitter can reproduce the literal verbatim. */
+        const zsp_file_t *sf = NULL;
+        if (zsp_source_get(s->source, expr->file_id, &sf)) {
+            zsp_sema_const_t *const c = alloc_const(s, ZSP_CONST_STRING);
+            if (c != NULL) {
+                c->v.s.bytes = &sf->bytes[expr->u.string_lit.span_off];
+                c->v.s.len   = (size_t)expr->u.string_lit.span_len;
+                result = c;
+            }
+        }
+        break;
+    }
     case ZSP_AST_EXPR_IDENT:
     {
         zsp_ast_node_t *const d = expr->resolved;

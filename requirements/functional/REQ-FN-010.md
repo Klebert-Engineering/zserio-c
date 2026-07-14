@@ -34,11 +34,11 @@ generator source, not duplicated across files.
 
 ## Rationale
 
-Deep template instantiation chains (e.g. NDS Live's
-`AttributeMap<AttributeMap<...>>` nested across five levels of
-map-of-set-of-map) produce mangled identifiers that exceed
-POSIX NAME_MAX. Without truncation, the generator fails at file
-creation time with an opaque OS error.
+Deep template instantiation chains (e.g. templated container
+types nested across five levels of map-of-set-of-map, as
+production map-data schemas do) produce mangled identifiers
+that exceed POSIX NAME_MAX. Without truncation, the generator
+fails at file creation time with an opaque OS error.
 
 The chosen scheme (prefix + hash suffix) preserves *prefix
 readability* (so a developer can still recognize the identifier
@@ -57,9 +57,10 @@ target) must be a one-line edit.
   identifiers of length just under, at, and just over the
   threshold, and verifies the truncated form's prefix and the
   hash suffix.
-- The NDS Live conformance corpus (`conformance/ndslive/`)
-  contains real-world inputs that exceed the threshold; the
-  corpus runs cleanly only when truncation is applied.
+- The private companion conformance harness (production
+  NDS.Live schemas; NDS Association membership required)
+  contains real-world inputs that exceed the threshold; that
+  harness runs cleanly only when truncation is applied.
 - A CI gate verifies that no emitted file name exceeds
   NAME_MAX after truncation.
 

@@ -46,8 +46,8 @@ format and IDL. It comprises:
 stack as a serialization layer. The expected operational context:
 
 - A surrounding application that opens, reads, or writes byte streams
-  (for example: NDS Live tile messages, vehicle-network frames, file
-  payloads).
+  (for example: NDS.Live map-data messages, vehicle-network frames,
+  file payloads).
 - A caller-supplied allocator. The integrator chooses between the
   reference `libc` wrapper (`runtime/src/allocator.c`) and a fixed-pool
   implementation suited to safety builds. The integrator's choice

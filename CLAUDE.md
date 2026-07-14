@@ -69,13 +69,15 @@ Java jars built first (`tools/build_zserio_core_jar.sh`,
 
 These are CI-gated, not aspirational. Do not relax any of them without going
 through the deviation process under `docs/misra-deviations/` (currently
-D001..D007 — six runtime + one generator-output-scoped).
+D001..D009 — eight runtime + one generator-output-scoped).
 
 1. **No implicit heap.** Neither runtime nor generated code may call `malloc`,
    `calloc`, `realloc`, or `free` directly. All allocation flows through the
    `zserio_allocator_t` vtable (`runtime/include/zserio/allocator.h`). The
    forbidden-symbol grep in `tools/run_misra.sh` fails the build on any direct
-   call. The `_write` path additionally allocates **nothing** —
+   call in `runtime/src/*.c`; generated output is covered by the MISRA gate on
+   generated code (Rule 21.3, `tools/run_misra_generated.sh`). The `_write`
+   path additionally allocates **nothing** —
    `tools/check_no_alloc_in_writers.py` enforces this for both runtime and
    generated output.
 2. **No exceptions, no `setjmp`.** Every fallible function returns

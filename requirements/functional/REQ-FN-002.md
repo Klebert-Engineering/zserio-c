@@ -51,10 +51,11 @@ implementation to be kept in sync at every change.
   every language feature. Each schema is parsed successfully and
   the resulting C output round-trips byte-equal against
   upstream.
-- The NDS Live conformance corpus
-  (`conformance/ndslive/`) exercises 86 production schemas
-  yielding 1823 generated `.c`/`.h` files. All parse and
-  generate cleanly.
+- Supplementary conformance against a production NDS.Live
+  schema set is maintained in a private companion repository
+  (NDS Association membership required). Evidence from that
+  harness: 86 production schemas yielding 1823 generated
+  `.c`/`.h` files, all parsing and generating cleanly.
 - Negative tests under `tests/parser/test_reject_*.c` exercise
   each documented rejection case at least once.
 

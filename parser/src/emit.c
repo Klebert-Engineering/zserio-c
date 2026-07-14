@@ -5,6 +5,10 @@
 
 #include "zsparser/emit.h"
 
+#include <float.h>
+#include <math.h>
+#include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "zsparser/sema.h"
@@ -115,6 +119,120 @@ static void emit_uint(buf_t *b, uint64_t v)
         out[i] = tmp[n - 1U - i];
     }
     emit_bytes(b, out, n);
+}
+
+/* Const-eval negates in unsigned two's-complement arithmetic,
+ * so a signed constant's negative values arrive as wrapped
+ * uint64 payloads. The declared type decides how to spell the
+ * value back out. */
+static bool is_signed_const_type(const zsp_ast_node_t *decl_type)
+{
+    if ((decl_type == NULL) || (decl_type->kind != ZSP_AST_TYPE_BUILTIN)) {
+        return false;
+    }
+    switch (decl_type->u.type_builtin.code) {
+    case ZSP_TB_INT8:
+    case ZSP_TB_INT16:
+    case ZSP_TB_INT32:
+    case ZSP_TB_INT64:
+    case ZSP_TB_VARINT:
+    case ZSP_TB_VARINT16:
+    case ZSP_TB_VARINT32:
+    case ZSP_TB_VARINT64:
+    case ZSP_TB_INT_FIELD:
+        return true;
+    default:
+        return false;
+    }
+}
+
+/* Emit a wrapped-uint64 payload as a signed decimal literal.
+ * Values above INT64_MAX are two's-complement negatives. */
+static void emit_signed_payload(buf_t *b, uint64_t u)
+{
+    if (u > (uint64_t)INT64_MAX) {
+        const uint64_t mag = (uint64_t)0U - u;
+        if (mag == ((uint64_t)INT64_MAX + 1U)) {
+            /* -9223372036854775808 doesn't exist as a C literal. */
+            emit_lit(b, "-9223372036854775807 - 1");
+            return;
+        }
+        emit_lit(b, "-");
+        emit_uint(b, mag);
+        return;
+    }
+    emit_uint(b, u);
+}
+
+/* Emit a const declaration's value with the C spelling that
+ * matches its const-eval kind and declared type. `decl_type`
+ * selects signed rendering for signed integer types and the
+ * float suffix (float16/float32 carry 'F', float64 none).
+ * String constants reproduce the source literal verbatim
+ * (zserio escapes are C99-compatible). */
+static void emit_const_value(buf_t *b, const zsp_sema_const_t *cv,
+                             const zsp_ast_node_t *decl_type)
+{
+    if (cv == NULL) {
+        emit_lit(b, "0U /*const-eval unavailable*/");
+        return;
+    }
+    switch (cv->kind) {
+    case ZSP_CONST_INT:
+        if (cv->v.i < 0) {
+            /* Two-step negation stays defined for INT64_MIN. */
+            const uint64_t mag = (uint64_t)(-(cv->v.i + 1)) + 1U;
+            emit_lit(b, "-");
+            emit_uint(b, mag);
+        }
+        else {
+            emit_uint(b, (uint64_t)cv->v.i);
+        }
+        return;
+    case ZSP_CONST_BOOL:
+        emit_lit(b, cv->v.b ? "1U" : "0U");
+        return;
+    case ZSP_CONST_FLOAT:
+    {
+        if (isnan(cv->v.f)
+                || (cv->v.f > DBL_MAX) || (cv->v.f < -DBL_MAX)) {
+            emit_lit(b, "0.0 /*non-finite const unsupported*/");
+            return;
+        }
+        char fbuf[48];
+        const int fn = snprintf(fbuf, sizeof(fbuf), "%.17g", cv->v.f);
+        if ((fn <= 0) || ((size_t)fn >= sizeof(fbuf))) {
+            emit_lit(b, "0.0 /*const format failure*/");
+            return;
+        }
+        emit_lit(b, fbuf);
+        /* %.17g of an integral value prints no '.'; append one
+         * so the literal keeps floating type. */
+        if (strpbrk(fbuf, ".eE") == NULL) {
+            emit_lit(b, ".0");
+        }
+        if ((decl_type != NULL)
+                && (decl_type->kind == ZSP_AST_TYPE_BUILTIN)
+                && ((decl_type->u.type_builtin.code == ZSP_TB_FLOAT16)
+                    || (decl_type->u.type_builtin.code == ZSP_TB_FLOAT32))) {
+            emit_lit(b, "F");
+        }
+        return;
+    }
+    case ZSP_CONST_STRING:
+        emit_span(b, cv->v.s.bytes, cv->v.s.len);
+        return;
+    case ZSP_CONST_UINT:
+    default:
+        if (is_signed_const_type(decl_type)) {
+            emit_signed_payload(b, cv->v.u);
+        }
+        else {
+            emit_uint(b, cv->v.u);
+            emit_lit(b, "U");
+        }
+        return;
+    }
 }
 
 /* ----- Naming helpers --------------------------------------- */
@@ -1248,9 +1366,6 @@ static void emit_referenced_includes(buf_t *b, const zsp_ast_node_t *cmpd,
         }
         else if (decl->kind == ZSP_AST_SUBTYPE) {
             name_node = decl->u.subtype.alias_name;
-        }
-        else if (decl->kind == ZSP_AST_SQL_TABLE) {
-            name_node = decl->u.sql_table.name;
         }
         const uint8_t *nb = NULL;
         size_t         nl = 0U;
@@ -6373,11 +6488,12 @@ zserio_status_t zsp_emit_unit(const zsp_ast_node_t *unit,
         else if (d->kind == ZSP_AST_CHOICE) {
             name_node = d->u.choice.name;
         }
-        else if (d->kind == ZSP_AST_SQL_TABLE) {
-            name_node = d->u.sql_table.name;
-        }
-        else if (d->kind == ZSP_AST_SQL_DATABASE) {
-            name_node = d->u.sql_database.name;
+        else if ((d->kind == ZSP_AST_SQL_TABLE)
+                 || (d->kind == ZSP_AST_SQL_DATABASE)) {
+            /* Rejected by sema (unsupported feature); emit
+             * nothing when a best-effort caller pushes past
+             * the diagnostics. */
+            continue;
         }
         else if (d->kind == ZSP_AST_SERVICE) {
             name_node = d->u.service.name;
@@ -6533,114 +6649,12 @@ zserio_status_t zsp_emit_unit(const zsp_ast_node_t *unit,
             emit_pkg_prefix(&hbuf, d, source);
             emit_span(&hbuf, name, nlen);
             emit_lit(&hbuf, " (");
-            if (cv != NULL) {
-                emit_uint(&hbuf, cv->v.u);
-                emit_lit(&hbuf, "U");
-            }
-            else {
-                emit_lit(&hbuf, "0U /*const-eval unavailable*/");
-            }
+            emit_const_value(&hbuf, cv, d->u.const_decl.type);
             emit_lit(&hbuf, ")\n\n#endif\n");
             if (hbuf.oom) return ZSERIO_ERR_OUT_OF_MEMORY;
             if (!write(userdata, path_h, hbuf.bytes, hbuf.len)) {
                 return ZSERIO_ERR_OUT_OF_MEMORY;
             }
-        }
-        else if (d->kind == ZSP_AST_SQL_TABLE) {
-            /* SQL table: emit a struct-shaped header with field
-             * decls. No read/write — runtime SQL bindings are
-             * the integrator's responsibility. */
-            emit_lit(&hbuf, "/* Auto-generated by zserio-c parser (sql_table). */\n");
-            emit_lit(&hbuf, "#ifndef ZSP_GENERATED_");
-            (void)emit_type_id(&hbuf, d, source);
-            emit_lit(&hbuf, "_H_\n");
-            emit_lit(&hbuf, "#define ZSP_GENERATED_");
-            (void)emit_type_id(&hbuf, d, source);
-            emit_lit(&hbuf, "_H_\n\n");
-            emit_lit(&hbuf, "#include <stdbool.h>\n#include <stddef.h>\n");
-            emit_lit(&hbuf, "#include <stdint.h>\n");
-            emit_lit(&hbuf, "#include \"zserio/string.h\"\n");
-            emit_lit(&hbuf, "#include \"zserio/bytes.h\"\n\n");
-
-            emit_lit(&hbuf, "typedef struct ");
-            (void)emit_type_id(&hbuf, d, source);
-            emit_lit(&hbuf, " {\n");
-            for (size_t k = 0U; k < d->u.sql_table.n_fields; ++k) {
-                const zsp_ast_node_t *sf = d->u.sql_table.fields[k];
-                if (sf == NULL) continue;
-                emit_lit(&hbuf, "    ");
-                bool owned = false;
-                (void)emit_field_c_type(&hbuf, sf->u.sql_field.type,
-                                        source, &owned);
-                emit_lit(&hbuf, " ");
-                const uint8_t *sfn = NULL;
-                size_t         sfl = 0U;
-                if (ident_span(source, sf->u.sql_field.name, &sfn, &sfl)) {
-                    emit_snake(&hbuf, sfn, sfl);
-                }
-                emit_lit(&hbuf, ";\n");
-            }
-            emit_lit(&hbuf, "} ");
-            (void)emit_type_id(&hbuf, d, source);
-            emit_lit(&hbuf, "_t;\n\n#endif\n");
-            if (hbuf.oom) return ZSERIO_ERR_OUT_OF_MEMORY;
-            if (!write(userdata, path_h, hbuf.bytes, hbuf.len)) {
-                return ZSERIO_ERR_OUT_OF_MEMORY;
-            }
-            continue;
-        }
-        else if (d->kind == ZSP_AST_SQL_DATABASE) {
-            /* SQL database: emit a struct of table pointers. */
-            emit_lit(&hbuf, "/* Auto-generated by zserio-c parser (sql_database). */\n");
-            emit_lit(&hbuf, "#ifndef ZSP_GENERATED_");
-            (void)emit_type_id(&hbuf, d, source);
-            emit_lit(&hbuf, "_H_\n");
-            emit_lit(&hbuf, "#define ZSP_GENERATED_");
-            (void)emit_type_id(&hbuf, d, source);
-            emit_lit(&hbuf, "_H_\n\n");
-            emit_lit(&hbuf, "#include <stddef.h>\n\n");
-            /* Forward-declare included table types. */
-            for (size_t k = 0U; k < d->u.sql_database.n_table_refs; ++k) {
-                const zsp_ast_node_t *r = d->u.sql_database.table_refs[k];
-                const zsp_ast_node_t *ty = r->u.sql_table_ref.type;
-                const zsp_ast_node_t *tname = (ty && (ty->kind == ZSP_AST_TYPE_REF))
-                        ? ty->u.type_ref.name : NULL;
-                if ((tname != NULL) && (tname->kind == ZSP_AST_DOTTED_NAME)) {
-                    tname = tname->u.dotted.parts[tname->u.dotted.n_parts - 1U];
-                }
-                const uint8_t *tn = NULL;
-                size_t         tl = 0U;
-                if (ident_span(source, tname, &tn, &tl)) {
-                    emit_lit(&hbuf, "#include \"");
-                    emit_snake(&hbuf, tn, tl);
-                    emit_lit(&hbuf, ".h\"\n");
-                }
-            }
-            emit_lit(&hbuf, "\ntypedef struct ");
-            (void)emit_type_id(&hbuf, d, source);
-            emit_lit(&hbuf, " {\n");
-            for (size_t k = 0U; k < d->u.sql_database.n_table_refs; ++k) {
-                const zsp_ast_node_t *r = d->u.sql_database.table_refs[k];
-                bool owned = false;
-                emit_lit(&hbuf, "    ");
-                (void)emit_field_c_type(&hbuf, r->u.sql_table_ref.type,
-                                        source, &owned);
-                emit_lit(&hbuf, " *");
-                const uint8_t *rn = NULL;
-                size_t         rl = 0U;
-                if (ident_span(source, r->u.sql_table_ref.name, &rn, &rl)) {
-                    emit_snake(&hbuf, rn, rl);
-                }
-                emit_lit(&hbuf, ";\n");
-            }
-            emit_lit(&hbuf, "} ");
-            (void)emit_type_id(&hbuf, d, source);
-            emit_lit(&hbuf, "_t;\n\n#endif\n");
-            if (hbuf.oom) return ZSERIO_ERR_OUT_OF_MEMORY;
-            if (!write(userdata, path_h, hbuf.bytes, hbuf.len)) {
-                return ZSERIO_ERR_OUT_OF_MEMORY;
-            }
-            continue;
         }
         else if (d->kind == ZSP_AST_SERVICE) {
             /* Build the verbatim "pkg.Service" wire name (just the
