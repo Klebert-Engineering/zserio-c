@@ -44,9 +44,24 @@ jobs:
         uses: github/codeql-action/init@99df26d4f13ea111d4ec1a7dddef6063f76b97e9   # v4.37.0
         with:
           languages: c-cpp
-          # security-and-quality adds the maintainability/reliability
-          # queries on top of the default security set.
-          queries: security-and-quality
+          # security-extended: the deeper security query set without
+          # the maintainability/style queries. Style, complexity, and
+          # documentation are already owned by dedicated gates
+          # (clang-tidy bugprone/cert/clang-analyzer, cppcheck MISRA
+          # C:2012), so the "quality" half of security-and-quality
+          # only double-reports what those gates cover — and reports
+          # it against the build-time parser tool, not the shipped
+          # runtime. Keeping CodeQL on security lets it focus on the
+          # one surface that matters here: the untrusted-bitstream
+          # decode path in the runtime.
+          queries: security-extended
+          config: |
+            paths-ignore:
+              - tests
+          # Note: `paths-ignore` filters where alerts are *reported*,
+          # not what is compiled — CodeQL still traces the full build
+          # for dataflow, it just suppresses findings whose location
+          # is under tests/ (Unity fixtures, driver scaffolding).
 
       - name: Build (runtime + parser)
         # Manual build mode: configure + build the C targets so CodeQL
