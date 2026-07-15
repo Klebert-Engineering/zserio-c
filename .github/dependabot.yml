@@ -1,6 +1,13 @@
-# Keep GitHub Actions pins and submodules current. Actions are
-# pinned to commit SHAs in the workflows; dependabot proposes the
-# bumps so updates stay deliberate and reviewed.
+# Keep GitHub Actions pins current. Actions are pinned to commit
+# SHAs in the workflows; dependabot proposes the bumps so updates
+# stay deliberate and reviewed.
+#
+# Submodules are intentionally NOT tracked: third_party/zserio is
+# pinned at the v2.18.1 release (the wire-format oracle and part of
+# the compatibility contract), and the test-data / benchmark-dataset
+# pins determine the exact corpus the gates run against. Moving any
+# of them is a maintainer decision paired with re-validation, never
+# an automatic bump.
 version: 2
 updates:
   - package-ecosystem: github-actions
@@ -11,7 +18,3 @@ updates:
       actions:
         patterns:
           - "*"
-  - package-ecosystem: gitsubmodule
-    directory: /
-    schedule:
-      interval: weekly
