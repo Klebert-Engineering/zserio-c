@@ -72,3 +72,11 @@ __pycache__/
 
 # Local AI-tooling settings — per-developer, never committed.
 .claude/
+
+# Crash artifacts — never commit. A core dump captured a live
+# credential once (secret-scanning alert #1); this stops a repeat.
+core
+core.*
+*.core
+vgcore.*
+*.stackdump
