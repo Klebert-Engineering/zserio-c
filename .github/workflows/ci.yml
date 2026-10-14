@@ -42,7 +42,7 @@ jobs:
     runs-on: ${{ fromJSON(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && '"ubuntu-latest"' || '["self-hosted", "linux", "x64"]') }}
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0   # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
         with:
           submodules: false
       # python3 is provided by both the runner image and
@@ -57,7 +57,7 @@ jobs:
     runs-on: ${{ fromJSON(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && '"ubuntu-latest"' || '["self-hosted", "linux", "x64"]') }}
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0   # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
         with:
           submodules: false
       - name: Cross-check version sources
@@ -77,7 +77,7 @@ jobs:
           - compiler: clang
             cc: clang
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0   # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
         with:
           submodules: false
       - name: Install build tools
@@ -98,7 +98,7 @@ jobs:
     runs-on: ${{ fromJSON(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && '"ubuntu-latest"' || '["self-hosted", "linux", "x64"]') }}
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0   # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
         with:
           submodules: false
       - name: Install build tools
@@ -175,7 +175,7 @@ jobs:
     runs-on: ${{ fromJSON(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && '"ubuntu-latest"' || '["self-hosted", "linux", "x64"]') }}
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0   # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
         with:
           submodules: false
       - name: Install build tools
@@ -206,7 +206,7 @@ jobs:
     permissions:
       contents: write   # for posting the clang-tidy log as a commit comment
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0   # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
         with:
           submodules: false
       - name: Install clang-tidy
@@ -219,7 +219,7 @@ jobs:
         run: tools/run_clang_tidy.sh --strict
       - name: Upload clang-tidy log
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a   # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9   # v7.0.2
         with:
           name: clang-tidy-log
           path: clang-tidy.log
@@ -258,7 +258,7 @@ jobs:
     permissions:
       contents: write   # for posting cppcheck output as a commit comment
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0   # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
         with:
           submodules: false
       - name: Install cppcheck
@@ -271,7 +271,7 @@ jobs:
         run: tools/run_misra.sh --strict
       - name: Upload cppcheck log
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a   # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9   # v7.0.2
         with:
           name: cppcheck-log
           path: cppcheck.log
@@ -313,7 +313,7 @@ jobs:
     permissions:
       contents: write   # for posting cppcheck output as a commit comment
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0   # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
         with:
           submodules: false
       - name: Init upstream + test-data submodules
@@ -324,7 +324,7 @@ jobs:
       - name: Install build + analysis tools
         run: sudo apt-get update && sudo apt-get install -y ant cppcheck
       - name: Set up JDK 17
-        uses: actions/setup-java@0f481fcb613427c0f801b606911222b5b6f3083a   # v5.5.0
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6   # v6.0.1
         with:
           distribution: temurin
           java-version: '17'
@@ -389,7 +389,7 @@ jobs:
     permissions:
       contents: write   # for posting the fuzz log as a commit comment
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0   # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
         with:
           submodules: false
       - name: Init upstream + test-data submodules
@@ -405,7 +405,7 @@ jobs:
         # image upgrades to a newer clang, bump the version number.
         run: sudo apt-get update && sudo apt-get install -y ant clang libclang-rt-18-dev
       - name: Set up JDK 17
-        uses: actions/setup-java@0f481fcb613427c0f801b606911222b5b6f3083a   # v5.5.0
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6   # v6.0.1
         with:
           distribution: temurin
           java-version: '17'
@@ -481,7 +481,7 @@ jobs:
     permissions:
       contents: write   # for posting the stack-usage report as a commit comment
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0   # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
         with:
           submodules: false
       - name: Install build tools
@@ -519,7 +519,7 @@ jobs:
     permissions:
       contents: write   # for posting the size diff as a commit comment
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0   # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
         with:
           submodules: false
       - name: Install build tools
@@ -586,7 +586,7 @@ jobs:
     permissions:
       contents: write   # for posting the benchmark report as a commit comment
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0   # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
         with:
           submodules: false
       - name: Init upstream submodules
@@ -664,7 +664,7 @@ jobs:
     permissions:
       contents: write   # for posting build logs as a commit comment
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0   # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
         with:
           submodules: false
       - name: Init upstream submodule
@@ -672,7 +672,7 @@ jobs:
       - name: Install build tools
         run: sudo apt-get update && sudo apt-get install -y ant
       - name: Set up JDK 17
-        uses: actions/setup-java@0f481fcb613427c0f801b606911222b5b6f3083a   # v5.5.0
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6   # v6.0.1
         with:
           distribution: temurin
           java-version: '17'
@@ -725,7 +725,7 @@ jobs:
     permissions:
       contents: write   # for posting the discovery summary as a commit comment
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0   # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
         with:
           submodules: false
       - name: Init submodules
@@ -737,7 +737,7 @@ jobs:
       - name: Install build tools
         run: sudo apt-get update && sudo apt-get install -y ant
       - name: Set up JDK 17
-        uses: actions/setup-java@0f481fcb613427c0f801b606911222b5b6f3083a   # v5.5.0
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6   # v6.0.1
         with:
           distribution: temurin
           java-version: '17'
@@ -779,7 +779,7 @@ jobs:
             -H 'Accept: application/vnd.github+json'
       - name: Upload full discovery results
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a   # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9   # v7.0.2
         with:
           name: discover-results
           path: build-discover/
@@ -791,7 +791,7 @@ jobs:
     permissions:
       contents: write   # for posting the coverage report as a commit comment
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0   # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
         with:
           submodules: false
       - name: Install build tools
@@ -846,7 +846,7 @@ jobs:
     permissions:
       contents: write   # for posting the harness summary as a commit comment
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0   # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
         with:
           submodules: false
       - name: Init submodules
@@ -863,7 +863,7 @@ jobs:
         # explicit install keeps the step self-documenting.
         run: sudo apt-get update && sudo apt-get install -y ant gcc g++ cmake ninja-build python3
       - name: Set up JDK 17
-        uses: actions/setup-java@0f481fcb613427c0f801b606911222b5b6f3083a   # v5.5.0
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6   # v6.0.1
         with:
           distribution: temurin
           java-version: '17'
@@ -967,7 +967,7 @@ jobs:
         # uploading the whole tree gives us the diagnostic data
         # without having to reproduce locally.
         if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a   # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9   # v7.0.2
         with:
           name: xvalidation-failure
           path: |
